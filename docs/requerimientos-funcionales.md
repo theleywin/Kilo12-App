@@ -1,9 +1,10 @@
 # Kilo12 — Requerimientos Funcionales
 
-**Versión:** 1.2
+**Versión:** 1.3
 **Fecha:** 2026-09-22
 **Estado:** Alcance funcional cerrado. Todas las decisiones de modelo de datos están resueltas.
 
+**Cambios en 1.3:** se declaran las plataformas objetivo, que hasta ahora no estaban especificadas: Windows como principal y macOS como secundaria (RNF-8 a RNF-10).
 **Cambios en 1.2:** la comisión del operador de caja se calcula sobre la **venta total** de la sesión, no sobre la ganancia, y se **descuenta de la ganancia bruta** del local. Se incorpora el concepto de ganancia neta de comisión.
 **Cambios en 1.1:** se agrega el módulo §6.11 — Comisión del operador de caja. Se cierra D-6 (base de cálculo y congelamiento del porcentaje).
 **Cambios en 1.0:** se cierran D-3 (**una única vitrina**), D-4 (**presentaciones de venta con precio propio**) y D-5 (**anulación limitada al turno vigente**). Se agrega el módulo §6.2 — Unidades y presentaciones.
@@ -468,6 +469,9 @@ No son el foco de este documento, pero condicionan decisiones funcionales y se l
 | RNF-5 | Ninguna operación confirmada puede dejar el inventario en estado inconsistente ante un cierre abrupto de la aplicación (atomicidad transaccional). |
 | RNF-6 | El importe monetario debe representarse con aritmética decimal exacta, nunca con punto flotante binario (`f32`/`f64`). Aplica tanto a precios como al valor total del inventario que sostiene RF-COS-02. |
 | RNF-7 | La aplicación debe funcionar en equipos modestos (4 GB RAM) sin degradación perceptible. |
+| RNF-8 | La plataforma objetivo principal es **Windows 10 o superior (64 bits)**, que es donde opera el mercadito. **macOS** es plataforma secundaria: debe compilar y funcionar, pero Windows manda en caso de conflicto. |
+| RNF-9 | La aplicación debe verificarse en los dos motores web sobre los que se ejecuta —WebView2 en Windows y WebKit en macOS— antes de cada entrega, por no ser equivalentes en su representación visual. |
+| RNF-10 | La instalación no debe requerir que el usuario instale dependencias por separado: el instalador debe resolver todo lo necesario para ejecutar la aplicación. |
 
 ---
 

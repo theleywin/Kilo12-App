@@ -1,6 +1,10 @@
 # macOS
 .DS_Store
 
+# Python (scripts de build)
+__pycache__/
+*.pyc
+
 # Artefactos que XeLaTeX puede dejar si la compilación del PDF falla
 *.aux
 *.log
