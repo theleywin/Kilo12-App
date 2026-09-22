@@ -1,11 +1,12 @@
 # Kilo12 — Diseño Técnico
 
-**Versión:** 1.2
+**Versión:** 1.3
 **Fecha:** 2026-09-22
 **Estado:** Propuesta de diseño para revisión. No se ha escrito código de aplicación todavía.
 
-**Documento base:** `requerimientos-funcionales.md` v1.3
+**Documento base:** `requerimientos-funcionales.md` v1.4
 
+**Cambios en 1.3:** se incorporan la libra como unidad base, los tres métodos de pago y la tasa de cambio congelada por venta. El esquema añade el arqueo por moneda y el modo de cierre.
 **Cambios en 1.2:** se cierra DA-2 con la convención de nomenclatura del proyecto, detallada en DT-13: el dominio se escribe en español y la estructura técnica en inglés.
 **Cambios en 1.1:** se cierra DA-1 (no se firma el ejecutable, por ser uso personal) y se detallan sus consecuencias en DT-12, junto con el requisito de incorporar WebView2 al instalador de Windows.
 
@@ -62,7 +63,7 @@ Estas no se negocian: vienen del documento de requerimientos y condicionan todo 
 - **Transaccional de verdad.** RNF-5 exige que una venta no pueda dejar el inventario a medias. SQLite da atomicidad real; un archivo escrito a mano, no.
 - **Un solo archivo.** Esto convierte RF-DAT-02 (respaldo) en copiar un archivo y RF-DAT-03 (restauración) en reemplazarlo. La operación más crítica del sistema resulta ser la más simple.
 - **Sin servidor ni instalación.** Coherente con R-2 y con RNF-10.
-- **Consultas.** Los 14 informes de §6.12 de los requerimientos son agregaciones por fecha, producto y categoría. SQL las resuelve; un almacén clave-valor obligaría a recorrer todo en memoria.
+- **Consultas.** Los informes de §6.13 de los requerimientos son agregaciones por fecha, producto, categoría y método de pago. SQL las resuelve; un almacén clave-valor obligaría a recorrer todo en memoria.
 
 **Alternativas descartadas.**
 
@@ -104,11 +105,12 @@ PRAGMA busy_timeout = 5000;
 | Magnitud | Escala | Unidad almacenada | Ejemplo |
 |---|---|---|---|
 | Dinero | 10⁻⁶ | millonésimas de la moneda | `$41.67` → `41670000` |
-| Cantidad | 10⁻³ | milésimas de la unidad base | `1.250 kg` → `1250` |
+| Cantidad | 10⁻³ | milésimas de la unidad base | `1.250 lb` → `1250` |
 | Factor de conversión | 10⁻³ | milésimas | six-pack, factor 6 → `6000` |
 | Porcentaje de comisión | 10⁻⁴ | diezmilésimas | `2 %` → `20000` |
+| Tasa de cambio | 10⁻⁶ | millonésimas de peso por dólar | `700 CUP/USD` → `700000000` |
 
-En Rust, estos enteros se convierten a `rust_decimal::Decimal` para operar, y vuelven a entero para persistirse.
+La aritmética se implementa **directamente sobre los enteros**, calculando los productos intermedios en 128 bits y reescalando con redondeo al más cercano. No se usa ninguna biblioteca decimal: habiendo decidido enteros escalados, un tipo decimal intermedio solo añadiría una dependencia y conversiones en ambos sentidos. El resultado es un dominio sin dependencias externas, que es exactamente lo que DT-5 persigue.
 
 **Por qué esta escala.** El costo promedio ponderado produce divisiones que no son exactas: `$250 ÷ 6 = $41.6666…`. Con dos decimales, cada operación pierde hasta medio centavo, y RF-COS-09 exige explícitamente que ese error no se acumule. Seis decimales dejan el error por operación por debajo de una millonésima; ni con cientos de miles de movimientos llega a afectar un centavo.
 
@@ -243,7 +245,7 @@ CREATE TABLE producto (
     nombre            TEXT    NOT NULL,
     categoria_id      INTEGER REFERENCES categoria(id),
     unidad_base       TEXT    NOT NULL CHECK (unidad_base IN
-                              ('unidad','kg','g','L','ml')),
+                              ('unidad','kg','lb','g','L','ml')),
     es_granel         INTEGER NOT NULL DEFAULT 0 CHECK (es_granel IN (0,1)),
     -- Valor acumulado invertido, en millonésimas. Fuente de verdad del costo
     -- junto con la suma de existencias (RF-COS-02).
@@ -313,14 +315,38 @@ CREATE TABLE sesion_caja (
     cerrada_en             TEXT,
     operador_id            INTEGER REFERENCES operador(id),
     fondo_inicial          INTEGER NOT NULL,
-    efectivo_contado       INTEGER,
+    -- Arqueo por moneda: nunca se consolidan (R-12)
+    contado_cup            INTEGER,
+    contado_usd            INTEGER,
+    modo_cierre            TEXT    CHECK (modo_cierre IN ('SEPARADO','CONSOLIDADO')),
+    tasa_cierre            INTEGER,            -- tasa usada al consolidar
     -- Comisión liquidada: inmutable una vez cerrada la sesión (RF-CMS-06)
     comision_porcentaje    INTEGER,
     comision_base          INTEGER,
     comision_importe       INTEGER,
-    CHECK (cerrada_en IS NULL OR efectivo_contado IS NOT NULL)
+    CHECK (cerrada_en IS NULL OR contado_cup IS NOT NULL)
+);
+
+CREATE TABLE venta (
+    id                INTEGER PRIMARY KEY,
+    folio             INTEGER NOT NULL UNIQUE,
+    sesion_caja_id    INTEGER NOT NULL REFERENCES sesion_caja(id),
+    ocurrido_en       TEXT    NOT NULL,
+    metodo_pago       TEXT    NOT NULL CHECK (metodo_pago IN
+                              ('EFECTIVO_CUP','TRANSFERENCIA','EFECTIVO_USD')),
+    -- Importe de la venta, SIEMPRE en pesos: no hay precios en divisa (R-4)
+    total             INTEGER NOT NULL,
+    -- Solo en cobros en dólares. La tasa se CONGELA aquí (RF-DIV-03):
+    -- si el dueño la actualiza mañana, esta venta no cambia.
+    tasa_aplicada     INTEGER,
+    entregado_divisa  INTEGER,
+    vuelto            INTEGER NOT NULL DEFAULT 0,   -- siempre en pesos (R-11)
+    anulada           INTEGER NOT NULL DEFAULT 0,
+    CHECK ((metodo_pago = 'EFECTIVO_USD') = (tasa_aplicada IS NOT NULL))
 );
 ```
+
+La última restricción no es cosmética: obliga a que todo cobro en dólares lleve su tasa y a que ningún cobro en pesos la lleve. Sin ella, una venta en divisa sin tasa sería irrecuperable, porque no habría forma de saber a cuánto se cobró.
 
 **Índices** que sostienen RNF-1 y los informes:
 
