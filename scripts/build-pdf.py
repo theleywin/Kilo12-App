@@ -61,7 +61,11 @@ def inline(text: str) -> str:
     # 2. Escape del texto normal.
     text = escape(text)
 
-    # 3. Énfasis. Negrita antes que cursiva para no romper los dobles asteriscos.
+    # 3. Una barra entre palabras impide el salto de línea y desborda el margen
+    #    («contenedor/presentación» se trata como un único token indivisible).
+    text = re.sub(r"(?<=\w)/(?=\w)", r"/\\allowbreak{}", text)
+
+    # 4. Énfasis. Negrita antes que cursiva para no romper los dobles asteriscos.
     text = re.sub(r"\*\*(.+?)\*\*", r"\\textbf{\1}", text)
     text = re.sub(r"(?<!\*)\*([^*]+?)\*(?!\*)", r"\\emph{\1}", text)
 
