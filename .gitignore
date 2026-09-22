@@ -1,6 +1,9 @@
 # macOS
 .DS_Store
 
+# Rust
+/target/
+
 # Python (scripts de build)
 __pycache__/
 *.pyc
