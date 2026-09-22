@@ -1,0 +1,9 @@
+# macOS
+.DS_Store
+
+# Artefactos que XeLaTeX puede dejar si la compilación del PDF falla
+*.aux
+*.log
+*.out
+*.toc
+*.debug.tex
