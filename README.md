@@ -7,15 +7,22 @@ Opera **100 % offline**: toda la información reside en el equipo del usuario, s
 
 | Documento | Descripción |
 |---|---|
-| [`docs/requerimientos-funcionales.md`](docs/requerimientos-funcionales.md) | Requerimientos funcionales del proyecto. Fuente de verdad. |
-| `docs/requerimientos-funcionales.pdf` | Misma documentación en PDF. **Artefacto derivado: no se edita a mano.** |
+| [`docs/requerimientos-funcionales.md`](docs/requerimientos-funcionales.md) | Qué hace el sistema. Requerimientos funcionales. Fuente de verdad. |
+| [`docs/diseno-tecnico.md`](docs/diseno-tecnico.md) | Cómo se construye. Decisiones técnicas, arquitectura y esquema de datos. |
+| `docs/*.pdf` | Los mismos documentos en PDF. **Artefactos derivados: no se editan a mano.** |
 
-### Regenerar el PDF
+## Plataformas
 
-El PDF nunca se edita directamente. Se edita el `.md` y se regenera:
+Windows 10 o superior (64 bits) es la plataforma principal; macOS es secundaria.
+Los ejecutables se producen por integración continua, un runner por sistema operativo.
+
+### Regenerar los PDF
+
+Un PDF nunca se edita directamente. Se edita el `.md` y se regenera:
 
 ```bash
 python3 scripts/build-pdf.py docs/requerimientos-funcionales.md
+python3 scripts/build-pdf.py docs/diseno-tecnico.md
 ```
 
 Requiere XeLaTeX (MacTeX o TeXLive). No necesita conexión a internet.
