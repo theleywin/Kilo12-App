@@ -1,0 +1,17 @@
+[package]
+name = "domain"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# Sin dependencias, y es deliberado (DT-5): el dominio no conoce la base de
+# datos, ni Tauri, ni el formato en que se serializan sus datos. Si algún día
+# aparece una dependencia aquí, conviene preguntarse qué se rompió.
+[dependencies]
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+arithmetic_side_effects = "deny"
