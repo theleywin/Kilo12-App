@@ -1,12 +1,13 @@
 # Kilo12 — Requerimientos Funcionales
 
-**Versión:** 1.3
+**Versión:** 1.4
 **Fecha:** 2026-09-22
 **Estado:** Alcance funcional cerrado. Todas las decisiones de modelo de datos están resueltas.
 
+**Cambios en 1.4:** se incorpora la **libra** como unidad base y se sustituye la moneda única por tres métodos de pago —efectivo en pesos, transferencia y efectivo en dólares—, con tasa de cambio, arqueo por moneda y dos modos de cierre. Nuevo módulo §6.11 — Divisa y tasa de cambio.
 **Cambios en 1.3:** se declaran las plataformas objetivo, que hasta ahora no estaban especificadas: Windows como principal y macOS como secundaria (RNF-8 a RNF-10).
 **Cambios en 1.2:** la comisión del operador de caja se calcula sobre la **venta total** de la sesión, no sobre la ganancia, y se **descuenta de la ganancia bruta** del local. Se incorpora el concepto de ganancia neta de comisión.
-**Cambios en 1.1:** se agrega el módulo §6.11 — Comisión del operador de caja. Se cierra D-6 (base de cálculo y congelamiento del porcentaje).
+**Cambios en 1.1:** se agrega el módulo de Comisión del operador de caja. Se cierra D-6 (base de cálculo y congelamiento del porcentaje).
 **Cambios en 1.0:** se cierran D-3 (**una única vitrina**), D-4 (**presentaciones de venta con precio propio**) y D-5 (**anulación limitada al turno vigente**). Se agrega el módulo §6.2 — Unidades y presentaciones.
 **Cambios en 0.2:** se cierran D-1 (valoración por **costo promedio ponderado**) y D-2 (**sin control de lotes ni caducidad**). Se agrega el módulo de Valoración del inventario.
 
@@ -24,7 +25,7 @@ El objetivo del sistema es que el dueño pueda responder, en cualquier momento y
 4. ¿Cuánto dinero entró hoy y cuadra con lo que hay en la caja?
 5. ¿Cuánto le corresponde cobrar a quien atendió la caja hoy?
 
-Todo lo demás es secundario. Si un requerimiento no sirve a una de esas cuatro preguntas, es candidato a salir del alcance de la v1.
+Todo lo demás es secundario. Si un requerimiento no sirve a una de esas cinco preguntas, es candidato a salir del alcance de la v1.
 
 ---
 
@@ -36,7 +37,8 @@ Todo lo demás es secundario. Si un requerimiento no sirve a una de esas cuatro 
 - Control de inventario en **dos ubicaciones**: bodega y vitrina.
 - Registro de compras/entradas de mercancía con costo.
 - Venta de contado con búsqueda de productos por nombre en pantalla.
-- Cierre y arqueo de caja diario.
+- Cobro en efectivo en pesos, transferencia y efectivo en dólares, con tasa de cambio configurable.
+- Cierre y arqueo de caja diario, con conteo separado por moneda.
 - Cálculo de la comisión del operador de caja como porcentaje de la venta de la sesión, y su descuento de la ganancia del local.
 - Registro de mermas y ajustes de inventario.
 - Gestión de precios de venta y cálculo de margen.
@@ -66,13 +68,15 @@ Todo lo demás es secundario. Si un requerimiento no sirve a una de esas cuatro 
 - **R-1 — Operación 100% offline.** La aplicación debe ser completamente funcional sin conexión a internet, en todo momento. No puede existir ninguna funcionalidad que dependa de un servicio remoto para operar.
 - **R-2 — Almacenamiento local.** Todos los datos residen en el equipo del usuario. No hay servidor.
 - **R-3 — Un único operador del sistema.** La aplicación no tiene cuentas de usuario ni permisos diferenciados; quien la usa ve costos, márgenes y estadísticas sin restricción. Que una empleada atienda la caja no cambia esto: su nombre se registra como un dato de la sesión (RF-CAJ-09), no como una cuenta con credenciales. Ver riesgo RI-3.
-- **R-4 — Moneda única.** El sistema opera con una sola moneda configurable (símbolo y número de decimales). No hay conversión ni multimoneda.
+- **R-4 — Moneda del negocio y divisa aceptada.** El negocio lleva sus cuentas en **pesos cubanos (CUP)**: todos los precios, costos, márgenes, comisiones e informes se expresan en esa moneda. Se acepta además **dólar estadounidense (USD)** como forma de pago, convertido mediante una tasa de cambio que fija el propietario. No existen precios en USD: la divisa interviene únicamente en el momento del cobro.
 - **R-5 — Un solo local.** Una instalación = un mercadito.
 - **R-6 — El equipo puede fallar.** Al no haber respaldo en la nube, la pérdida del disco implica pérdida total del historial. El respaldo local es un requerimiento funcional de primera clase, no un extra.
 - **R-7 — No hay productos perecederos.** El catálogo no incluye artículos con fecha de caducidad que deba controlarse. En consecuencia, la existencia de un producto es una cantidad por ubicación y no un conjunto de lotes diferenciados. Todas las unidades de un mismo producto son intercambiables entre sí.
 - **R-8 — Valoración por costo promedio ponderado.** El inventario se valora mediante costo promedio ponderado a nivel de producto. Las reglas completas están en §6.6.
 - **R-9 — La existencia se lleva en una única unidad base por producto.** Un producto puede venderse en varias presentaciones (suelto, paquete, caja), pero su inventario y su costo se registran siempre en la unidad base. Las presentaciones son formas de comprar y vender, no existencias separadas. Las reglas completas están en §6.2.
 - **R-10 — Dos ubicaciones fijas.** El sistema reconoce exactamente dos ubicaciones de stock: bodega y vitrina. No son configurables ni extensibles en v1.
+- **R-11 — El vuelto se entrega siempre en pesos**, cualquiera que sea la moneda con la que el cliente haya pagado.
+- **R-12 — El arqueo no mezcla monedas.** Al cerrar, los pesos y los dólares se cuentan y se comparan por separado. Consolidarlos en un único saldo impediría detectar un faltante en una de las dos monedas.
 
 ---
 
@@ -82,7 +86,10 @@ Todo lo demás es secundario. Si un requerimiento no sirve a una de esas cuatro 
 |---|---|
 | **Producto** | Artículo comercializable identificado de forma única (SKU). Ej.: "Arroz blanco a granel", "Refresco 500 ml". |
 | **SKU** | Código interno único del producto, generado por el sistema o escrito por el usuario. |
-| **Unidad base** | Unidad en la que se registran la existencia y el costo de un producto: unidad, kg, g, L, ml. Es única por producto y no cambia. Toda cantidad de inventario está expresada en ella. |
+| **Unidad base** | Unidad en la que se registran la existencia y el costo de un producto: unidad, kg, **lb**, g, L, ml. Es única por producto y no cambia. Toda cantidad de inventario está expresada en ella. |
+| **Libra** | Unidad base habitual para la venta a granel. Es una unidad por derecho propio, no una presentación sobre el kilogramo: convertir entre ambas en cada operación introduciría un redondeo que se acumula. |
+| **Tasa de cambio** | Pesos cubanos que equivalen a un dólar. La fija el propietario y queda registrada en cada cobro en divisa. |
+| **Modo de cierre** | Forma de presentar los dólares al cerrar la caja: **separado** (los dólares aparte, en su moneda) o **consolidado** (convertidos a pesos y sumados al total). |
 | **Presentación** | Forma comercial en que se vende un producto, con su propio precio: "unidad suelta", "six-pack", "caja de 24". Cada presentación tiene un factor de conversión a la unidad base. |
 | **Factor de conversión** | Cuántas unidades base equivalen a una presentación. Un six-pack de refresco tiene factor 6; una unidad suelta tiene factor 1. |
 | **Producto a granel** | Producto cuya cantidad es decimal y se vende por peso o volumen (arroz, frijol, detergente). |
@@ -131,7 +138,7 @@ Todo lo demás es secundario. Si un requerimiento no sirve a una de esas cuatro 
 | RF-CAT-01 | El sistema debe permitir registrar un producto con: nombre, SKU, categoría, unidad base, costo unitario actual y stock mínimo. El precio de venta no es un atributo del producto: reside en sus presentaciones (RF-PRS-02). | M |
 | RF-CAT-02 | El sistema debe garantizar que el SKU sea único. Si el usuario no proporciona uno, el sistema debe generarlo automáticamente. | M |
 | RF-CAT-03 | El sistema debe permitir marcar un producto como **granel**, habilitando cantidades decimales en todas las operaciones de ese producto. | M |
-| RF-CAT-04 | El sistema debe permitir definir la unidad base del producto entre: unidad, kg, g, L, ml. Una vez que el producto registre movimientos, la unidad base no debe poder modificarse. | M |
+| RF-CAT-04 | El sistema debe permitir definir la unidad base del producto entre: unidad, kg, **lb**, g, L, ml. Una vez que el producto registre movimientos, la unidad base no debe poder modificarse. | M |
 | RF-CAT-05 | El sistema debe permitir editar cualquier dato del producto. Los cambios de costo y precio deben quedar registrados en un historial (ver RF-PRE-04). | M |
 | RF-CAT-06 | El sistema debe permitir **desactivar** un producto en lugar de eliminarlo, de modo que no aparezca en ventas nuevas pero su historial se conserve. | M |
 | RF-CAT-07 | El sistema debe impedir la eliminación definitiva de un producto que tenga movimientos de inventario o ventas asociadas. | M |
@@ -299,8 +306,9 @@ La venta del 20/03 debe registrar un costo de lo vendido de $625.00 y una gananc
 | RF-VTA-06 | El sistema debe permitir modificar la cantidad o eliminar una línea antes de confirmar la venta. | M |
 | RF-VTA-07 | El sistema debe permitir cancelar la venta completa antes de confirmarla, sin dejar rastro en el inventario. | M |
 | RF-VTA-08 | El sistema debe permitir aplicar un descuento por línea o sobre el total de la venta, en monto o en porcentaje. | S |
-| RF-VTA-09 | El sistema debe registrar la forma de pago de la venta: efectivo, transferencia u otra configurable. | M |
-| RF-VTA-10 | Para pagos en efectivo, el sistema debe permitir capturar el monto recibido y calcular el cambio. | M |
+| RF-VTA-09 | El sistema debe registrar la forma de pago de la venta entre tres opciones fijas: **efectivo en pesos**, **transferencia** y **efectivo en dólares**. | M |
+| RF-VTA-10 | Para pagos en efectivo, el sistema debe permitir capturar el monto recibido y calcular el cambio. El cambio se expresa y se entrega **siempre en pesos** (R-11), aunque el cliente haya pagado en dólares. | M |
+| RF-VTA-10b | Para pagos en dólares, el sistema debe convertir el importe con la **tasa vigente**, mostrar el equivalente en pesos antes de confirmar y **registrar la tasa aplicada junto con la venta**. Un cambio posterior de la tasa no debe alterar ventas ya confirmadas. | M |
 | RF-VTA-11 | Al confirmar la venta, el sistema debe descontar de la **vitrina** el equivalente en unidad base (`cantidad × factor`) y generar los movimientos de tipo `VENTA`. | M |
 | RF-VTA-12 | Si la vitrina no tiene existencia suficiente en unidad base, el sistema debe advertirlo y ofrecer al usuario traspasar desde bodega en el mismo flujo, sin abandonar la venta. | S |
 | RF-VTA-13 | El sistema debe registrar en cada línea de venta el **costo unitario base vigente al momento de la venta**, junto con el factor y el precio de la presentación utilizada, para que el cálculo histórico de ganancia sea inmune a cambios posteriores de costo, de precio o de presentaciones. | M |
@@ -351,17 +359,35 @@ La venta del 20/03 debe registrar un costo de lo vendido de $625.00 y una gananc
 | RF-CAJ-01 | El sistema debe permitir abrir una sesión de caja registrando el fondo inicial de efectivo. | M |
 | RF-CAJ-02 | El sistema debe asociar toda venta a la sesión de caja abierta al momento de confirmarla. | M |
 | RF-CAJ-03 | El sistema debe permitir registrar entradas y salidas de efectivo ajenas a la venta (retiro parcial, pago de gastos, ingreso de cambio), con motivo obligatorio. | S |
-| RF-CAJ-04 | El sistema debe calcular en todo momento el efectivo esperado en caja: fondo inicial + ventas en efectivo + entradas − salidas. | M |
-| RF-CAJ-05 | El sistema debe permitir cerrar la sesión capturando el efectivo contado físicamente y mostrar la diferencia (sobrante o faltante). | M |
+| RF-CAJ-04 | El sistema debe calcular en todo momento el efectivo esperado en caja **en pesos**: fondo inicial + ventas cobradas en efectivo en pesos + entradas − salidas. **Las transferencias no intervienen** en este cálculo, por no haber pasado por la caja. | M |
+| RF-CAJ-05 | El sistema debe permitir cerrar la sesión capturando el efectivo contado físicamente y mostrar la diferencia (sobrante o faltante). El conteo se captura **por moneda**: pesos y dólares se cuentan y se arquean por separado, sin mezclarse en un único saldo. | M |
+| RF-CAJ-05b | El sistema debe ofrecer en el cierre dos formas de presentar los dólares, alternables sin recalcular la sesión: **separado**, mostrando los pesos y los dólares en sus respectivas monedas; y **consolidado**, convirtiendo los dólares con la tasa vigente y sumándolos al total en pesos. | M |
+| RF-CAJ-05c | El cierre debe mostrar siempre el importe cobrado por **transferencia de forma desglosada**, y a la vez incluirlo en el total vendido. | M |
 | RF-CAJ-06 | El sistema debe impedir registrar ventas si no hay una sesión de caja abierta. | S |
 | RF-CAJ-07 | El sistema debe conservar el historial de sesiones de caja cerradas, consultable por fecha, con su detalle de ventas y diferencias. | S |
 | RF-CAJ-08 | El sistema debe tratar toda sesión de caja cerrada como **inmutable**: ninguna operación posterior puede modificar sus ventas, sus totales, su arqueo ni su comisión liquidada. Las correcciones posteriores se registran como operaciones nuevas en la sesión vigente (ver RF-VTA-16). | M |
 | RF-CAJ-09 | El sistema debe permitir registrar, al abrir la sesión, el nombre del **operador de caja** que la atenderá, seleccionándolo de una lista administrable o escribiéndolo. | S |
-| RF-CAJ-10 | El cierre de caja debe presentar, además del arqueo de efectivo, el resumen económico de la sesión: venta total, costo de lo vendido, mermas, ganancia bruta, comisión del operador y ganancia neta de comisión (ver §6.11). | M |
+| RF-CAJ-10 | El cierre de caja debe presentar, además del arqueo de efectivo, el resumen económico de la sesión: venta total, costo de lo vendido, mermas, ganancia bruta, comisión del operador y ganancia neta de comisión (ver §6.12). | M |
 
 ---
 
-### 6.11 Módulo: Comisión del operador de caja (RF-CMS)
+### 6.11 Módulo: Divisa y tasa de cambio (RF-DIV)
+
+El negocio cobra en pesos, en transferencia y en dólares, pero lleva sus cuentas en una sola moneda (R-4). Este módulo es el puente.
+
+| ID | Requerimiento | Prio. |
+|---|---|---|
+| RF-DIV-01 | El sistema debe permitir al propietario configurar la **tasa de cambio**, expresada como pesos que equivalen a un dólar. | M |
+| RF-DIV-02 | El sistema debe permitir actualizar la tasa en cualquier momento y debe rechazar valores nulos o negativos. | M |
+| RF-DIV-03 | El sistema debe **registrar la tasa aplicada en cada cobro en dólares**, de modo que una actualización posterior no altere ventas ya confirmadas ni cierres ya realizados. | M |
+| RF-DIV-04 | El sistema debe conservar el historial de cambios de la tasa, con fecha y valor anterior. | S |
+| RF-DIV-05 | El sistema debe mostrar la tasa vigente en la pantalla de venta cuando se elija el pago en dólares, para que el operador pueda verificarla antes de cobrar. | S |
+| RF-DIV-06 | El sistema debe advertir cuando se registre un cobro en dólares y la tasa no se haya actualizado en más de N días, con N configurable. | C |
+| RF-DIV-07 | Todos los importes convertidos deben expresarse en pesos para efectos de ganancia, comisión, valoración e informes. No existen precios ni costos en dólares. | M |
+
+---
+
+### 6.12 Módulo: Comisión del operador de caja (RF-CMS)
 
 El propietario retribuye a quien atiende la caja con un **porcentaje de la venta del día**. El porcentaje lo fija el propietario y puede cambiarlo cuando quiera. Esa comisión se descuenta de la ganancia del local.
 
@@ -371,7 +397,7 @@ El propietario retribuye a quien atiende la caja con un **porcentaje de la venta
 | RF-CMS-02 | El sistema debe permitir al propietario modificar ese porcentaje en cualquier momento. | M |
 | RF-CMS-03 | El sistema debe calcular la comisión de una sesión como `base de comisión × porcentaje vigente`, y presentarla en la pantalla de cierre de caja. | M |
 | RF-CMS-04 | La **base de comisión** debe ser la **venta total** de la sesión: la suma de los importes cobrados en las ventas confirmadas y no anuladas, descontando las devoluciones registradas en la sesión. No intervienen costos, márgenes ni mermas. | M |
-| RF-CMS-05 | La base de comisión debe incluir las ventas de la sesión **cualquiera que sea su forma de pago** (efectivo, transferencia u otra). | M |
+| RF-CMS-05 | La base de comisión debe incluir las ventas de la sesión **cualquiera que sea su forma de pago**: efectivo en pesos, transferencia y efectivo en dólares. Las ventas cobradas en dólares se computan por su equivalente en pesos, con la tasa registrada en cada venta (RF-DIV-03). | M |
 | RF-CMS-06 | El sistema debe grabar en el cierre de la sesión el porcentaje aplicado, la base de comisión y el importe resultante. Una vez cerrada la sesión, esos tres valores son **inmutables**: un cambio posterior del porcentaje no altera sesiones ya cerradas. | M |
 | RF-CMS-07 | El sistema debe **descontar la comisión de la ganancia bruta** de la sesión y presentar el resultado como **ganancia neta de comisión**. | M |
 | RF-CMS-08 | Si la base de comisión resulta menor o igual a cero (las devoluciones superaron a las ventas), la comisión debe ser cero. El sistema nunca debe calcular una comisión negativa. | M |
@@ -407,7 +433,7 @@ Conviene tener presente el efecto de la regla: al no depender del margen, la com
 
 ---
 
-### 6.12 Módulo: Estadísticas e informes (RF-EST)
+### 6.13 Módulo: Estadísticas e informes (RF-EST)
 
 | ID | Requerimiento | Prio. |
 |---|---|---|
@@ -423,12 +449,13 @@ Conviene tener presente el efecto de la regla: al no depender del margen, la com
 | RF-EST-09 | El sistema debe mostrar la distribución de ventas por categoría en el periodo consultado. | S |
 | RF-EST-10 | El sistema debe ofrecer un informe de **valor del inventario** a la fecha, desglosado por ubicación y categoría. | S |
 | RF-EST-11 | El sistema debe ofrecer un informe de ventas por hora del día para identificar horarios de mayor actividad. | C |
+| RF-EST-11b | El sistema debe ofrecer un informe de ventas **por método de pago** en el periodo consultado, mostrando los dólares tanto en su moneda como en su equivalente en pesos. | S |
 | RF-EST-12 | El sistema debe permitir exportar cualquier informe a CSV. | S |
 | RF-EST-13 | Todos los informes deben distinguir con claridad los tres niveles, sin confundirlos: **venta** (dinero que entró), **ganancia bruta** (venta − costo de lo vendido) y **ganancia neta de comisión** (ganancia bruta − comisión del operador). | M |
 
 ---
 
-### 6.13 Módulo: Datos, respaldo y configuración (RF-DAT)
+### 6.14 Módulo: Datos, respaldo y configuración (RF-DAT)
 
 | ID | Requerimiento | Prio. |
 |---|---|---|
@@ -437,7 +464,7 @@ Conviene tener presente el efecto de la regla: al no depender del margen, la com
 | RF-DAT-03 | El sistema debe permitir **restaurar** la base de datos desde un archivo de respaldo, advirtiendo explícitamente que se reemplazan los datos actuales. | M |
 | RF-DAT-04 | El sistema debe generar respaldos automáticos según una periodicidad configurable y conservar las últimas N copias. | S |
 | RF-DAT-05 | El sistema debe recordar al usuario realizar un respaldo si han pasado más de N días desde el último. | S |
-| RF-DAT-06 | El sistema debe permitir configurar los datos del negocio: nombre, símbolo de moneda, cantidad de decimales, umbrales de alerta, porcentaje de comisión del operador (RF-CMS-01) y periodicidad de respaldo. | M |
+| RF-DAT-06 | El sistema debe permitir configurar los datos del negocio: nombre, cantidad de decimales de la moneda, umbrales de alerta, porcentaje de comisión del operador (RF-CMS-01), **tasa de cambio** (RF-DIV-01), modo de cierre preferido (RF-CAJ-05b) y periodicidad de respaldo. | M |
 | RF-DAT-07 | El sistema debe validar la integridad del archivo de respaldo antes de restaurarlo, rechazando archivos corruptos o de versión incompatible. | S |
 | RF-DAT-08 | El sistema debe migrar automáticamente el esquema de datos al actualizar a una versión nueva de la aplicación, sin pérdida de información. | M |
 | RF-DAT-09 | El sistema debe permitir exportar el histórico completo de ventas y movimientos a CSV como respaldo legible independiente de la aplicación. | C |
@@ -446,7 +473,7 @@ Conviene tener presente el efecto de la regla: al no depender del margen, la com
 
 ---
 
-### 6.14 Módulo: Acceso (RF-SEG)
+### 6.15 Módulo: Acceso (RF-SEG)
 
 | ID | Requerimiento | Prio. |
 |---|---|---|
@@ -486,7 +513,7 @@ No son el foco de este documento, pero condicionan decisiones funcionales y se l
 | **D-3** | Cantidad de ubicaciones de exhibición | **Una única vitrina** | 2026-09-22 | El sistema reconoce dos ubicaciones fijas: bodega y vitrina. No se modela "ubicación" como entidad configurable. Formalizado en R-10. Ver riesgo RI-1. |
 | **D-4** | Presentaciones de un mismo producto | **Sí: presentaciones con precio propio sobre una unidad base única** | 2026-09-22 | El negocio vende el mismo producto suelto y en paquete a precios no proporcionales (unidad $80, six-pack $300). Se modela una unidad base por producto —donde viven existencia y costo— y N presentaciones con factor de conversión y precio independiente. Se descarta crear productos separados por formato, porque genera existencias contradictorias y exige conversiones manuales que nadie registra. Formalizado en R-9 y §6.2. |
 | **D-5** | Política de anulación de ventas | **Solo dentro de la sesión de caja vigente** | 2026-09-22 | Una sesión de caja cerrada ya fue arqueada contra efectivo físico; permitir su modificación posterior invalidaría ese arqueo y todo informe histórico derivado. Las correcciones sobre ventas de sesiones cerradas se canalizan por devolución, que afecta la sesión vigente. Formalizado en RF-VTA-15, RF-VTA-16, RF-VTA-16b y RF-CAJ-08. |
-| **D-6** | Base de cálculo de la comisión del operador y vigencia del porcentaje | **Porcentaje sobre la venta total de la sesión, congelado al cerrar; se descuenta de la ganancia bruta** | 2026-09-22 | Decisión del propietario. Calcular sobre la venta hace que el importe sea verificable por el propio operador con solo el total vendido del día, sin necesidad de conocer los costos de compra —información que RI-3 recomienda no exponer—. El porcentaje aplicado se graba en el cierre y no se recalcula: lo ya liquidado es un hecho auditable, igual que el costo congelado en la línea de venta. La comisión se resta de la ganancia bruta para obtener la ganancia neta de comisión, pero no toca el arqueo; su pago, si sale de la caja, es una salida de efectivo ordinaria. Formalizado en §6.11. |
+| **D-6** | Base de cálculo de la comisión del operador y vigencia del porcentaje | **Porcentaje sobre la venta total de la sesión, congelado al cerrar; se descuenta de la ganancia bruta** | 2026-09-22 | Decisión del propietario. Calcular sobre la venta hace que el importe sea verificable por el propio operador con solo el total vendido del día, sin necesidad de conocer los costos de compra —información que RI-3 recomienda no exponer—. El porcentaje aplicado se graba en el cierre y no se recalcula: lo ya liquidado es un hecho auditable, igual que el costo congelado en la línea de venta. La comisión se resta de la ganancia bruta para obtener la ganancia neta de comisión, pero no toca el arqueo; su pago, si sale de la caja, es una salida de efectivo ordinaria. Formalizado en §6.12. |
 
 ### 8.2 Decisiones abiertas
 
@@ -509,5 +536,5 @@ No quedan decisiones abiertas de modelo de datos. Las pendientes corresponden a 
 | Qué tengo y dónde está | RF-PRS-01/05/06, RF-INV-01/02/09, RF-VIT-01/04/06 |
 | Cuánto cuesta y cuánto gano | RF-COS-01 a RF-COS-14, RF-COM-04, RF-PRS-11, RF-PRE-01/02, RF-VTA-13, RF-CMS-07, RF-EST-04/13 |
 | Qué se vende y qué está parado | RF-EST-03/03b/05/06/07 |
-| Cuánto entró y si cuadra la caja | RF-CAJ-01 a RF-CAJ-08, RF-VTA-15/16, RF-EST-01 |
+| Cuánto entró y si cuadra la caja | RF-CAJ-01 a RF-CAJ-10, RF-DIV-01 a RF-DIV-07, RF-VTA-09/10/10b/15/16, RF-EST-01/11b |
 | Cuánto le corresponde a quien atendió | RF-CMS-01 a RF-CMS-14, RF-CAJ-09/10 |
