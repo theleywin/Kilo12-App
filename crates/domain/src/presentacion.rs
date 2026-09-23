@@ -162,6 +162,14 @@ impl Presentacion {
         self.codigo_barras.as_deref()
     }
 
+    /// Marca o desmarca esta presentación como la predeterminada.
+    ///
+    /// Es el producto quien garantiza que solo haya una: desde aquí no se
+    /// puede saber qué hacen las demás.
+    pub fn establecer_predeterminada(&mut self, valor: bool) {
+        self.es_predeterminada = valor;
+    }
+
     /// Desactiva la presentación conservando el historial que la usó
     /// (RF-PRS-15).
     pub fn desactivar(&mut self) {
