@@ -16,6 +16,10 @@ use application::casos::{
     LineaVitrina, PresentacionDetallada, ProductoListado, ResumenAlmacen, ResumenVitrina,
     Simulacion,
 };
+use application::casos::{
+    CobroCalculado, ComandoVender, HistorialVentas, LineaPedida, LineaVendida, PagoHecho,
+    PagoPedido, ProductoVendible, VentaDetallada, VentaHecha, VentaListada, VentaPrevista,
+};
 use application::{ErrorAplicacion, Margen};
 use serde::{Deserialize, Serialize};
 
@@ -560,6 +564,351 @@ impl From<CambioDePrecioListado> for CambioPrecioListadoDto {
             nuevo: cambio.nuevo,
             subio: cambio.subio,
             cambiado_en: cambio.cambiado_en,
+        }
+    }
+}
+
+/// Una forma de vender un producto, tal como la ve el mostrador.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PresentacionVendibleDto {
+    pub id: i64,
+    pub nombre: String,
+    pub precio: String,
+    pub factor: String,
+    pub es_predeterminada: bool,
+}
+
+/// Un producto disponible para vender.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProductoVendibleDto {
+    pub id: i64,
+    pub sku: String,
+    pub nombre: String,
+    pub unidad_base: String,
+    pub es_granel: bool,
+    pub en_vitrina: String,
+    pub agotado: bool,
+    pub presentaciones: Vec<PresentacionVendibleDto>,
+}
+
+impl From<ProductoVendible> for ProductoVendibleDto {
+    fn from(p: ProductoVendible) -> Self {
+        Self {
+            id: p.id,
+            sku: p.sku,
+            nombre: p.nombre,
+            unidad_base: p.unidad_base,
+            es_granel: p.es_granel,
+            en_vitrina: p.en_vitrina,
+            agotado: p.agotado,
+            presentaciones: p
+                .presentaciones
+                .into_iter()
+                .map(|v| PresentacionVendibleDto {
+                    id: v.id,
+                    nombre: v.nombre,
+                    precio: v.precio,
+                    factor: v.factor,
+                    es_predeterminada: v.es_predeterminada,
+                })
+                .collect(),
+        }
+    }
+}
+
+/// Un renglón de lo que el cliente se lleva.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LineaVentaDto {
+    pub producto: i64,
+    pub presentacion: i64,
+    pub cantidad: String,
+}
+
+/// Una parte del pago. Pueden venir varias: el cobro puede ser mixto.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PagoDto {
+    pub metodo: String,
+    pub entregado: String,
+}
+
+/// La venta que se quiere cobrar.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NuevaVentaDto {
+    pub lineas: Vec<LineaVentaDto>,
+    pub pagos: Vec<PagoDto>,
+}
+
+impl From<NuevaVentaDto> for ComandoVender {
+    fn from(dto: NuevaVentaDto) -> Self {
+        Self {
+            lineas: dto
+                .lineas
+                .into_iter()
+                .map(|l| LineaPedida {
+                    producto: l.producto,
+                    presentacion: l.presentacion,
+                    cantidad: l.cantidad,
+                })
+                .collect(),
+            pagos: dto
+                .pagos
+                .into_iter()
+                .map(|p| PagoPedido {
+                    metodo: p.metodo,
+                    entregado: p.entregado,
+                })
+                .collect(),
+        }
+    }
+}
+
+/// El resultado de cobrar.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VentaHechaDto {
+    pub folio: i64,
+    pub total: String,
+    pub entregado: String,
+    pub vuelto: String,
+}
+
+impl From<VentaHecha> for VentaHechaDto {
+    fn from(hecha: VentaHecha) -> Self {
+        Self {
+            folio: hecha.folio,
+            total: hecha.total,
+            entregado: hecha.entregado,
+            vuelto: hecha.vuelto,
+        }
+    }
+}
+
+/// La venta en curso, ya calculada por el núcleo.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VentaPrevistaDto {
+    pub lineas: Vec<LineaPrevistaDto>,
+    pub total: String,
+    pub hay_faltantes: bool,
+}
+
+/// Una línea de la venta en curso.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LineaPrevistaDto {
+    pub producto: i64,
+    pub presentacion: i64,
+    pub nombre_producto: String,
+    pub nombre_presentacion: String,
+    pub cantidad: String,
+    pub precio: String,
+    pub importe: String,
+    pub unidades_base: String,
+    pub sin_existencia: bool,
+}
+
+impl From<VentaPrevista> for VentaPrevistaDto {
+    fn from(prevista: VentaPrevista) -> Self {
+        Self {
+            total: prevista.total,
+            hay_faltantes: prevista.hay_faltantes,
+            lineas: prevista
+                .lineas
+                .into_iter()
+                .map(|l| LineaPrevistaDto {
+                    producto: l.producto,
+                    presentacion: l.presentacion,
+                    nombre_producto: l.nombre_producto,
+                    nombre_presentacion: l.nombre_presentacion,
+                    cantidad: l.cantidad,
+                    precio: l.precio,
+                    importe: l.importe,
+                    unidades_base: l.unidades_base,
+                    sin_existencia: l.sin_existencia,
+                })
+                .collect(),
+        }
+    }
+}
+
+/// Lo que el cliente pone frente a lo que debe, mientras se teclea.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CobroCalculadoDto {
+    pub entregado: String,
+    pub falta: String,
+    pub vuelto: String,
+    pub alcanza: bool,
+}
+
+impl From<CobroCalculado> for CobroCalculadoDto {
+    fn from(calculado: CobroCalculado) -> Self {
+        Self {
+            entregado: calculado.entregado,
+            falta: calculado.falta,
+            vuelto: calculado.vuelto,
+            alcanza: calculado.alcanza,
+        }
+    }
+}
+
+/// El historial de ventas con el corte del día.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistorialVentasDto {
+    pub hoy: ResumenDelDiaDto,
+    pub ventas: Vec<VentaListadaDto>,
+}
+
+/// Lo vendido hoy.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResumenDelDiaDto {
+    pub cuantas: i64,
+    pub total: String,
+    pub ganancia: String,
+}
+
+/// Una venta en la lista.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VentaListadaDto {
+    pub id: i64,
+    pub folio: i64,
+    pub total: String,
+    pub ganancia: String,
+    pub ocurrido_en: String,
+    pub fecha: String,
+    pub hora: String,
+}
+
+impl From<HistorialVentas> for HistorialVentasDto {
+    fn from(historial: HistorialVentas) -> Self {
+        Self {
+            hoy: ResumenDelDiaDto {
+                cuantas: historial.hoy.cuantas,
+                total: historial.hoy.total,
+                ganancia: historial.hoy.ganancia,
+            },
+            ventas: historial
+                .ventas
+                .into_iter()
+                .map(VentaListadaDto::from)
+                .collect(),
+        }
+    }
+}
+
+impl From<VentaListada> for VentaListadaDto {
+    fn from(venta: VentaListada) -> Self {
+        Self {
+            id: venta.id,
+            folio: venta.folio,
+            total: venta.total,
+            ganancia: venta.ganancia,
+            ocurrido_en: venta.ocurrido_en,
+            fecha: venta.fecha,
+            hora: venta.hora,
+        }
+    }
+}
+
+/// Una venta con todo su detalle.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VentaDetalladaDto {
+    pub id: i64,
+    pub folio: i64,
+    pub total: String,
+    pub costo_total: String,
+    pub ganancia: String,
+    pub vuelto: String,
+    pub entregado: String,
+    pub ocurrido_en: String,
+    pub fecha: String,
+    pub hora: String,
+    pub lineas: Vec<LineaVendidaDto>,
+    pub pagos: Vec<PagoHechoDto>,
+}
+
+/// Una línea de una venta ya cobrada.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LineaVendidaDto {
+    pub producto: i64,
+    pub nombre_producto: String,
+    pub nombre_presentacion: String,
+    pub cantidad: String,
+    pub precio: String,
+    pub importe: String,
+    pub costo: String,
+    pub ganancia: String,
+}
+
+/// Una de las formas en que se pagó.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PagoHechoDto {
+    pub metodo: String,
+    pub metodo_nombre: String,
+    pub entregado: String,
+    pub moneda: String,
+    pub tasa: Option<String>,
+    pub equivalente: String,
+}
+
+impl From<VentaDetallada> for VentaDetalladaDto {
+    fn from(venta: VentaDetallada) -> Self {
+        Self {
+            id: venta.id,
+            folio: venta.folio,
+            total: venta.total,
+            costo_total: venta.costo_total,
+            ganancia: venta.ganancia,
+            vuelto: venta.vuelto,
+            entregado: venta.entregado,
+            ocurrido_en: venta.ocurrido_en,
+            fecha: venta.fecha,
+            hora: venta.hora,
+            lineas: venta
+                .lineas
+                .into_iter()
+                .map(LineaVendidaDto::from)
+                .collect(),
+            pagos: venta.pagos.into_iter().map(PagoHechoDto::from).collect(),
+        }
+    }
+}
+
+impl From<LineaVendida> for LineaVendidaDto {
+    fn from(linea: LineaVendida) -> Self {
+        Self {
+            producto: linea.producto,
+            nombre_producto: linea.nombre_producto,
+            nombre_presentacion: linea.nombre_presentacion,
+            cantidad: linea.cantidad,
+            precio: linea.precio,
+            importe: linea.importe,
+            costo: linea.costo,
+            ganancia: linea.ganancia,
+        }
+    }
+}
+
+impl From<PagoHecho> for PagoHechoDto {
+    fn from(pago: PagoHecho) -> Self {
+        Self {
+            metodo: pago.metodo,
+            metodo_nombre: pago.metodo_nombre,
+            entregado: pago.entregado,
+            moneda: pago.moneda,
+            tasa: pago.tasa,
+            equivalente: pago.equivalente,
         }
     }
 }
