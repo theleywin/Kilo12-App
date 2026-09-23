@@ -181,6 +181,25 @@ impl Movimiento {
         })
     }
 
+    /// Salida por venta (RF-VTA-11).
+    ///
+    /// Sale de la vitrina, que es lo único disponible para venta inmediata,
+    /// y no va a ninguna parte: se fue con el cliente.
+    pub fn venta(
+        cantidad: Cantidad,
+        costo_unitario: Dinero,
+        origen: Ubicacion,
+    ) -> Result<Self, ErrorDominio> {
+        Ok(Self {
+            tipo: TipoMovimiento::Venta,
+            origen: Some(origen),
+            destino: None,
+            cantidad: cantidad_positiva(cantidad)?,
+            costo_unitario: costo_no_negativo(costo_unitario)?,
+            motivo: None,
+        })
+    }
+
     /// Reconstruye un movimiento tal como está guardado.
     pub const fn reconstituir(
         tipo: TipoMovimiento,
