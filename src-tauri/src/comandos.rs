@@ -9,11 +9,16 @@
 //! operaciones de base de datos (DT-7).
 
 use application::casos::consultar_kardex::LIMITE_POR_DEFECTO;
+use application::casos::consultar_ventas::LIMITE_POR_DEFECTO as LIMITE_VENTAS;
 use application::casos::{
     AgregarPresentacion, CambiarPrecio, ConsultarAlmacen, ConsultarHistorialPrecios,
     ConsultarKardex, ConsultarProducto, ConsultarVitrina, DesactivarPresentacion, EditarProducto,
     FijarObjetivoVitrina, ListarProductos, MarcarPredeterminada, OrdenCatalogo, RegistrarEntrada,
     RegistrarMerma, RegistrarProducto, SimularMovimiento, Traspasar,
+};
+use application::casos::{
+    CalcularCobro, CatalogoDeVenta, ConsultarTasa, ConsultarVenta, ConsultarVentas, FijarTasa,
+    PrevisualizarVenta, Vender,
 };
 use application::margen;
 use domain::{Dinero, Porcentaje};
@@ -24,6 +29,10 @@ use crate::dto::{
     ErrorDto, FichaProductoDto, MargenDto, MovimientoDto, NuevaEntradaDto, NuevaMermaDto,
     NuevaPresentacionDto, NuevoProductoDto, NuevoTraspasoDto, ObjetivoVitrinaDto, ProductoDto,
     ReferenciaPresentacionDto, SimulacionDto, VitrinaDto,
+};
+use crate::dto::{
+    CobroCalculadoDto, HistorialVentasDto, NuevaVentaDto, PagoDto, ProductoVendibleDto,
+    VentaDetalladaDto, VentaHechaDto, VentaPrevistaDto,
 };
 use crate::estado::Estado;
 
@@ -116,6 +125,120 @@ pub fn consultar_kardex(
     caso.ejecutar(producto, limite.unwrap_or(LIMITE_POR_DEFECTO))
         .map(|lineas| lineas.into_iter().map(MovimientoDto::from).collect())
         .map_err(ErrorDto::from)
+}
+
+// ------------------------------------------------------------ vender
+
+/// Devuelve lo que se puede vender ahora mismo.
+///
+/// Trae la existencia de la VITRINA, no la total: la bodega no está a la
+/// venta (RF-VTA-11).
+#[tauri::command]
+pub fn catalogo_de_venta(estado: State<'_, Estado>) -> Result<Vec<ProductoVendibleDto>, ErrorDto> {
+    let caso = CatalogoDeVenta::nuevo(estado.repositorio_producto());
+    caso.ejecutar()
+        .map(|productos| {
+            productos
+                .into_iter()
+                .map(ProductoVendibleDto::from)
+                .collect()
+        })
+        .map_err(ErrorDto::from)
+}
+
+/// Calcula la venta en curso sin tocar nada.
+///
+/// La pantalla no suma dinero: pregunta. Y de paso se entera de si alguna
+/// línea no cabe en la vitrina antes de intentar cobrarla.
+#[tauri::command]
+pub fn previsualizar_venta(
+    estado: State<'_, Estado>,
+    lineas: Vec<crate::dto::LineaVentaDto>,
+) -> Result<VentaPrevistaDto, ErrorDto> {
+    let caso = PrevisualizarVenta::nuevo(estado.repositorio_producto());
+    let pedidas = lineas
+        .into_iter()
+        .map(|l| application::casos::LineaPedida {
+            producto: l.producto,
+            presentacion: l.presentacion,
+            cantidad: l.cantidad,
+        })
+        .collect();
+
+    caso.ejecutar(pedidas)
+        .map(VentaPrevistaDto::from)
+        .map_err(ErrorDto::from)
+}
+
+/// Dice si lo que pone el cliente cubre la venta, y cuánto se le devuelve.
+///
+/// Se llama mientras se teclea: el cajero tiene que ver el vuelto mientras
+/// cuenta los billetes, no después de confirmar.
+#[tauri::command]
+pub fn calcular_cobro(
+    estado: State<'_, Estado>,
+    total: String,
+    pagos: Vec<PagoDto>,
+) -> Result<CobroCalculadoDto, ErrorDto> {
+    let caso = CalcularCobro::nuevo(estado.repositorio_producto());
+    let pedidos: Vec<application::casos::PagoPedido> = pagos
+        .into_iter()
+        .map(|p| application::casos::PagoPedido {
+            metodo: p.metodo,
+            entregado: p.entregado,
+        })
+        .collect();
+
+    caso.ejecutar(&total, &pedidos)
+        .map(CobroCalculadoDto::from)
+        .map_err(ErrorDto::from)
+}
+
+/// Cobra una venta: descuenta de la vitrina y la deja registrada.
+///
+/// Todo ocurre en una sola operación. Si algo falla —falta existencia, el
+/// pago no alcanza—, no se guarda nada (RNF-5).
+#[tauri::command]
+pub fn vender(estado: State<'_, Estado>, venta: NuevaVentaDto) -> Result<VentaHechaDto, ErrorDto> {
+    let caso = Vender::nuevo(estado.repositorio_producto());
+    caso.ejecutar(venta.into())
+        .map(VentaHechaDto::from)
+        .map_err(ErrorDto::from)
+}
+
+/// Devuelve el historial de ventas con el corte del día (RF-VTA-16).
+#[tauri::command]
+pub fn consultar_ventas(
+    estado: State<'_, Estado>,
+    limite: Option<usize>,
+) -> Result<HistorialVentasDto, ErrorDto> {
+    let caso = ConsultarVentas::nuevo(estado.repositorio_producto());
+    caso.ejecutar(limite.unwrap_or(LIMITE_VENTAS))
+        .map(HistorialVentasDto::from)
+        .map_err(ErrorDto::from)
+}
+
+/// Devuelve una venta concreta con sus líneas y sus pagos.
+#[tauri::command]
+pub fn consultar_venta(estado: State<'_, Estado>, id: i64) -> Result<VentaDetalladaDto, ErrorDto> {
+    let caso = ConsultarVenta::nuevo(estado.repositorio_producto());
+    caso.ejecutar(id)
+        .map(VentaDetalladaDto::from)
+        .map_err(ErrorDto::from)
+}
+
+/// Devuelve la tasa de cambio vigente, si está fijada.
+#[tauri::command]
+pub fn consultar_tasa(estado: State<'_, Estado>) -> Result<Option<String>, ErrorDto> {
+    let caso = ConsultarTasa::nuevo(estado.repositorio_producto());
+    caso.ejecutar().map_err(ErrorDto::from)
+}
+
+/// Fija la tasa con la que se convierten los dólares (RF-DIV).
+#[tauri::command]
+pub fn fijar_tasa(estado: State<'_, Estado>, tasa: String) -> Result<(), ErrorDto> {
+    let caso = FijarTasa::nuevo(estado.repositorio_producto());
+    caso.ejecutar(&tasa).map_err(ErrorDto::from)
 }
 
 /// Calcula la ganancia y el margen de un precio frente a su costo.
