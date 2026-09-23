@@ -200,6 +200,153 @@ export interface CambioPrecioDto {
   readonly cambiadoEn: string;
 }
 
+/** Una forma de vender un producto, vista desde el mostrador. */
+export interface PresentacionVendibleDto {
+  readonly id: number;
+  readonly nombre: string;
+  readonly precio: string;
+  readonly factor: string;
+  readonly esPredeterminada: boolean;
+}
+
+/** Un producto disponible para vender. */
+export interface ProductoVendibleDto {
+  readonly id: number;
+  readonly sku: string;
+  readonly nombre: string;
+  readonly unidadBase: string;
+  /** Admite cantidades con decimales. */
+  readonly esGranel: boolean;
+  /** Lo que hay EN VITRINA: la bodega no está a la venta. */
+  readonly enVitrina: string;
+  readonly agotado: boolean;
+  readonly presentaciones: readonly PresentacionVendibleDto[];
+}
+
+/** Un renglón de lo que el cliente se lleva. */
+export interface LineaVentaDto {
+  readonly producto: number;
+  readonly presentacion: number;
+  readonly cantidad: string;
+}
+
+/** Una parte del pago. El cobro puede ser mixto. */
+export interface PagoDto {
+  readonly metodo: string;
+  readonly entregado: string;
+}
+
+/** Una línea de la venta en curso, ya calculada por el núcleo. */
+export interface LineaPrevistaDto {
+  readonly producto: number;
+  readonly presentacion: number;
+  readonly nombreProducto: string;
+  readonly nombrePresentacion: string;
+  readonly cantidad: string;
+  readonly precio: string;
+  readonly importe: string;
+  readonly unidadesBase: string;
+  /** La vitrina no da para esta línea. */
+  readonly sinExistencia: boolean;
+}
+
+/** La venta en curso. */
+export interface VentaPrevistaDto {
+  readonly lineas: readonly LineaPrevistaDto[];
+  readonly total: string;
+  readonly hayFaltantes: boolean;
+}
+
+/** Lo que el cliente pone frente a lo que debe. */
+export interface CobroCalculadoDto {
+  readonly entregado: string;
+  readonly falta: string;
+  readonly vuelto: string;
+  readonly alcanza: boolean;
+}
+
+/** El resultado de cobrar. */
+export interface VentaHechaDto {
+  readonly folio: number;
+  readonly total: string;
+  readonly entregado: string;
+  /** Siempre en pesos, aunque se haya pagado en dólares. */
+  readonly vuelto: string;
+}
+
+/** Una venta en la lista del historial. */
+export interface VentaListadaDto {
+  readonly id: number;
+  readonly folio: number;
+  readonly total: string;
+  /** Total menos el costo congelado al cobrar. */
+  readonly ganancia: string;
+  readonly ocurridoEn: string;
+  readonly fecha: string;
+  readonly hora: string;
+}
+
+/** Lo vendido hoy. */
+export interface ResumenDelDiaDto {
+  readonly cuantas: number;
+  readonly total: string;
+  readonly ganancia: string;
+}
+
+/** El historial de ventas con el corte del día. */
+export interface HistorialVentasDto {
+  readonly hoy: ResumenDelDiaDto;
+  readonly ventas: readonly VentaListadaDto[];
+}
+
+/** Una línea de una venta ya cobrada. */
+export interface LineaVendidaDto {
+  readonly producto: number;
+  readonly nombreProducto: string;
+  readonly nombrePresentacion: string;
+  readonly cantidad: string;
+  readonly precio: string;
+  readonly importe: string;
+  readonly costo: string;
+  readonly ganancia: string;
+}
+
+/** Una de las formas en que se pagó una venta. */
+export interface PagoHechoDto {
+  readonly metodo: string;
+  readonly metodoNombre: string;
+  /** Lo que entregó el cliente, en su moneda. */
+  readonly entregado: string;
+  readonly moneda: string;
+  /** Tasa congelada. Solo en los pagos en dólares. */
+  readonly tasa: string | null;
+  /** Cuánto valió en pesos. */
+  readonly equivalente: string;
+}
+
+/** Una venta con todo su detalle. */
+export interface VentaDetalladaDto {
+  readonly id: number;
+  readonly folio: number;
+  readonly total: string;
+  readonly costoTotal: string;
+  readonly ganancia: string;
+  readonly vuelto: string;
+  readonly entregado: string;
+  readonly ocurridoEn: string;
+  readonly fecha: string;
+  readonly hora: string;
+  readonly lineas: readonly LineaVendidaDto[];
+  readonly pagos: readonly PagoHechoDto[];
+}
+
+/** Las tres formas de pagar (RF-VTA-09). */
+export const METODOS_PAGO: ReadonlyArray<{ valor: string; nombre: string; moneda: string }> = [
+  { valor: 'EFECTIVO_CUP', nombre: 'Efectivo', moneda: '$' },
+  { valor: 'TRANSFERENCIA', nombre: 'Transferencia', moneda: '$' },
+  { valor: 'EFECTIVO_USD', nombre: 'Dólares', moneda: 'USD' },
+];
+
 /** Las dos ubicaciones, tal como las nombra el negocio. */
 export const UBICACIONES: ReadonlyArray<{ valor: string; nombre: string }> = [
   { valor: 'BODEGA', nombre: 'Almacén' },
