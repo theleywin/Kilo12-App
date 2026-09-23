@@ -6,8 +6,8 @@
   "build": {
     "frontendDist": "../ui/dist/ui/browser",
     "devUrl": "http://localhost:4200",
-    "beforeDevCommand": "npm --prefix ../ui run start",
-    "beforeBuildCommand": "npm --prefix ../ui run build"
+    "beforeDevCommand": "npm --prefix ui run start",
+    "beforeBuildCommand": "npm --prefix ui run build"
   },
   "app": {
     "windows": [
