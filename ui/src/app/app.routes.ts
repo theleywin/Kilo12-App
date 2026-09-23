@@ -5,6 +5,7 @@ import { Entrada } from './features/entrada/entrada';
 import { Vitrina } from './features/vitrina/vitrina';
 import { Guia } from './features/guia/guia';
 import { Pendiente } from './features/pendiente/pendiente';
+import { ProductoDetalle } from './features/productos/detalle/detalle';
 import { Productos } from './features/productos/productos';
 import { GUIA, SECCIONES } from './layout/navegacion';
 
@@ -22,6 +23,7 @@ export const routes: Routes = [
   { path: '', pathMatch: 'full', redirectTo: SECCIONES[0].ruta },
 
   { path: 'productos', component: Productos, title: 'Productos · Kilo12' },
+  { path: 'productos/:id', component: ProductoDetalle, title: 'Producto · Kilo12' },
   { path: 'entrada', component: Entrada, title: 'Entrada · Kilo12' },
   { path: 'almacen', component: Almacen, title: 'Almacén · Kilo12' },
   { path: 'vitrina', component: Vitrina, title: 'Vitrina · Kilo12' },
