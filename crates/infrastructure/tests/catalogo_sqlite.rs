@@ -7,6 +7,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use application::casos::vender::CLAVE_TASA;
 use application::casos::{
     AgregarPresentacion, CambiarPrecio, ComandoAgregarPresentacion, ComandoCambiarPrecio,
     ComandoEditarProducto, ComandoFijarObjetivo, ComandoPresentacion, ComandoRegistrarEntrada,
@@ -16,6 +17,10 @@ use application::casos::{
     ListarProductos, MarcarPredeterminada, ProductoListado, RegistrarEntrada, RegistrarMerma,
     RegistrarProducto, ResumenVitrina, SimularMovimiento, Traspasar,
 };
+use application::casos::{
+    ComandoVender, ConsultarVenta, ConsultarVentas, LineaPedida, PagoPedido, Vender,
+};
+use application::puertos::RepositorioProducto;
 use infrastructure::{BaseDatos, RepositorioProductoSqlite};
 
 /// Alta mínima: solo nombre y precio, con el SKU en blanco para que lo
@@ -917,4 +922,407 @@ fn desactivar_un_producto_lo_saca_del_catalogo_sin_borrarlo() {
     assert!(!ficha.activo);
     assert_eq!(ficha.stock_minimo, "10.000");
     assert_eq!(kardex(&repositorio, producto).len(), 1);
+}
+
+// ==================================================== la venta
+
+/// Un producto listo para vender: 20 latas en vitrina a 41,67 de costo.
+fn producto_en_vitrina(repositorio: &RepositorioProductoSqlite) -> (i64, i64) {
+    let mut comando = alta("Refresco 500 ml");
+    comando.precio_unitario = "80.00".to_owned();
+    comando.costo_unitario = Some("41.67".to_owned());
+    comando.cantidad_vitrina = Some("20".to_owned());
+
+    let producto = RegistrarProducto::nuevo(repositorio)
+        .ejecutar(comando)
+        .expect("registrar")
+        .0;
+
+    let ficha = ConsultarProducto::nuevo(repositorio)
+        .ejecutar(producto)
+        .expect("ficha");
+
+    (producto, ficha.presentaciones[0].id)
+}
+
+fn efectivo(cantidad: &str) -> PagoPedido {
+    PagoPedido {
+        metodo: "EFECTIVO_CUP".to_owned(),
+        entregado: cantidad.to_owned(),
+    }
+}
+
+#[test]
+fn una_venta_descuenta_de_la_vitrina_y_deja_su_asiento() {
+    let repositorio = repositorio_en_memoria();
+    let (producto, presentacion) = producto_en_vitrina(&repositorio);
+
+    let hecha = Vender::nuevo(&repositorio)
+        .ejecutar(ComandoVender {
+            lineas: vec![LineaPedida {
+                producto,
+                presentacion,
+                cantidad: "3".to_owned(),
+            }],
+            pagos: vec![efectivo("300.00")],
+        })
+        .expect("cobrar");
+
+    assert_eq!(hecha.folio, 1);
+    assert_eq!(hecha.total, "240.00");
+    assert_eq!(hecha.vuelto, "60.00");
+
+    let ficha = unico(&repositorio);
+    assert_eq!(ficha.en_vitrina, "17");
+    assert_eq!(ficha.en_almacen, "0");
+
+    let historial = kardex(&repositorio, producto);
+    assert_eq!(historial[0].tipo, "VENTA");
+    assert_eq!(historial[0].origen.as_deref(), Some("Vitrina"));
+    assert_eq!(historial[0].destino, None);
+    assert_eq!(historial[0].cantidad, "3");
+    // El asiento congela el costo del momento, no el precio.
+    assert_eq!(historial[0].costo_unitario, "41.67");
+}
+
+#[test]
+fn vender_un_paquete_descuenta_las_unidades_que_lleva_dentro() {
+    let repositorio = repositorio_en_memoria();
+    let (producto, _) = producto_en_vitrina(&repositorio);
+
+    AgregarPresentacion::nuevo(&repositorio)
+        .ejecutar(ComandoAgregarPresentacion {
+            producto,
+            nombre: "Six-pack".to_owned(),
+            factor: "6".to_owned(),
+            precio: "300.00".to_owned(),
+            codigo_barras: None,
+        })
+        .expect("agregar el six-pack");
+
+    let ficha = ConsultarProducto::nuevo(&repositorio)
+        .ejecutar(producto)
+        .expect("ficha");
+    let six_pack = ficha.presentaciones[1].id;
+
+    Vender::nuevo(&repositorio)
+        .ejecutar(ComandoVender {
+            lineas: vec![LineaPedida {
+                producto,
+                presentacion: six_pack,
+                cantidad: "2".to_owned(),
+            }],
+            pagos: vec![efectivo("600.00")],
+        })
+        .expect("cobrar");
+
+    // Dos six-packs son doce refrescos: la existencia es una sola.
+    assert_eq!(unico(&repositorio).en_vitrina, "8");
+    assert_eq!(kardex(&repositorio, producto)[0].cantidad, "12");
+}
+
+#[test]
+fn no_se_vende_lo_que_no_esta_en_la_vitrina() {
+    let repositorio = repositorio_en_memoria();
+    let (producto, presentacion) = producto_en_vitrina(&repositorio);
+
+    let error = Vender::nuevo(&repositorio)
+        .ejecutar(ComandoVender {
+            lineas: vec![LineaPedida {
+                producto,
+                presentacion,
+                cantidad: "25".to_owned(),
+            }],
+            pagos: vec![efectivo("2000.00")],
+        })
+        .expect_err("solo hay 20 en vitrina");
+
+    assert_eq!(error.codigo(), "EXISTENCIA_INSUFICIENTE");
+    // Nada se movió: la venta entera se deshizo.
+    assert_eq!(unico(&repositorio).en_vitrina, "20");
+    assert_eq!(kardex(&repositorio, producto).len(), 1);
+}
+
+#[test]
+fn no_se_cobra_una_venta_con_lo_que_no_alcanza() {
+    let repositorio = repositorio_en_memoria();
+    let (producto, presentacion) = producto_en_vitrina(&repositorio);
+
+    let error = Vender::nuevo(&repositorio)
+        .ejecutar(ComandoVender {
+            lineas: vec![LineaPedida {
+                producto,
+                presentacion,
+                cantidad: "3".to_owned(),
+            }],
+            pagos: vec![efectivo("100.00")],
+        })
+        .expect_err("240 no se pagan con 100");
+
+    assert_eq!(error.codigo(), "PAGO_INSUFICIENTE");
+    assert_eq!(unico(&repositorio).en_vitrina, "20");
+}
+
+#[test]
+fn un_cobro_mixto_se_suma_y_el_vuelto_sale_en_pesos() {
+    let repositorio = repositorio_en_memoria();
+    let (producto, presentacion) = producto_en_vitrina(&repositorio);
+
+    repositorio
+        .guardar_configuracion(CLAVE_TASA, "420.00")
+        .expect("fijar la tasa");
+
+    // Venta de 800: paga 200 en efectivo, 100 por transferencia y 2 dólares.
+    let hecha = Vender::nuevo(&repositorio)
+        .ejecutar(ComandoVender {
+            lineas: vec![LineaPedida {
+                producto,
+                presentacion,
+                cantidad: "10".to_owned(),
+            }],
+            pagos: vec![
+                efectivo("200.00"),
+                PagoPedido {
+                    metodo: "TRANSFERENCIA".to_owned(),
+                    entregado: "100.00".to_owned(),
+                },
+                PagoPedido {
+                    metodo: "EFECTIVO_USD".to_owned(),
+                    entregado: "2.00".to_owned(),
+                },
+            ],
+        })
+        .expect("cobrar");
+
+    // 200 + 100 + (2 × 420) = 1 140 por una venta de 800.
+    assert_eq!(hecha.total, "800.00");
+    assert_eq!(hecha.entregado, "1140.00");
+    assert_eq!(hecha.vuelto, "340.00");
+}
+
+#[test]
+fn cobrar_en_dolares_exige_tener_la_tasa_puesta() {
+    let repositorio = repositorio_en_memoria();
+    let (producto, presentacion) = producto_en_vitrina(&repositorio);
+
+    let error = Vender::nuevo(&repositorio)
+        .ejecutar(ComandoVender {
+            lineas: vec![LineaPedida {
+                producto,
+                presentacion,
+                cantidad: "1".to_owned(),
+            }],
+            pagos: vec![PagoPedido {
+                metodo: "EFECTIVO_USD".to_owned(),
+                entregado: "5.00".to_owned(),
+            }],
+        })
+        .expect_err("sin tasa no se puede convertir");
+
+    assert_eq!(error.codigo(), "TASA_NO_CONFIGURADA");
+}
+
+#[test]
+fn el_folio_es_consecutivo() {
+    let repositorio = repositorio_en_memoria();
+    let (producto, presentacion) = producto_en_vitrina(&repositorio);
+
+    for esperado in 1..=3 {
+        let hecha = Vender::nuevo(&repositorio)
+            .ejecutar(ComandoVender {
+                lineas: vec![LineaPedida {
+                    producto,
+                    presentacion,
+                    cantidad: "1".to_owned(),
+                }],
+                pagos: vec![efectivo("80.00")],
+            })
+            .expect("cobrar");
+
+        assert_eq!(hecha.folio, esperado);
+    }
+}
+
+#[test]
+fn dos_lineas_del_mismo_producto_se_descuentan_las_dos() {
+    let repositorio = repositorio_en_memoria();
+    let (producto, presentacion) = producto_en_vitrina(&repositorio);
+
+    Vender::nuevo(&repositorio)
+        .ejecutar(ComandoVender {
+            lineas: vec![
+                LineaPedida {
+                    producto,
+                    presentacion,
+                    cantidad: "3".to_owned(),
+                },
+                LineaPedida {
+                    producto,
+                    presentacion,
+                    cantidad: "4".to_owned(),
+                },
+            ],
+            pagos: vec![efectivo("560.00")],
+        })
+        .expect("cobrar");
+
+    // 20 − 3 − 4 = 13, y un solo asiento por las siete que salieron.
+    assert_eq!(unico(&repositorio).en_vitrina, "13");
+    let historial = kardex(&repositorio, producto);
+    assert_eq!(historial[0].tipo, "VENTA");
+    assert_eq!(historial[0].cantidad, "7");
+}
+
+// ======================================================== historial de ventas
+
+/// Cobra una venta de `cuantas` unidades pagando justo, y devuelve su id.
+fn venta_de(
+    repositorio: &RepositorioProductoSqlite,
+    producto: i64,
+    presentacion: i64,
+    cuantas: &str,
+    paga: &str,
+) -> i64 {
+    Vender::nuevo(repositorio)
+        .ejecutar(ComandoVender {
+            lineas: vec![LineaPedida {
+                producto,
+                presentacion,
+                cantidad: cuantas.to_owned(),
+            }],
+            pagos: vec![efectivo(paga)],
+        })
+        .expect("cobrar")
+        .folio
+}
+
+#[test]
+fn las_ventas_se_listan_de_la_mas_reciente_a_la_mas_vieja() {
+    let repositorio = repositorio_en_memoria();
+    let (producto, presentacion) = producto_en_vitrina(&repositorio);
+
+    venta_de(&repositorio, producto, presentacion, "1", "80.00");
+    venta_de(&repositorio, producto, presentacion, "2", "160.00");
+    venta_de(&repositorio, producto, presentacion, "3", "240.00");
+
+    let historial = ConsultarVentas::nuevo(&repositorio)
+        .ejecutar(100)
+        .expect("listar las ventas");
+
+    // La última cobrada encabeza la lista: es la que se va a consultar.
+    let folios: Vec<i64> = historial.ventas.iter().map(|v| v.folio).collect();
+    assert_eq!(folios, vec![3, 2, 1]);
+    assert_eq!(historial.ventas[0].total, "240.00");
+}
+
+#[test]
+fn el_resumen_del_dia_suma_lo_cobrado_y_lo_ganado() {
+    let repositorio = repositorio_en_memoria();
+    let (producto, presentacion) = producto_en_vitrina(&repositorio);
+
+    // Precio 80, costo 41.67: cada unidad deja 38.33 de ganancia.
+    venta_de(&repositorio, producto, presentacion, "1", "80.00");
+    venta_de(&repositorio, producto, presentacion, "2", "160.00");
+
+    let historial = ConsultarVentas::nuevo(&repositorio)
+        .ejecutar(100)
+        .expect("listar las ventas");
+
+    assert_eq!(historial.hoy.cuantas, 2);
+    assert_eq!(historial.hoy.total, "240.00");
+    // 240 − (3 × 41.67) = 240 − 125.01
+    assert_eq!(historial.hoy.ganancia, "114.99");
+}
+
+#[test]
+fn el_detalle_trae_las_lineas_y_las_formas_de_pago() {
+    let repositorio = repositorio_en_memoria();
+    let (producto, presentacion) = producto_en_vitrina(&repositorio);
+
+    repositorio
+        .guardar_configuracion(CLAVE_TASA, "420.00")
+        .expect("fijar la tasa");
+
+    Vender::nuevo(&repositorio)
+        .ejecutar(ComandoVender {
+            lineas: vec![LineaPedida {
+                producto,
+                presentacion,
+                cantidad: "10".to_owned(),
+            }],
+            pagos: vec![
+                efectivo("200.00"),
+                PagoPedido {
+                    metodo: "EFECTIVO_USD".to_owned(),
+                    entregado: "2.00".to_owned(),
+                },
+            ],
+        })
+        .expect("cobrar");
+
+    let detalle = ConsultarVenta::nuevo(&repositorio)
+        .ejecutar(1)
+        .expect("el detalle de la venta");
+
+    assert_eq!(detalle.folio, 1);
+    assert_eq!(detalle.total, "800.00");
+    // 200 + (2 × 420) = 1 040
+    assert_eq!(detalle.entregado, "1040.00");
+    assert_eq!(detalle.vuelto, "240.00");
+
+    assert_eq!(detalle.lineas.len(), 1);
+    assert_eq!(detalle.lineas[0].nombre_producto, "Refresco 500 ml");
+    assert_eq!(detalle.lineas[0].cantidad, "10");
+    assert_eq!(detalle.lineas[0].importe, "800.00");
+    // 10 × 41.67 = 416.70
+    assert_eq!(detalle.lineas[0].costo, "416.70");
+    assert_eq!(detalle.lineas[0].ganancia, "383.30");
+
+    assert_eq!(detalle.pagos.len(), 2);
+    assert_eq!(detalle.pagos[0].metodo, "EFECTIVO_CUP");
+    assert_eq!(detalle.pagos[0].tasa, None);
+    // La tasa viaja congelada con el pago en dólares (RF-VTA-10b).
+    assert_eq!(detalle.pagos[1].metodo, "EFECTIVO_USD");
+    assert_eq!(detalle.pagos[1].entregado, "2.00");
+    assert_eq!(detalle.pagos[1].tasa.as_deref(), Some("420.00"));
+    assert_eq!(detalle.pagos[1].equivalente, "840.00");
+}
+
+#[test]
+fn la_ganancia_de_una_venta_no_cambia_cuando_sube_el_costo() {
+    let repositorio = repositorio_en_memoria();
+    let (producto, presentacion) = producto_en_vitrina(&repositorio);
+
+    venta_de(&repositorio, producto, presentacion, "10", "800.00");
+
+    // Llega mercancía mucho más cara: el costo promedio del producto sube.
+    RegistrarEntrada::nuevo(&repositorio)
+        .ejecutar(ComandoRegistrarEntrada {
+            producto,
+            cantidad: "100".to_owned(),
+            costo_unitario: "70.00".to_owned(),
+            destino: "BODEGA".to_owned(),
+        })
+        .expect("entrada cara");
+
+    let detalle = ConsultarVenta::nuevo(&repositorio)
+        .ejecutar(1)
+        .expect("el detalle de la venta");
+
+    // La venta de ayer sigue diciendo lo que dejó ayer. Si esto cambiara,
+    // la ganancia del negocio se reescribiría sola cada vez que llega una
+    // remesa (RF-VTA-13).
+    assert_eq!(detalle.lineas[0].costo, "416.70");
+    assert_eq!(detalle.ganancia, "383.30");
+}
+
+#[test]
+fn pedir_una_venta_que_no_existe_da_un_error_claro() {
+    let repositorio = repositorio_en_memoria();
+
+    let error = ConsultarVenta::nuevo(&repositorio)
+        .ejecutar(404)
+        .expect_err("esa venta no existe");
+
+    assert_eq!(error.codigo(), "NO_ENCONTRADO");
 }
