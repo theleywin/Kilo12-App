@@ -75,6 +75,22 @@ pub enum ErrorDominio {
     },
     /// Un texto obligatorio llegó vacío.
     TextoObligatorio(&'static str),
+    /// El estado de sesión recibido no es uno de los admitidos.
+    EstadoSesionDesconocido,
+    /// Se operó sobre una sesión de caja ya cerrada (RF-CAJ-08).
+    SesionCerrada,
+    /// Se intentó abrir una sesión habiendo otra sin cerrar.
+    SesionYaAbierta,
+    /// La operación exige una sesión de caja abierta (RF-CAJ-06).
+    SinSesionAbierta,
+    /// Falta el nombre de quien atiende la caja (RF-CAJ-09).
+    OperadorRequerido,
+    /// Se movió un importe de cero o negativo.
+    ImporteNoPositivo,
+    /// El porcentaje recibido no es válido.
+    PorcentajeInvalido,
+    /// La venta ya se había anulado.
+    VentaYaAnulada,
 }
 
 impl ErrorDominio {
@@ -111,6 +127,14 @@ impl ErrorDominio {
             Self::TasaCambioRequerida => "TASA_CAMBIO_REQUERIDA",
             Self::PagoInsuficiente { .. } => "PAGO_INSUFICIENTE",
             Self::TextoObligatorio(_) => "TEXTO_OBLIGATORIO",
+            Self::EstadoSesionDesconocido => "ESTADO_SESION_DESCONOCIDO",
+            Self::SesionCerrada => "SESION_CERRADA",
+            Self::SesionYaAbierta => "SESION_YA_ABIERTA",
+            Self::SinSesionAbierta => "SIN_SESION_ABIERTA",
+            Self::OperadorRequerido => "OPERADOR_REQUERIDO",
+            Self::ImporteNoPositivo => "IMPORTE_NO_POSITIVO",
+            Self::PorcentajeInvalido => "PORCENTAJE_INVALIDO",
+            Self::VentaYaAnulada => "VENTA_YA_ANULADA",
         }
     }
 }
@@ -177,6 +201,21 @@ impl fmt::Display for ErrorDominio {
                 crate::Dinero::desde_millonesimas(*entregado).formatear(2),
                 crate::Dinero::desde_millonesimas(*total).formatear(2),
             ),
+            Self::EstadoSesionDesconocido => f.write_str("El estado de sesión no es válido"),
+            Self::SesionCerrada => f.write_str(
+                "La caja de esa sesión ya se cerró y arqueó: no admite cambios. \
+                 Registra la corrección en la sesión de hoy",
+            ),
+            Self::SesionYaAbierta => {
+                f.write_str("Ya hay una caja abierta: ciérrala antes de abrir otra")
+            }
+            Self::SinSesionAbierta => {
+                f.write_str("Abre la caja antes de cobrar: sin sesión, la venta no cuadraría")
+            }
+            Self::OperadorRequerido => f.write_str("Indica quién atiende la caja"),
+            Self::ImporteNoPositivo => f.write_str("El importe debe ser mayor que cero"),
+            Self::PorcentajeInvalido => f.write_str("El porcentaje no es válido"),
+            Self::VentaYaAnulada => f.write_str("Esa venta ya estaba anulada"),
             Self::TextoObligatorio(campo) => {
                 write!(f, "El campo «{campo}» no puede quedar vacío")
             }
