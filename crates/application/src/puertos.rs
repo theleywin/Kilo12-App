@@ -6,7 +6,10 @@
 //! adentro (DT-5) y lo que permitirá cambiar SQLite, o añadir un lector de
 //! código de barras, sin tocar ninguna regla de negocio.
 
-use domain::{Dinero, Existencias, IdPresentacion, IdProducto, Inventario, Movimiento, Producto};
+use domain::{
+    Cantidad, Cobro, Dinero, Existencias, IdPresentacion, IdProducto, Inventario, MetodoPago,
+    Movimiento, Producto, Venta,
+};
 
 use crate::error::Resultado;
 
@@ -69,6 +72,95 @@ pub struct CambioRegistrado {
     pub cambiado_en: String,
 }
 
+/// Lo que una venta le quita a un producto.
+///
+/// Viajan juntos el saldo que queda y el asiento que lo explica: escribir
+/// uno sin el otro deja el inventario sin coartada (RF-INV-03).
+#[derive(Debug, Clone)]
+pub struct DescuentoVenta {
+    pub producto: IdProducto,
+    pub inventario: Inventario,
+    pub movimiento: Movimiento,
+}
+
+/// Una venta lista para guardar, con sus cuentas ya hechas.
+///
+/// Los totales llegan calculados: la infraestructura traduce entre el
+/// dominio y las filas de la base, no hace aritmética de dinero.
+#[derive(Debug)]
+pub struct VentaConfirmada<'a> {
+    pub venta: &'a Venta,
+    pub cobro: &'a Cobro,
+    pub total: Dinero,
+    pub costo_total: Dinero,
+    /// Siempre en pesos (R-11).
+    pub vuelto: Dinero,
+    pub descuentos: &'a [DescuentoVenta],
+}
+
+/// Una venta ya cobrada, tal como quedó guardada.
+///
+/// Nada de esto se recalcula al leerlo. El total y el costo se congelaron
+/// al cobrar, y ahí siguen: si mañana sube el costo del arroz, la venta de
+/// hoy tiene que seguir diciendo la ganancia que dejó hoy (RF-VTA-13).
+#[derive(Debug, Clone)]
+pub struct VentaRegistrada {
+    pub id: i64,
+    pub folio: i64,
+    pub total: Dinero,
+    pub costo_total: Dinero,
+    /// Siempre en pesos (R-11).
+    pub vuelto: Dinero,
+    pub ocurrido_en: String,
+}
+
+/// Un renglón de una venta ya cobrada.
+///
+/// Los nombres viajan copiados, no por referencia al producto: si el
+/// producto se renombra o se borra, el recibo de ayer no puede cambiar.
+#[derive(Debug, Clone)]
+pub struct LineaRegistrada {
+    pub producto: IdProducto,
+    pub nombre_producto: String,
+    pub nombre_presentacion: String,
+    pub cantidad: Cantidad,
+    /// Unidades base que se lleva cada unidad de la presentación.
+    pub factor: Cantidad,
+    pub precio: Dinero,
+    pub costo_unitario: Dinero,
+}
+
+/// Una de las formas en que se pagó una venta.
+#[derive(Debug, Clone)]
+pub struct PagoRegistrado {
+    pub metodo: MetodoPago,
+    /// Lo que entregó el cliente, en la moneda del método.
+    pub entregado: Dinero,
+    /// Tasa aplicada, congelada. Solo en los pagos en dólares.
+    pub tasa: Option<Dinero>,
+    pub equivalente_cup: Dinero,
+}
+
+/// Una venta con todo lo que hizo falta para cobrarla.
+#[derive(Debug, Clone)]
+pub struct DetalleVenta {
+    pub venta: VentaRegistrada,
+    pub lineas: Vec<LineaRegistrada>,
+    pub pagos: Vec<PagoRegistrado>,
+}
+
+/// Lo vendido en una jornada.
+///
+/// El corte del día lo hace la base con su propio reloj: preguntar «¿qué
+/// llevo hoy?» desde Rust obligaría a saber en qué huso está la tienda, y
+/// la tienda está donde está la máquina.
+#[derive(Debug, Clone, Default)]
+pub struct ResumenDia {
+    pub cuantas: i64,
+    pub total: Dinero,
+    pub costo_total: Dinero,
+}
+
 /// Acceso al catálogo de productos y a su inventario.
 pub trait RepositorioProducto {
     /// Guarda un producto nuevo con su existencia de apertura y devuelve el
@@ -126,4 +218,25 @@ pub trait RepositorioProducto {
 
     /// Indica si ya existe un producto con ese SKU (RF-CAT-02).
     fn existe_sku(&self, sku: &str) -> Resultado<bool>;
+
+    /// Guarda una venta entera y devuelve su folio (RF-VTA-17).
+    ///
+    /// Líneas, pagos, saldos y asientos entran en la misma operación: media
+    /// venta registrada es peor que ninguna (RNF-5).
+    fn registrar_venta(&self, confirmada: &VentaConfirmada<'_>) -> Resultado<i64>;
+
+    /// Lista las ventas cobradas, de la más reciente a la más antigua.
+    fn listar_ventas(&self, limite: usize) -> Resultado<Vec<VentaRegistrada>>;
+
+    /// Devuelve una venta con sus líneas y sus pagos.
+    fn detalle_venta(&self, id: i64) -> Resultado<Option<DetalleVenta>>;
+
+    /// Cuánto se lleva vendido hoy, según el reloj de la máquina.
+    fn resumen_de_hoy(&self) -> Resultado<ResumenDia>;
+
+    /// Lee un ajuste del negocio, como la tasa de cambio vigente.
+    fn configuracion(&self, clave: &str) -> Resultado<Option<String>>;
+
+    /// Guarda un ajuste del negocio.
+    fn guardar_configuracion(&self, clave: &str, valor: &str) -> Resultado<()>;
 }
