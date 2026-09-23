@@ -34,6 +34,7 @@ pub mod producto;
 pub mod tasa_cambio;
 pub mod ubicacion;
 pub mod unidad;
+pub mod venta;
 
 pub use caja::{ArqueoMoneda, ModoCierre, ResumenCierre, TotalesCaja};
 pub use cantidad::Cantidad;
@@ -42,13 +43,14 @@ pub use error::ErrorDominio;
 pub use existencias::Existencias;
 pub use inventario::{Inventario, Salida};
 pub use movimiento::{Movimiento, TipoMovimiento};
-pub use pago::{MetodoPago, Moneda, Pago};
+pub use pago::{Cobro, MetodoPago, Moneda, Pago};
 pub use porcentaje::Porcentaje;
 pub use presentacion::{IdPresentacion, Presentacion};
 pub use producto::{IdProducto, Producto};
 pub use tasa_cambio::TasaCambio;
 pub use ubicacion::Ubicacion;
 pub use unidad::UnidadBase;
+pub use venta::{IdVenta, LineaVenta, Venta};
 
 /// Resultado de una operación del dominio.
 pub type Resultado<T> = core::result::Result<T, ErrorDominio>;
