@@ -46,6 +46,10 @@ pub enum ErrorDominio {
     UltimaPresentacion,
     /// Se pidió un margen del 100 % o más, que exigiría precio infinito.
     MargenImposible,
+    /// Se intentó cobrar una venta sin ninguna línea.
+    VentaVacia,
+    /// Se intentó confirmar un cobro sin ningún pago.
+    CobroSinPagos,
     /// La unidad de medida recibida no es una de las admitidas.
     UnidadDesconocida,
     /// La ubicación recibida no es bodega ni vitrina.
@@ -95,6 +99,8 @@ impl ErrorDominio {
             Self::PresentacionNoEncontrada => "PRESENTACION_NO_ENCONTRADA",
             Self::UltimaPresentacion => "ULTIMA_PRESENTACION",
             Self::MargenImposible => "MARGEN_IMPOSIBLE",
+            Self::VentaVacia => "VENTA_VACIA",
+            Self::CobroSinPagos => "COBRO_SIN_PAGOS",
             Self::UnidadDesconocida => "UNIDAD_DESCONOCIDA",
             Self::UbicacionDesconocida => "UBICACION_DESCONOCIDA",
             Self::TipoMovimientoDesconocido => "TIPO_MOVIMIENTO_DESCONOCIDO",
@@ -151,6 +157,8 @@ impl fmt::Display for ErrorDominio {
             Self::MargenImposible => {
                 f.write_str("Un margen del 100 % o más exigiría un precio infinito")
             }
+            Self::VentaVacia => f.write_str("No hay nada que cobrar"),
+            Self::CobroSinPagos => f.write_str("Falta indicar cómo paga el cliente"),
             Self::UnidadDesconocida => f.write_str("La unidad de medida no es válida"),
             Self::UbicacionDesconocida => f.write_str("La ubicación no es válida"),
             Self::TipoMovimientoDesconocido => f.write_str("El tipo de movimiento no es válido"),
