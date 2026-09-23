@@ -4,6 +4,14 @@
 # Rust
 /target/
 
+# Node y Angular
+node_modules/
+/ui/dist/
+/ui/.angular/
+
+# Tauri regenera estos esquemas en cada compilación
+/src-tauri/gen/schemas/
+
 # Python (scripts de build)
 __pycache__/
 *.pyc
