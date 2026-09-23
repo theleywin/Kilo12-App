@@ -1,0 +1,29 @@
+.lista {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-width: 68ch;
+}
+
+.lista li {
+  display: flex;
+  gap: var(--e3);
+  align-items: flex-start;
+  color: var(--tinta);
+  font-size: var(--texto-m);
+}
+
+/* El punto de la lista se dibuja aquí para que tenga el color de la marca
+   en lugar del punto gris del navegador. */
+.lista li::before {
+  content: '';
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin-top: 8px;
+  border-radius: var(--radio-pildora);
+  background: var(--destaque);
+}
