@@ -2,8 +2,8 @@
   <header class="cabecera-pagina">
     <h1>Productos</h1>
     <p class="descripcion">
-      Todo lo que vendes, con lo que te cuesta y lo que te deja. Los productos se crean solos
-      cuando su mercancía llega al almacén.
+      A cuánto vendes y cuánto te deja. Elige un producto para abrir su ficha; la mercancía entra
+      por Entrada <kbd class="tecla">F2</kbd>.
     </p>
   </header>
 
@@ -19,25 +19,100 @@
     </div>
   }
 
-  @if (enRiesgo > 0) {
+  @if (enRiesgo() > 0) {
     <div class="aviso aviso--atencion">
       <span>
-        <strong>{{ enRiesgo }}</strong>
-        {{ enRiesgo === 1 ? 'producto se vende' : 'productos se venden' }} por debajo de lo que
-        cuesta. Revisa el precio o el costo de la última compra.
+        <strong>{{ enRiesgo() }}</strong>
+        {{ enRiesgo() === 1 ? 'producto se vende' : 'productos se venden' }} por debajo de lo que
+        cuesta.
       </span>
+      <button type="button" class="boton boton--discreto" (click)="ordenarPor('margen')">
+        Ver los peores primero
+      </button>
     </div>
   }
 
+  <!-- ============================================ buscar y ordenar -->
   <div class="panel">
+    <div class="panel__cuerpo herramientas">
+      <div class="campo buscar">
+        <label for="buscar">Buscar</label>
+        <div class="con-limpiar">
+          <input
+            id="buscar"
+            autocomplete="off"
+            placeholder="Nombre o código…"
+            [value]="busqueda()"
+            (input)="busqueda.set($any($event.target).value)"
+          />
+          @if (busqueda()) {
+            <button
+              type="button"
+              class="limpiar"
+              aria-label="Borrar la búsqueda"
+              (click)="limpiarBusqueda()"
+            >
+              ×
+            </button>
+          }
+        </div>
+      </div>
+
+      <div class="campo">
+        <div class="fila fila--separada">
+          <label>Ordenar por</label>
+          @if (hayOrden()) {
+            <button type="button" class="boton boton--discreto" (click)="quitarOrden()">
+              Quitar orden
+            </button>
+          }
+        </div>
+
+        <div class="segmento">
+          @for (opcion of ordenes; track opcion.valor) {
+            <button
+              type="button"
+              [attr.aria-pressed]="orden() === opcion.valor"
+              (click)="ordenarPor(opcion.valor)"
+            >
+              {{ opcion.nombre }}
+              @if (orden() === opcion.valor) {
+                <span class="flecha">{{ descendente() ? '↓' : '↑' }}</span>
+              }
+            </button>
+          }
+        </div>
+
+        <span class="pista">
+          Una vez ordena, otra lo invierte y otra lo quita.
+        </span>
+      </div>
+
+      <label class="casilla">
+        <input
+          type="checkbox"
+          [checked]="incluirInactivos()"
+          (change)="alternarInactivos()"
+        />
+        <span>Ver los retirados</span>
+      </label>
+    </div>
+  </div>
+
+  <!-- ==================================================== catálogo -->
+  <div class="panel panel--lista">
     <div class="panel__cabecera">
       <span class="panel__titulo">Catálogo</span>
       <div class="fila">
-        @if (productos().length) {
-          <span class="apagado nota">{{ productos().length }} productos</span>
-        }
-        <a class="boton boton--secundario" routerLink="/almacen">
-          Recibir mercancía <kbd class="tecla">F3</kbd>
+        <span class="apagado nota">
+          @if (busqueda()) {
+            {{ visibles().length }} de {{ productos().length }}
+          } @else {
+            {{ productos().length }} productos
+          }
+        </span>
+        <a class="boton boton--secundario" routerLink="/entrada">
+          Recibir mercancía <kbd class="tecla">F2</kbd>
         </a>
       </div>
     </div>
@@ -58,8 +133,8 @@
           </tr>
         </thead>
         <tbody>
-          @for (producto of productos(); track producto.id) {
-            <tr>
+          @for (producto of visibles(); track producto.id) {
+            <tr class="fila-clicable" [class.fila--inactiva]="!producto.activo" (click)="abrir(producto)">
               <td>{{ producto.nombre }}</td>
               <td class="mono">{{ producto.sku }}</td>
               <td class="apagado">{{ producto.unidadNombre }}</td>
@@ -75,16 +150,16 @@
               >
                 {{ producto.margen }}
               </td>
-              <td class="derecha cifra">{{ producto.existenciaTotal }}</td>
+              <td class="derecha cifra apagado">{{ producto.existenciaTotal }}</td>
               <td>
-                @if (producto.enRiesgo) {
+                @if (!producto.activo) {
+                  <span class="etiqueta">Retirado</span>
+                } @else if (producto.enRiesgo) {
                   <span class="etiqueta etiqueta--error">Pierdes dinero</span>
                 } @else if (producto.agotado) {
                   <span class="etiqueta">Sin existencia</span>
-                } @else if (producto.bajoMinimo) {
-                  <span class="etiqueta etiqueta--atencion">Por agotarse</span>
                 } @else {
-                  <span class="etiqueta etiqueta--acento">Normal</span>
+                  <span class="etiqueta etiqueta--acento">A la venta</span>
                 }
               </td>
             </tr>
@@ -94,13 +169,18 @@
                 <div class="vacio">
                   @if (cargando()) {
                     <span class="vacio__titulo">Cargando…</span>
+                  } @else if (busqueda()) {
+                    <span class="vacio__titulo">Nada coincide con «{{ busqueda() }}»</span>
+                    <span class="vacio__texto">
+                      La búsqueda ignora acentos y mayúsculas, así que «azucar» encuentra «Azúcar».
+                    </span>
                   } @else {
                     <span class="vacio__titulo">Todavía no vendes nada</span>
                     <span class="vacio__texto">
-                      Los productos se crean cuando su mercancía llega. Ve a Almacén, escribe qué
+                      Los productos se crean cuando su mercancía llega. Ve a Entrada, escribe qué
                       llegó y a cuánto lo compraste.
                     </span>
-                    <a class="boton" routerLink="/almacen">Recibir mercancía</a>
+                    <a class="boton" routerLink="/entrada">Recibir mercancía</a>
                   }
                 </div>
               </td>
