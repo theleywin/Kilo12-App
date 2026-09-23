@@ -7,8 +7,9 @@
 //! código de barras, sin tocar ninguna regla de negocio.
 
 use domain::{
-    Cantidad, Cobro, Dinero, Existencias, IdPresentacion, IdProducto, Inventario, MetodoPago,
-    Movimiento, Producto, Venta,
+    Cantidad, Cobro, Comision, Dinero, Existencias, IdPresentacion, IdProducto, IdSesion,
+    Inventario, MetodoPago, Movimiento, MovimientoEfectivo, Producto, ResumenCierre, SesionCaja,
+    Venta,
 };
 
 use crate::error::Resultado;
@@ -96,6 +97,8 @@ pub struct VentaConfirmada<'a> {
     /// Siempre en pesos (R-11).
     pub vuelto: Dinero,
     pub descuentos: &'a [DescuentoVenta],
+    /// Sesión de caja a la que pertenece (RF-CAJ-02).
+    pub sesion: IdSesion,
 }
 
 /// Una venta ya cobrada, tal como quedó guardada.
@@ -112,6 +115,11 @@ pub struct VentaRegistrada {
     /// Siempre en pesos (R-11).
     pub vuelto: Dinero,
     pub ocurrido_en: String,
+    /// Sesión de caja a la que pertenece. Vacía en las ventas anteriores a
+    /// que existiera la caja.
+    pub sesion: Option<i64>,
+    pub anulada: bool,
+    pub motivo_anulacion: Option<String>,
 }
 
 /// Un renglón de una venta ya cobrada.
@@ -159,6 +167,72 @@ pub struct ResumenDia {
     pub cuantas: i64,
     pub total: Dinero,
     pub costo_total: Dinero,
+}
+
+/// Sumas de una sesión, tal como las calcula la base.
+///
+/// Van juntas porque se leen de una vez y porque separadas invitan al error
+/// que corrige [`domain::TotalesCaja`]: `efectivo_cup_neto` son billetes y
+/// `total_vendido` es venta. No son la misma cifra.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AcumuladoSesion {
+    /// Ventas confirmadas y no anuladas de la sesión.
+    pub cuantas_ventas: i64,
+    pub total_vendido: Dinero,
+    /// Costo congelado de lo vendido.
+    pub costo_vendido: Dinero,
+    pub transferencia: Dinero,
+    /// Dólares recibidos, en dólares.
+    pub efectivo_usd: Dinero,
+    /// Equivalente en pesos de esos dólares, con la tasa de cada venta.
+    pub efectivo_usd_en_cup: Dinero,
+    /// Billetes de peso que entraron menos el vuelto devuelto.
+    pub efectivo_cup_neto: Dinero,
+    /// Entradas de efectivo ajenas a la venta.
+    pub entradas: Dinero,
+    /// Salidas de efectivo ajenas a la venta.
+    pub salidas: Dinero,
+    /// Costo de la mercancía dada de baja por merma durante la sesión.
+    pub merma_costo: Dinero,
+}
+
+/// Un movimiento de efectivo ya registrado.
+#[derive(Debug, Clone)]
+pub struct MovimientoEfectivoRegistrado {
+    pub id: i64,
+    pub movimiento: MovimientoEfectivo,
+    pub ocurrido_en: String,
+}
+
+/// Una sesión de caja tal como está guardada.
+#[derive(Debug, Clone)]
+pub struct SesionRegistrada {
+    pub sesion: SesionCaja,
+    pub abierta_en: String,
+    pub cerrada_en: Option<String>,
+}
+
+/// El cierre de una sesión, listo para guardarse congelado.
+///
+/// Todo llega calculado. La infraestructura no hace aritmética de dinero:
+/// escribe lo que el dominio decidió, y a partir de ahí es inmutable
+/// (RF-CAJ-08).
+#[derive(Debug, Clone)]
+pub struct CierreConfirmado {
+    pub sesion: IdSesion,
+    pub resumen: ResumenCierre,
+    pub costo_vendido: Dinero,
+    pub merma_costo: Dinero,
+    pub comision: Comision,
+}
+
+/// Datos con que se anula una venta (RF-VTA-15).
+#[derive(Debug, Clone)]
+pub struct AnulacionConfirmada<'a> {
+    pub venta: i64,
+    pub motivo: String,
+    /// Devoluciones a vitrina, con su asiento de reversa.
+    pub reversas: &'a [DescuentoVenta],
 }
 
 /// Acceso al catálogo de productos y a su inventario.
@@ -233,6 +307,53 @@ pub trait RepositorioProducto {
 
     /// Cuánto se lleva vendido hoy, según el reloj de la máquina.
     fn resumen_de_hoy(&self) -> Resultado<ResumenDia>;
+
+    /// Anula una venta y devuelve la mercancía a vitrina (RF-VTA-15).
+    ///
+    /// La reversa del inventario y la marca de anulada entran en la misma
+    /// operación: una venta marcada sin devolver la mercancía deja la
+    /// vitrina mintiendo.
+    fn anular_venta(&self, anulacion: &AnulacionConfirmada<'_>) -> Resultado<()>;
+
+    // ----------------------------------------------------- caja (RF-CAJ)
+
+    /// Abre una sesión de caja y devuelve su identificador.
+    ///
+    /// Falla si ya hay otra abierta: la unicidad la impone un índice de la
+    /// base, no una comprobación previa que dos procesos podrían saltarse a
+    /// la vez.
+    fn abrir_sesion(&self, sesion: &SesionCaja) -> Resultado<IdSesion>;
+
+    /// Devuelve la sesión abierta, si la hay.
+    fn sesion_abierta(&self) -> Resultado<Option<SesionRegistrada>>;
+
+    /// Devuelve una sesión por su identificador.
+    fn sesion(&self, id: IdSesion) -> Resultado<Option<SesionRegistrada>>;
+
+    /// Suma todo lo que lleva una sesión.
+    fn acumulado_de_sesion(&self, id: IdSesion) -> Resultado<AcumuladoSesion>;
+
+    /// Anota una entrada o salida de efectivo (RF-CAJ-03).
+    fn registrar_movimiento_efectivo(
+        &self,
+        sesion: IdSesion,
+        movimiento: &MovimientoEfectivo,
+    ) -> Resultado<()>;
+
+    /// Movimientos de efectivo de una sesión, del más reciente al más viejo.
+    fn movimientos_efectivo(
+        &self,
+        sesion: IdSesion,
+    ) -> Resultado<Vec<MovimientoEfectivoRegistrado>>;
+
+    /// Cierra la sesión guardando sus cifras congeladas (RF-CAJ-08).
+    fn cerrar_sesion(&self, cierre: &CierreConfirmado) -> Resultado<()>;
+
+    /// Lista las sesiones cerradas, de la más reciente a la más antigua.
+    fn listar_sesiones(&self, limite: usize) -> Resultado<Vec<SesionRegistrada>>;
+
+    /// Devuelve el cierre congelado de una sesión ya cerrada.
+    fn cierre_de_sesion(&self, id: IdSesion) -> Resultado<Option<CierreConfirmado>>;
 
     /// Lee un ajuste del negocio, como la tasa de cambio vigente.
     fn configuracion(&self, clave: &str) -> Resultado<Option<String>>;
