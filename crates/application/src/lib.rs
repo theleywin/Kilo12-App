@@ -20,6 +20,7 @@ pub mod sku;
 pub use error::{ErrorAplicacion, Resultado};
 pub use margen::Margen;
 pub use puertos::{
-    Asiento, CambioDePrecio, CambioRegistrado, MovimientoRegistrado, ProductoConInventario,
-    RepositorioProducto,
+    Asiento, CambioDePrecio, CambioRegistrado, DescuentoVenta, DetalleVenta, LineaRegistrada,
+    MovimientoRegistrado, PagoRegistrado, ProductoConInventario, RepositorioProducto, ResumenDia,
+    VentaConfirmada, VentaRegistrada,
 };
