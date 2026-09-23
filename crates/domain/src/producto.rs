@@ -190,6 +190,75 @@ impl Producto {
         Ok(())
     }
 
+    /// Cambia el nombre del producto (RF-CAT-05).
+    pub fn renombrar(&mut self, nombre: impl Into<String>) -> Result<(), ErrorDominio> {
+        let nombre = nombre.into();
+        if nombre.trim().is_empty() {
+            return Err(ErrorDominio::TextoObligatorio("nombre del producto"));
+        }
+        self.nombre = nombre;
+        Ok(())
+    }
+
+    /// Cambia el precio de una de sus presentaciones (RF-PRE-01).
+    ///
+    /// El precio vive en la presentación, no en el producto: la lata suelta
+    /// y el paquete de seis valen cosas distintas y sus precios no se
+    /// derivan uno del otro (RF-PRS-04).
+    pub fn cambiar_precio(
+        &mut self,
+        id: IdPresentacion,
+        precio: Dinero,
+    ) -> Result<(), ErrorDominio> {
+        self.presentacion_mut(id)?.cambiar_precio(precio)
+    }
+
+    /// Retira una presentación de la venta sin borrarla (RF-PRS-15).
+    ///
+    /// Nunca deja al producto sin ninguna forma de venderse: un producto
+    /// sin presentaciones activas es un producto invendible (RF-PRS-03).
+    pub fn desactivar_presentacion(&mut self, id: IdPresentacion) -> Result<(), ErrorDominio> {
+        let quedan = self
+            .presentaciones_activas()
+            .filter(|p| p.id() != Some(id))
+            .count();
+
+        if quedan == 0 {
+            return Err(ErrorDominio::UltimaPresentacion);
+        }
+
+        self.presentacion_mut(id)?.desactivar();
+        Ok(())
+    }
+
+    /// Elige qué presentación usa la venta rápida (RF-PRS-08).
+    ///
+    /// Solo puede haber una: marcar una desmarca la anterior.
+    pub fn marcar_predeterminada(&mut self, id: IdPresentacion) -> Result<(), ErrorDominio> {
+        if self.presentacion(id).is_none() {
+            return Err(ErrorDominio::PresentacionNoEncontrada);
+        }
+
+        for presentacion in &mut self.presentaciones {
+            let elegida = presentacion.id() == Some(id);
+            presentacion.establecer_predeterminada(elegida);
+        }
+
+        Ok(())
+    }
+
+    /// Vuelve a poner el producto a la venta.
+    pub fn activar(&mut self) {
+        self.activo = true;
+    }
+
+    fn presentacion_mut(&mut self, id: IdPresentacion) -> Result<&mut Presentacion, ErrorDominio> {
+        self.presentaciones
+            .iter_mut()
+            .find(|p| p.id() == Some(id))
+            .ok_or(ErrorDominio::PresentacionNoEncontrada)
+    }
+
     /// Desactiva el producto en lugar de borrarlo (RF-CAT-06).
     ///
     /// Su historial de movimientos y ventas debe seguir siendo consultable.
