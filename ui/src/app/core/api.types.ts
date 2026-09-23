@@ -278,6 +278,8 @@ export interface VentaHechaDto {
 export interface VentaListadaDto {
   readonly id: number;
   readonly folio: number;
+  /** Se anuló: sigue en el historial pero no cuenta para nada. */
+  readonly anulada: boolean;
   readonly total: string;
   /** Total menos el costo congelado al cobrar. */
   readonly ganancia: string;
@@ -328,6 +330,8 @@ export interface PagoHechoDto {
 export interface VentaDetalladaDto {
   readonly id: number;
   readonly folio: number;
+  readonly anulada: boolean;
+  readonly motivoAnulacion: string | null;
   readonly total: string;
   readonly costoTotal: string;
   readonly ganancia: string;
@@ -338,6 +342,100 @@ export interface VentaDetalladaDto {
   readonly hora: string;
   readonly lineas: readonly LineaVendidaDto[];
   readonly pagos: readonly PagoHechoDto[];
+}
+
+/** Desglose de la venta de una sesión por forma de pago. */
+export interface DesgloseVentaDto {
+  readonly efectivoCup: string;
+  readonly transferencia: string;
+  /** Dólares recibidos, en dólares. */
+  readonly efectivoUsd: string;
+  readonly efectivoUsdEnCup: string;
+  /** Efectivo más transferencia. */
+  readonly totalEnPesos: string;
+  /** Con los dólares convertidos y sumados. */
+  readonly totalConsolidado: string;
+}
+
+/** Un movimiento de efectivo ajeno a la venta. */
+export interface MovimientoEfectivoListadoDto {
+  readonly id: number;
+  /** `ENTRADA` o `SALIDA`. */
+  readonly tipo: string;
+  readonly tipoNombre: string;
+  readonly suma: boolean;
+  readonly importe: string;
+  readonly motivo: string;
+  readonly ocurridoEn: string;
+  readonly hora: string;
+}
+
+/** La caja tal como está ahora mismo. */
+export interface EstadoCajaDto {
+  readonly id: number;
+  readonly operador: string;
+  readonly abiertaEn: string;
+  readonly fondoInicial: string;
+  readonly cuantasVentas: number;
+  readonly desglose: DesgloseVentaDto;
+  readonly entradas: string;
+  readonly salidas: string;
+  /** Billetes de peso que debería haber ahora (RF-CAJ-04). */
+  readonly efectivoEsperado: string;
+  /** Dólares que debería haber, en dólares. */
+  readonly dolaresEsperados: string;
+  readonly movimientos: readonly MovimientoEfectivoListadoDto[];
+}
+
+/** El arqueo de una moneda. */
+export interface ArqueoDto {
+  readonly esperado: string;
+  readonly contado: string;
+  /** Positiva es sobrante; negativa, faltante. */
+  readonly diferencia: string;
+  readonly cuadra: boolean;
+  readonly sobra: boolean;
+}
+
+/** El resumen económico de la sesión (RF-CAJ-10). */
+export interface ResumenEconomicoDto {
+  readonly ventaTotal: string;
+  readonly costoVendido: string;
+  readonly merma: string;
+  readonly gananciaBruta: string;
+  readonly comisionPorcentaje: string;
+  readonly comision: string;
+  readonly gananciaNeta: string;
+}
+
+/** El cierre de caja, calculado o ya guardado. */
+export interface CierreCalculadoDto {
+  readonly sesion: number;
+  readonly operador: string;
+  readonly abiertaEn: string;
+  readonly cerradaEn: string | null;
+  /** `SEPARADO` o `CONSOLIDADO`. */
+  readonly modo: string;
+  readonly fondoInicial: string;
+  /** Billetes que dejaron las ventas: lo entregado menos el vuelto. */
+  readonly ventasEfectivo: string;
+  readonly desglose: DesgloseVentaDto;
+  readonly entradas: string;
+  readonly salidas: string;
+  readonly arqueoCup: ArqueoDto;
+  readonly arqueoUsd: ArqueoDto;
+  readonly cuadra: boolean;
+  readonly economico: ResumenEconomicoDto;
+}
+
+/** Una sesión en el historial. */
+export interface SesionListadaDto {
+  readonly id: number;
+  readonly operador: string;
+  readonly abiertaEn: string;
+  readonly cerradaEn: string | null;
+  readonly fecha: string;
+  readonly abierta: boolean;
 }
 
 /** Las tres formas de pagar (RF-VTA-09). */
@@ -384,3 +482,29 @@ export const UNIDADES_GRANEL: ReadonlyArray<{ valor: string; nombre: string }> =
 
 /** Lo que se cuenta de uno en uno. */
 export const UNIDAD_SUELTA = 'unidad';
+
+/** Lo que se manda al previsualizar o confirmar un cierre de caja. */
+export interface CierreCajaPedido {
+  /** Billetes de peso contados físicamente. */
+  readonly contadoCup: string;
+  /** Dólares contados, en dólares. */
+  readonly contadoUsd: string;
+  /** `SEPARADO` o `CONSOLIDADO`. */
+  readonly modo: string;
+}
+
+/** Un renglón del recuento de billetes. */
+export interface LineaConteoDto {
+  /** Valor del billete, en pesos enteros. */
+  readonly denominacion: number;
+  readonly cuantos: number;
+  /** Lo que suman esos billetes. */
+  readonly importe: string;
+}
+
+/** El recuento de billetes, ya sumado por el núcleo. */
+export interface ConteoCalculadoDto {
+  readonly lineas: readonly LineaConteoDto[];
+  readonly total: string;
+  readonly cuantosBilletes: number;
+}
