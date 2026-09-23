@@ -3,10 +3,10 @@
    El orden importa: primero los valores, luego los elementos crudos, y
    al final las piezas que los usan.
 
-   Los colores de la marca salen del logo (docs/logo.jpeg), muestreados
-   del archivo, no elegidos a ojo:
-     verde oliva  #687501  → acción y navegación
-     naranja      #EB8401  → lo que exige atención */
+   Los colores de la marca salen del logotipo vectorial
+   (docs/logotipo.svg), que es el arte original:
+     verde oliva  #537502  → acción y navegación
+     naranja      #D87306  → lo que exige atención */
 
 @import './estilos/fichas.css';
 @import './estilos/base.css';

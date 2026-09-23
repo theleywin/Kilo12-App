@@ -7,18 +7,21 @@
 
 :root {
   /* ------------------------------------------------------ marca
-     Muestreados del logo (docs/logo.jpeg), no elegidos a ojo. */
-  --marca-verde: #687501;
-  --marca-naranja: #eb8401;
+     Tomados del logotipo vectorial (docs/logotipo.svg), que es el arte
+     original. Los primeros valores salieron de muestrear el JPEG y eran
+     aproximados: el mapa de bits ya venía comprimido. */
+  --marca-verde: #537502;
+  --marca-naranja: #d87306;
 
   /* ------------------------------------------------------------ color
      Nombres por FUNCIÓN, no por aspecto: «acento», no «verde». El día que
      la marca cambie, no hay que renombrar media aplicación.
 
      Contraste medido sobre el fondo claro:
-       verde oliva  5.08:1  → sirve para texto y para botón con letra blanca
-       naranja      2.68:1  → NO sirve para texto ni con letra blanca encima
-     Por eso el naranja es siempre relleno con tinta oscura. */
+       verde oliva  5.37:1  → sirve para texto y para botón con letra blanca
+       naranja      3.29:1  → vale para texto GRANDE, no para texto normal
+     Por eso el naranja es relleno con tinta oscura, y cuando tiene que ser
+     texto pequeño se usa `--destaque-texto`. */
   --fondo: #ffffff;
   --superficie: #f7f8f3;
   --superficie-fuerte: #eef0e4;
@@ -30,15 +33,15 @@
 
   /* Acento: acción y navegación. Es el verde de la bolsa del logo. */
   --acento: var(--marca-verde);
-  --acento-hundido: #545e01;
+  --acento-hundido: #425d02;
   --acento-suave: #f0f3e0;
   --acento-tinta: #ffffff;
-  --acento-halo: rgba(104, 117, 1, 0.3);
+  --acento-halo: rgba(83, 117, 2, 0.3);
 
   /* Destaque: lo que tiene que llamarte. El círculo naranja del logo.
      SIEMPRE con tinta oscura encima, nunca blanca. */
   --destaque: var(--marca-naranja);
-  --destaque-hundido: #c56f00;
+  --destaque-hundido: #bd6405;
   --destaque-suave: #fdf1e0;
   --destaque-tinta: #2b1a00;
   /* Versión oscurecida, para cuando el naranja tiene que ser TEXTO y el
