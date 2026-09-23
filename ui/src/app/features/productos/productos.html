@@ -1,9 +1,9 @@
-<section class="pagina">
+<section class="pagina pagina--ancha">
   <header class="cabecera-pagina">
     <h1>Productos</h1>
     <p class="descripcion">
-      Qué vendes, a cuánto lo compras y a cuánto lo vendes. Al dar de alta un producto puedes
-      registrar de una vez la mercancía que ya tienes.
+      Todo lo que vendes, con lo que te cuesta y lo que te deja. Los productos se crean solos
+      cuando su mercancía llega al almacén.
     </p>
   </header>
 
@@ -19,206 +19,27 @@
     </div>
   }
 
-  <form class="panel" [formGroup]="formulario" (ngSubmit)="guardar()">
-    <div class="panel__cabecera">
-      <span class="panel__titulo">Agregar producto</span>
+  @if (enRiesgo > 0) {
+    <div class="aviso aviso--atencion">
+      <span>
+        <strong>{{ enRiesgo }}</strong>
+        {{ enRiesgo === 1 ? 'producto se vende' : 'productos se venden' }} por debajo de lo que
+        cuesta. Revisa el precio o el costo de la última compra.
+      </span>
     </div>
+  }
 
-    <div class="panel__cuerpo pila-larga">
-      <!-- ============================================= qué es -->
-      <div class="bloque">
-        <span class="bloque__titulo">Qué es</span>
-        <div class="rejilla">
-          <div class="campo campo--ancho">
-            <label for="nombre">Nombre</label>
-            <input
-              id="nombre"
-              formControlName="nombre"
-              autocomplete="off"
-              placeholder="Arroz blanco"
-            />
-          </div>
-
-          <div class="campo">
-            <label for="sku">Código <span class="opcional">opcional</span></label>
-            <input
-              id="sku"
-              formControlName="sku"
-              autocomplete="off"
-              placeholder="Se genera del nombre"
-            />
-            <span class="pista">Sirve para encontrarlo rápido al vender.</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- ====================================== cómo se vende -->
-      <div class="bloque">
-        <span class="bloque__titulo">Cómo se vende</span>
-        <div class="campo">
-          <div class="segmento">
-            <button type="button" [attr.aria-pressed]="!porPeso" (click)="elegirForma(false)">
-              Por unidad
-            </button>
-            <button type="button" [attr.aria-pressed]="porPeso" (click)="elegirForma(true)">
-              Por peso o volumen
-            </button>
-          </div>
-        </div>
-
-        @if (porPeso) {
-          <div class="campo">
-            <label>¿En qué se mide?</label>
-            <div class="segmento">
-              @for (opcion of unidades; track opcion.valor) {
-                <button
-                  type="button"
-                  [attr.aria-pressed]="unidadElegida === opcion.valor"
-                  (click)="elegirUnidad(opcion.valor)"
-                >
-                  {{ opcion.nombre }}
-                </button>
-              }
-            </div>
-            <span class="pista">
-              Podrás vender cantidades con decimales: 1.5, 0.750, lo que haga falta.
-            </span>
-          </div>
-        } @else {
-          <span class="pista">
-            Se vende de uno en uno. En la venta no se admiten decimales: no existe media lata.
-          </span>
-        }
-      </div>
-
-      <!-- ========================================== el dinero -->
-      <div class="bloque">
-        <span class="bloque__titulo">El dinero</span>
-        <div class="rejilla">
-          <div class="campo">
-            <label for="costo">Costo <span class="opcional">por {{ simbolo() }}</span></label>
-            <input
-              id="costo"
-              class="control--cifra"
-              formControlName="costo"
-              inputmode="decimal"
-              placeholder="120.00"
-            />
-            <span class="pista">Lo que te cuesta a ti.</span>
-          </div>
-
-          <div class="campo">
-            <label for="precio">Precio de venta <span class="opcional">por {{ simbolo() }}</span></label>
-            <input
-              id="precio"
-              class="control--cifra"
-              formControlName="precio"
-              inputmode="decimal"
-              placeholder="180.00"
-            />
-            <span class="pista">Lo que paga el cliente.</span>
-          </div>
-        </div>
-
-        @if (margen(); as calculo) {
-          <div class="margen" [class.margen--riesgo]="calculo.enRiesgo">
-            @if (calculo.enRiesgo) {
-              <strong>Cuidado: pierdes {{ calculo.ganancia }} por {{ simbolo() }}.</strong>
-              <span>El costo se come el precio.</span>
-            } @else {
-              <strong>Ganas {{ calculo.ganancia }} por {{ simbolo() }}.</strong>
-              <span>Margen del {{ calculo.porcentaje }} %.</span>
-            }
-          </div>
-        }
-      </div>
-
-      <!-- ====================================== cuánto tienes -->
-      <div class="bloque">
-        <span class="bloque__titulo">Cuánto tienes ahora</span>
-        <div class="rejilla">
-          <div class="campo">
-            <label for="almacen">Entra al almacén</label>
-            <input
-              id="almacen"
-              class="control--cifra"
-              formControlName="cantidadAlmacen"
-              inputmode="decimal"
-              placeholder="0"
-            />
-            <span class="pista">Lo guardado en la bodega.</span>
-          </div>
-
-          <div class="campo">
-            <label for="vitrina">Va a la vitrina</label>
-            <input
-              id="vitrina"
-              class="control--cifra"
-              formControlName="cantidadVitrina"
-              inputmode="decimal"
-              placeholder="0"
-            />
-            <span class="pista">Lo que queda exhibido para vender.</span>
-          </div>
-        </div>
-
-        @if (hayMercancia()) {
-          <span class="pista pista--fuerte">
-            Como entra mercancía, el costo es obligatorio: sin él, el inventario valdría cero y
-            toda venta parecería ganancia pura.
-          </span>
-        } @else {
-          <span class="pista">
-            Puedes dejarlo en blanco y registrar la mercancía más tarde desde Almacén.
-          </span>
-        }
-      </div>
-
-      <!-- =========================================== los avisos -->
-      <div class="bloque">
-        <span class="bloque__titulo">Avisos <span class="opcional">opcional</span></span>
-        <div class="rejilla">
-          <div class="campo">
-            <label for="minimo">Avísame si quedan menos de</label>
-            <input
-              id="minimo"
-              class="control--cifra"
-              formControlName="stockMinimo"
-              inputmode="decimal"
-              placeholder="0"
-            />
-            <span class="pista">Para comprar antes de quedarte sin nada.</span>
-          </div>
-
-          <div class="campo">
-            <label for="objetivo">Quiero tener en vitrina</label>
-            <input
-              id="objetivo"
-              class="control--cifra"
-              formControlName="objetivoVitrina"
-              inputmode="decimal"
-              placeholder="0"
-            />
-            <span class="pista">Se usa para sugerirte qué reponer.</span>
-          </div>
-        </div>
-      </div>
-
-      <div class="fila">
-        <button type="submit" class="boton" [disabled]="guardando()">
-          {{ guardando() ? 'Guardando…' : 'Agregar producto' }}
-        </button>
-      </div>
-    </div>
-  </form>
-
-  <!-- ============================================== el catálogo -->
-  <div class="panel panel--lista">
+  <div class="panel">
     <div class="panel__cabecera">
       <span class="panel__titulo">Catálogo</span>
-      @if (productos().length) {
-        <span class="apagado">{{ productos().length }} productos</span>
-      }
+      <div class="fila">
+        @if (productos().length) {
+          <span class="apagado nota">{{ productos().length }} productos</span>
+        }
+        <a class="boton boton--secundario" routerLink="/almacen">
+          Recibir mercancía <kbd class="tecla">F3</kbd>
+        </a>
+      </div>
     </div>
 
     <div class="tabla-envoltorio">
@@ -230,9 +51,9 @@
             <th>Se vende por</th>
             <th class="derecha">Costo</th>
             <th class="derecha">Precio</th>
+            <th class="derecha">Ganancia</th>
             <th class="derecha">Margen</th>
-            <th class="derecha">Almacén</th>
-            <th class="derecha">Vitrina</th>
+            <th class="derecha">Existencia</th>
             <th>Estado</th>
           </tr>
         </thead>
@@ -244,6 +65,9 @@
               <td class="apagado">{{ producto.unidadNombre }}</td>
               <td class="derecha cifra">{{ producto.costo }}</td>
               <td class="derecha cifra">{{ producto.precio }}</td>
+              <td class="derecha cifra" [class.cifra--negativa]="producto.enRiesgo">
+                {{ producto.ganancia }}
+              </td>
               <td
                 class="derecha cifra"
                 [class.cifra--negativa]="producto.enRiesgo"
@@ -251,17 +75,14 @@
               >
                 {{ producto.margen }}
               </td>
-              <td class="derecha cifra">{{ producto.enAlmacen }}</td>
-              <td class="derecha cifra">{{ producto.enVitrina }}</td>
+              <td class="derecha cifra">{{ producto.existenciaTotal }}</td>
               <td>
                 @if (producto.enRiesgo) {
                   <span class="etiqueta etiqueta--error">Pierdes dinero</span>
                 } @else if (producto.agotado) {
                   <span class="etiqueta">Sin existencia</span>
                 } @else if (producto.bajoMinimo) {
-                  <span class="etiqueta etiqueta--atencion">
-                    Quedan {{ producto.existenciaTotal }} {{ producto.unidadBase }}
-                  </span>
+                  <span class="etiqueta etiqueta--atencion">Por agotarse</span>
                 } @else {
                   <span class="etiqueta etiqueta--acento">Normal</span>
                 }
@@ -274,11 +95,12 @@
                   @if (cargando()) {
                     <span class="vacio__titulo">Cargando…</span>
                   } @else {
-                    <span class="vacio__titulo">Todavía no hay productos</span>
+                    <span class="vacio__titulo">Todavía no vendes nada</span>
                     <span class="vacio__texto">
-                      Agrega el primero con el formulario de arriba. Basta con el nombre y el
-                      precio: el código se genera solo.
+                      Los productos se crean cuando su mercancía llega. Ve a Almacén, escribe qué
+                      llegó y a cuánto lo compraste.
                     </span>
+                    <a class="boton" routerLink="/almacen">Recibir mercancía</a>
                   }
                 </div>
               </td>
