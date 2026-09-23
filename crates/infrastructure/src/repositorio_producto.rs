@@ -7,15 +7,16 @@ use std::sync::Arc;
 
 use application::error::Resultado;
 use application::puertos::{
-    Asiento, CambioDePrecio, CambioRegistrado, MovimientoRegistrado, ProductoConInventario,
-    RepositorioProducto,
+    Asiento, CambioDePrecio, CambioRegistrado, DetalleVenta, LineaRegistrada, MovimientoRegistrado,
+    PagoRegistrado, ProductoConInventario, RepositorioProducto, ResumenDia, VentaConfirmada,
+    VentaRegistrada,
 };
 use domain::{
-    Cantidad, Dinero, Existencias, IdPresentacion, IdProducto, Inventario, Movimiento,
+    Cantidad, Dinero, Existencias, IdPresentacion, IdProducto, Inventario, MetodoPago, Movimiento,
     Presentacion, Producto, TipoMovimiento, Ubicacion, UnidadBase,
 };
 
-use rusqlite::{params, Connection, Transaction};
+use rusqlite::{params, Connection, Row, Transaction};
 
 use crate::conexion::BaseDatos;
 use crate::error::{ErrorInfra, ResultadoInfra};
@@ -48,7 +49,7 @@ impl RepositorioProducto for RepositorioProductoSqlite {
                 "INSERT INTO producto
                    (sku, nombre, unidad_base, valor_total,
                     stock_minimo, objetivo_vitrina, activo, creado_en)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, datetime('now'))",
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, datetime('now', 'localtime'))",
                 params![
                     producto.sku(),
                     producto.nombre(),
@@ -251,7 +252,7 @@ impl RepositorioProducto for RepositorioProductoSqlite {
                 tx.execute(
                     "INSERT INTO historial_precio
                        (producto_id, presentacion_id, anterior, nuevo, cambiado_en)
-                     VALUES (?1, ?2, ?3, ?4, datetime('now'))",
+                     VALUES (?1, ?2, ?3, ?4, datetime('now', 'localtime'))",
                     params![
                         id.0,
                         cambio.presentacion.0,
@@ -320,6 +321,255 @@ impl RepositorioProducto for RepositorioProductoSqlite {
         Ok(productos)
     }
 
+    fn registrar_venta(&self, confirmada: &VentaConfirmada<'_>) -> Resultado<i64> {
+        let VentaConfirmada {
+            venta,
+            cobro,
+            total,
+            costo_total,
+            vuelto,
+            descuentos,
+        } = confirmada;
+
+        let folio = self.base.en_transaccion(|tx| {
+            // El folio se calcula dentro de la transacción: dos cajas no
+            // pueden sacar el mismo número (RF-VTA-17).
+            let folio: i64 = tx.query_row(
+                "SELECT COALESCE(MAX(folio), 0) + 1 FROM venta",
+                [],
+                |fila| fila.get(0),
+            )?;
+
+            tx.execute(
+                "INSERT INTO venta (folio, total, costo_total, vuelto, ocurrido_en)
+                 VALUES (?1, ?2, ?3, ?4, datetime('now', 'localtime'))",
+                params![
+                    folio,
+                    total.millonesimas(),
+                    costo_total.millonesimas(),
+                    vuelto.millonesimas(),
+                ],
+            )?;
+
+            let id_venta = tx.last_insert_rowid();
+
+            for linea in venta.lineas() {
+                tx.execute(
+                    "INSERT INTO venta_linea
+                       (venta_id, producto_id, presentacion_id, nombre_producto,
+                        nombre_presentacion, cantidad, factor, precio, costo_unitario)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                    params![
+                        id_venta,
+                        linea.producto().0,
+                        linea.presentacion().0,
+                        linea.nombre_producto(),
+                        linea.nombre_presentacion(),
+                        linea.cantidad().milesimas(),
+                        linea.factor().milesimas(),
+                        linea.precio().millonesimas(),
+                        linea.costo_unitario_base().millonesimas(),
+                    ],
+                )?;
+            }
+
+            for pago in cobro.pagos() {
+                tx.execute(
+                    "INSERT INTO venta_pago (venta_id, metodo, entregado, tasa, equivalente_cup)
+                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![
+                        id_venta,
+                        pago.metodo().como_texto(),
+                        pago.entregado().millonesimas(),
+                        pago.tasa().map(|t| t.cup_por_usd().millonesimas()),
+                        pago.equivalente_cup().millonesimas(),
+                    ],
+                )?;
+            }
+
+            // La mercancía sale de la vitrina y cada salida deja su asiento.
+            for descuento in descuentos.iter() {
+                tx.execute(
+                    "UPDATE producto SET valor_total = ?2 WHERE id = ?1",
+                    params![
+                        descuento.producto.0,
+                        descuento.inventario.valor_total().millonesimas()
+                    ],
+                )?;
+
+                for ubicacion in Ubicacion::TODAS {
+                    tx.execute(
+                        "UPDATE existencia SET cantidad = ?3
+                         WHERE producto_id = ?1 AND ubicacion = ?2",
+                        params![
+                            descuento.producto.0,
+                            ubicacion.como_texto(),
+                            descuento.inventario.existencias().en(ubicacion).milesimas(),
+                        ],
+                    )?;
+                }
+
+                escribir_movimiento(
+                    tx,
+                    descuento.producto.0,
+                    &descuento.movimiento,
+                    descuento.inventario.existencias(),
+                )?;
+            }
+
+            Ok(folio)
+        })?;
+
+        Ok(folio)
+    }
+
+    fn listar_ventas(&self, limite: usize) -> Resultado<Vec<VentaRegistrada>> {
+        let ventas = self.base.con(|conexion| {
+            let mut consulta = conexion.prepare(
+                "SELECT id, folio, total, costo_total, vuelto, ocurrido_en
+                 FROM venta
+                 ORDER BY folio DESC
+                 LIMIT ?1",
+            )?;
+
+            let mut filas = consulta.query(params![limite as i64])?;
+            let mut ventas = Vec::new();
+
+            while let Some(fila) = filas.next()? {
+                ventas.push(leer_venta(fila)?);
+            }
+
+            Ok(ventas)
+        })?;
+
+        Ok(ventas)
+    }
+
+    fn detalle_venta(&self, id: i64) -> Resultado<Option<DetalleVenta>> {
+        let detalle = self.base.con(|conexion| {
+            let mut cabecera = conexion.prepare(
+                "SELECT id, folio, total, costo_total, vuelto, ocurrido_en
+                 FROM venta WHERE id = ?1",
+            )?;
+
+            let mut filas = cabecera.query(params![id])?;
+            let Some(fila) = filas.next()? else {
+                return Ok(None);
+            };
+            let venta = leer_venta(fila)?;
+
+            let mut consulta_lineas = conexion.prepare(
+                "SELECT producto_id, nombre_producto, nombre_presentacion,
+                        cantidad, factor, precio, costo_unitario
+                 FROM venta_linea
+                 WHERE venta_id = ?1
+                 ORDER BY id",
+            )?;
+
+            let mut filas = consulta_lineas.query(params![id])?;
+            let mut lineas = Vec::new();
+
+            while let Some(fila) = filas.next()? {
+                lineas.push(LineaRegistrada {
+                    producto: IdProducto(fila.get(0)?),
+                    nombre_producto: fila.get(1)?,
+                    nombre_presentacion: fila.get(2)?,
+                    cantidad: Cantidad::desde_milesimas(fila.get(3)?),
+                    factor: Cantidad::desde_milesimas(fila.get(4)?),
+                    precio: Dinero::desde_millonesimas(fila.get(5)?),
+                    costo_unitario: Dinero::desde_millonesimas(fila.get(6)?),
+                });
+            }
+
+            let mut consulta_pagos = conexion.prepare(
+                "SELECT metodo, entregado, tasa, equivalente_cup
+                 FROM venta_pago
+                 WHERE venta_id = ?1
+                 ORDER BY id",
+            )?;
+
+            let mut filas = consulta_pagos.query(params![id])?;
+            let mut pagos = Vec::new();
+
+            while let Some(fila) = filas.next()? {
+                let metodo: String = fila.get(0)?;
+                let metodo = metodo.parse::<MetodoPago>().map_err(|_| {
+                    ErrorInfra::DatoCorrupto(format!("método de pago desconocido: {metodo}"))
+                })?;
+
+                pagos.push(PagoRegistrado {
+                    metodo,
+                    entregado: Dinero::desde_millonesimas(fila.get(1)?),
+                    tasa: fila
+                        .get::<_, Option<i64>>(2)?
+                        .map(Dinero::desde_millonesimas),
+                    equivalente_cup: Dinero::desde_millonesimas(fila.get(3)?),
+                });
+            }
+
+            Ok(Some(DetalleVenta {
+                venta,
+                lineas,
+                pagos,
+            }))
+        })?;
+
+        Ok(detalle)
+    }
+
+    fn resumen_de_hoy(&self) -> Resultado<ResumenDia> {
+        let resumen = self.base.con(|conexion| {
+            // El corte del día lo decide la base con su propio reloj. Si lo
+            // calculara Rust tendría que saber en qué huso está la tienda, y
+            // la tienda está exactamente donde está esta máquina.
+            let resumen = conexion.query_row(
+                "SELECT COUNT(*), COALESCE(SUM(total), 0), COALESCE(SUM(costo_total), 0)
+                 FROM venta
+                 WHERE date(ocurrido_en) = date('now', 'localtime')",
+                [],
+                |fila| {
+                    Ok(ResumenDia {
+                        cuantas: fila.get(0)?,
+                        total: Dinero::desde_millonesimas(fila.get(1)?),
+                        costo_total: Dinero::desde_millonesimas(fila.get(2)?),
+                    })
+                },
+            )?;
+
+            Ok(resumen)
+        })?;
+
+        Ok(resumen)
+    }
+
+    fn configuracion(&self, clave: &str) -> Resultado<Option<String>> {
+        let valor = self.base.con(|conexion| {
+            let mut consulta =
+                conexion.prepare("SELECT valor FROM configuracion WHERE clave = ?1")?;
+            let mut filas = consulta.query(params![clave])?;
+
+            match filas.next()? {
+                Some(fila) => Ok(Some(fila.get::<_, String>(0)?)),
+                None => Ok(None),
+            }
+        })?;
+
+        Ok(valor)
+    }
+
+    fn guardar_configuracion(&self, clave: &str, valor: &str) -> Resultado<()> {
+        self.base.con(|conexion| {
+            conexion.execute(
+                "INSERT INTO configuracion (clave, valor) VALUES (?1, ?2)
+                 ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor",
+                params![clave, valor],
+            )?;
+            Ok(())
+        })?;
+
+        Ok(())
+    }
+
     fn existe_sku(&self, sku: &str) -> Resultado<bool> {
         let existe = self.base.con(|conexion| {
             let total: i64 = conexion.query_row(
@@ -332,6 +582,21 @@ impl RepositorioProducto for RepositorioProductoSqlite {
 
         Ok(existe)
     }
+}
+
+/// Lee la cabecera de una venta.
+///
+/// Las columnas van en el mismo orden en las dos consultas que la usan; si
+/// una cambia, cambian las dos.
+fn leer_venta(fila: &Row<'_>) -> ResultadoInfra<VentaRegistrada> {
+    Ok(VentaRegistrada {
+        id: fila.get(0)?,
+        folio: fila.get(1)?,
+        total: Dinero::desde_millonesimas(fila.get(2)?),
+        costo_total: Dinero::desde_millonesimas(fila.get(3)?),
+        vuelto: Dinero::desde_millonesimas(fila.get(4)?),
+        ocurrido_en: fila.get(5)?,
+    })
 }
 
 /// Escribe un asiento del kárdex.
@@ -349,7 +614,7 @@ fn escribir_movimiento(
         "INSERT INTO movimiento
            (producto_id, tipo, origen, destino, cantidad, costo_unitario,
             bodega_resultante, vitrina_resultante, motivo, ocurrido_en)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, datetime('now'))",
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, datetime('now', 'localtime'))",
         params![
             producto_id,
             movimiento.tipo().como_texto(),
