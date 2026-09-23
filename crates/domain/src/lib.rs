@@ -31,12 +31,15 @@ pub mod pago;
 pub mod porcentaje;
 pub mod presentacion;
 pub mod producto;
+pub mod sesion_caja;
 pub mod tasa_cambio;
 pub mod ubicacion;
 pub mod unidad;
 pub mod venta;
 
-pub use caja::{ArqueoMoneda, ModoCierre, ResumenCierre, TotalesCaja};
+pub use caja::{
+    contar_billetes, ArqueoMoneda, ModoCierre, ResumenCierre, TotalesCaja, DENOMINACIONES_CUP,
+};
 pub use cantidad::Cantidad;
 pub use dinero::Dinero;
 pub use error::ErrorDominio;
@@ -47,6 +50,9 @@ pub use pago::{Cobro, MetodoPago, Moneda, Pago};
 pub use porcentaje::Porcentaje;
 pub use presentacion::{IdPresentacion, Presentacion};
 pub use producto::{IdProducto, Producto};
+pub use sesion_caja::{
+    Comision, EstadoSesion, IdSesion, MovimientoEfectivo, SesionCaja, TipoMovimientoEfectivo,
+};
 pub use tasa_cambio::TasaCambio;
 pub use ubicacion::Ubicacion;
 pub use unidad::UnidadBase;
