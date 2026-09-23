@@ -8,8 +8,8 @@ use std::sync::Arc;
 use application::error::Resultado;
 use application::puertos::{ProductoConInventario, RepositorioProducto};
 use domain::{
-    Cantidad, Dinero, Existencias, IdPresentacion, IdProducto, Inventario, Presentacion,
-    Producto, Ubicacion, UnidadBase,
+    Cantidad, Dinero, Existencias, IdPresentacion, IdProducto, Inventario, Presentacion, Producto,
+    Ubicacion, UnidadBase,
 };
 use rusqlite::{params, Connection};
 
@@ -192,8 +192,8 @@ fn leer_fila(
 /// productos escritos antes de que existiera la fila, y negarse a leerlos
 /// sería peor que asumir que no hay nada.
 fn leer_existencias(conexion: &Connection, producto_id: i64) -> ResultadoInfra<Existencias> {
-    let mut consulta = conexion
-        .prepare("SELECT ubicacion, cantidad FROM existencia WHERE producto_id = ?1")?;
+    let mut consulta =
+        conexion.prepare("SELECT ubicacion, cantidad FROM existencia WHERE producto_id = ?1")?;
 
     let mut filas = consulta.query(params![producto_id])?;
     let mut bodega = Cantidad::CERO;

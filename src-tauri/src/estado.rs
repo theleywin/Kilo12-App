@@ -7,7 +7,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use infrastructure::{BaseDatos, ResultadoInfra, RepositorioProductoSqlite};
+use infrastructure::{BaseDatos, RepositorioProductoSqlite, ResultadoInfra};
 
 /// Dependencias vivas mientras la aplicación se ejecuta.
 #[derive(Debug)]

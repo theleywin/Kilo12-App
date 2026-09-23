@@ -78,8 +78,7 @@ const MIGRACIONES: &[&str] = &[
 
 /// Lleva el esquema a la última versión.
 pub fn aplicar(conexion: &Connection) -> ResultadoInfra<()> {
-    let version: i64 =
-        conexion.query_row("PRAGMA user_version", [], |fila| fila.get(0))?;
+    let version: i64 = conexion.query_row("PRAGMA user_version", [], |fila| fila.get(0))?;
     let version = usize::try_from(version).unwrap_or(0);
 
     for (indice, migracion) in MIGRACIONES.iter().enumerate().skip(version) {

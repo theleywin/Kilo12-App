@@ -105,7 +105,10 @@ impl Dinero {
             .checked_mul(Cantidad::FACTOR as i128)
             .ok_or(ErrorDominio::DesbordeAritmetico)?;
 
-        Self::desde_i128(dividir_redondeando(dividendo, cantidad.milesimas() as i128)?)
+        Self::desde_i128(dividir_redondeando(
+            dividendo,
+            cantidad.milesimas() as i128,
+        )?)
     }
 
     /// Aplica un porcentaje expresado en diezmilésimas.
@@ -218,7 +221,11 @@ pub(crate) fn dividir_redondeando(dividendo: i128, divisor: i128) -> Result<i128
         return Ok(cociente);
     }
 
-    let ajuste = if (dividendo < 0) == (divisor < 0) { 1 } else { -1 };
+    let ajuste = if (dividendo < 0) == (divisor < 0) {
+        1
+    } else {
+        -1
+    };
     cociente
         .checked_add(ajuste)
         .ok_or(ErrorDominio::DesbordeAritmetico)
@@ -286,8 +293,7 @@ pub(crate) fn analizar_escalado(texto: &str, escala: u32) -> Result<i64, ErrorDo
     if entera.is_empty() && fraccion.is_empty() {
         return Err(ErrorDominio::TextoNumericoInvalido);
     }
-    if !entera.bytes().all(|b| b.is_ascii_digit())
-        || !fraccion.bytes().all(|b| b.is_ascii_digit())
+    if !entera.bytes().all(|b| b.is_ascii_digit()) || !fraccion.bytes().all(|b| b.is_ascii_digit())
     {
         return Err(ErrorDominio::TextoNumericoInvalido);
     }

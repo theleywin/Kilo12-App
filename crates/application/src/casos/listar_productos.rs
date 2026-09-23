@@ -83,8 +83,7 @@ impl ProductoListado {
             activo: producto.esta_activo(),
             precio: precio.map_or_else(|| SIN_DATO.to_owned(), |p| p.formatear(2)),
             costo: costo.map_or_else(|| SIN_DATO.to_owned(), |c| c.formatear(2)),
-            ganancia: calculo
-                .map_or_else(|| SIN_DATO.to_owned(), |m| m.ganancia.formatear(2)),
+            ganancia: calculo.map_or_else(|| SIN_DATO.to_owned(), |m| m.ganancia.formatear(2)),
             margen: calculo.map_or_else(
                 || SIN_DATO.to_owned(),
                 |m| format!("{} %", m.porcentaje.formatear(1)),

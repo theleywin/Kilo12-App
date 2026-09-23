@@ -173,10 +173,7 @@ impl Producto {
     }
 
     /// Agrega una presentación validándola contra la unidad base.
-    pub fn agregar_presentacion(
-        &mut self,
-        presentacion: Presentacion,
-    ) -> Result<(), ErrorDominio> {
+    pub fn agregar_presentacion(&mut self, presentacion: Presentacion) -> Result<(), ErrorDominio> {
         if !self.unidad_base.admite_fracciones() && !presentacion.factor().es_entera() {
             return Err(ErrorDominio::FactorInvalido);
         }
@@ -227,9 +224,7 @@ impl Producto {
     ///
     /// Es una anomalía comercial —el paquete debería convenir— y suele ser el
     /// síntoma visible de un factor mal capturado (RF-PRS-12, riesgo RI-2).
-    pub fn presentaciones_con_precio_anomalo(
-        &self,
-    ) -> Result<Vec<&Presentacion>, ErrorDominio> {
+    pub fn presentaciones_con_precio_anomalo(&self) -> Result<Vec<&Presentacion>, ErrorDominio> {
         let mut ordenadas: Vec<&Presentacion> = self.presentaciones_activas().collect();
         ordenadas.sort_by_key(|p| p.factor());
 

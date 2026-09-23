@@ -103,15 +103,9 @@ impl fmt::Display for ErrorDominio {
             Self::DivisionPorCero => {
                 f.write_str("No se puede repartir un importe entre cero unidades")
             }
-            Self::CantidadNegativa => {
-                f.write_str("La existencia no puede quedar en negativo")
-            }
-            Self::DineroNegativo => {
-                f.write_str("El importe no puede ser negativo")
-            }
-            Self::CantidadNoPositiva => {
-                f.write_str("La cantidad debe ser mayor que cero")
-            }
+            Self::CantidadNegativa => f.write_str("La existencia no puede quedar en negativo"),
+            Self::DineroNegativo => f.write_str("El importe no puede ser negativo"),
+            Self::CantidadNoPositiva => f.write_str("La cantidad debe ser mayor que cero"),
             Self::SinExistenciaParaCosto => {
                 f.write_str("No se puede calcular el costo de un producto sin existencia")
             }
@@ -127,25 +121,17 @@ impl fmt::Display for ErrorDominio {
             Self::TextoNumericoInvalido => {
                 f.write_str("El valor recibido no es un número decimal válido")
             }
-            Self::PrecisionExcedida => {
-                f.write_str("El valor trae más decimales de los admitidos")
-            }
+            Self::PrecisionExcedida => f.write_str("El valor trae más decimales de los admitidos"),
             Self::CantidadFraccionariaNoPermitida => {
                 f.write_str("Este producto no se vende a granel: la cantidad debe ser entera")
             }
-            Self::FactorInvalido => {
-                f.write_str("El factor de conversión debe ser mayor que cero")
-            }
-            Self::PresentacionDuplicada => {
-                f.write_str("Ya existe una presentación con ese nombre")
-            }
+            Self::FactorInvalido => f.write_str("El factor de conversión debe ser mayor que cero"),
+            Self::PresentacionDuplicada => f.write_str("Ya existe una presentación con ese nombre"),
             Self::UnidadDesconocida => f.write_str("La unidad de medida no es válida"),
             Self::UbicacionDesconocida => f.write_str("La ubicación no es válida"),
             Self::MonedaDesconocida => f.write_str("La moneda no es válida"),
             Self::MetodoPagoDesconocido => f.write_str("El método de pago no es válido"),
-            Self::TasaCambioInvalida => {
-                f.write_str("La tasa de cambio debe ser mayor que cero")
-            }
+            Self::TasaCambioInvalida => f.write_str("La tasa de cambio debe ser mayor que cero"),
             Self::TasaCambioRequerida => {
                 f.write_str("Falta la tasa de cambio para convertir el pago a pesos")
             }

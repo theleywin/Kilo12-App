@@ -214,7 +214,10 @@ fn exige_el_costo_cuando_entra_mercancia() {
 
     assert_eq!(error.codigo(), "COSTO_REQUERIDO");
     assert!(error.es_del_usuario());
-    assert!(catalogo(&repositorio).is_empty(), "no debe quedar nada guardado");
+    assert!(
+        catalogo(&repositorio).is_empty(),
+        "no debe quedar nada guardado"
+    );
 }
 
 #[test]

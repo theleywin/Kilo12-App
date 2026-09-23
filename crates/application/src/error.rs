@@ -18,10 +18,7 @@ pub enum ErrorAplicacion {
     /// El almacenamiento falló. El texto es diagnóstico, no para el usuario.
     Persistencia(String),
     /// No existe la entidad solicitada.
-    NoEncontrado {
-        entidad: &'static str,
-        id: i64,
-    },
+    NoEncontrado { entidad: &'static str, id: i64 },
     /// Ya hay un producto con ese SKU (RF-CAT-02).
     SkuDuplicado(String),
     /// Se agotaron los desempates al derivar un SKU del nombre (RF-CAT-02).

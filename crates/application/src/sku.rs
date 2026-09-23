@@ -171,6 +171,9 @@ mod pruebas {
     fn el_sufijo_tampoco_deja_separador_colgando() {
         // El recorte de la raíz cae justo sobre un separador: no puede
         // quedar «ARROZ-BLANCO-DEL-VAL--10».
-        assert_eq!(con_sufijo("ARROZ-BLANCO-DEL-VAL-X", 10), "ARROZ-BLANCO-DEL-VAL-10");
+        assert_eq!(
+            con_sufijo("ARROZ-BLANCO-DEL-VAL-X", 10),
+            "ARROZ-BLANCO-DEL-VAL-10"
+        );
     }
 }
