@@ -42,6 +42,14 @@ pub fn ejecutar() {
             comandos::marcar_predeterminada,
             comandos::consultar_historial_precios,
             comandos::calcular_precio_para_margen,
+            comandos::catalogo_de_venta,
+            comandos::previsualizar_venta,
+            comandos::calcular_cobro,
+            comandos::vender,
+            comandos::consultar_ventas,
+            comandos::consultar_venta,
+            comandos::consultar_tasa,
+            comandos::fijar_tasa,
         ])
         .run(tauri::generate_context!())
         .expect("no se pudo iniciar Kilo12");
