@@ -1,0 +1,158 @@
+/* Esta pantalla se usa con las manos ocupadas y cajas en el suelo, así que
+   los campos son más grandes que en el resto de la aplicación y hay uno
+   solo en el que empezar. */
+
+.panel--entrada {
+  margin-bottom: var(--e5);
+}
+
+.pila-larga {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e5);
+}
+
+/* La pregunta de arranque manda sobre todo lo demás. */
+.pregunta {
+  font-size: var(--texto-l);
+  font-weight: var(--peso-fuerte);
+  color: var(--tinta);
+}
+
+.buscador {
+  display: flex;
+  gap: var(--e2);
+}
+
+.buscador__campo {
+  flex: 1;
+  height: calc(var(--alto-control) + 8px);
+  padding: 0 var(--e3);
+  border: 1px solid var(--linea);
+  border-radius: var(--radio-s);
+  background: var(--fondo);
+  color: var(--tinta);
+  font-size: var(--texto-l);
+}
+
+.buscador__campo:focus {
+  outline: none;
+  border-color: var(--acento);
+  box-shadow: 0 0 0 3px var(--acento-halo);
+}
+
+.sugerencias {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: var(--e1);
+  padding: var(--e1);
+  border: 1px solid var(--linea);
+  border-radius: var(--radio-s);
+  background: var(--fondo);
+  box-shadow: var(--sombra-1);
+}
+
+.sugerencia {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--e3);
+  padding: var(--e2) var(--e3);
+  border: 0;
+  border-radius: var(--radio-s);
+  background: transparent;
+  color: var(--tinta);
+  font-size: var(--texto-m);
+  text-align: left;
+  cursor: pointer;
+}
+
+.sugerencia:hover {
+  background: var(--acento-suave);
+}
+
+.sugerencia--nueva {
+  border-top: 1px solid var(--linea-suave);
+  color: var(--destaque-texto);
+  font-weight: var(--peso-medio);
+}
+
+.elegido {
+  display: flex;
+  align-items: center;
+  gap: var(--e2);
+  flex-wrap: wrap;
+  margin-top: var(--e2);
+  padding: var(--e2) var(--e3);
+  border-radius: var(--radio-s);
+  border-left: 3px solid var(--acento);
+  background: var(--acento-suave);
+  font-size: var(--texto-s);
+}
+
+.elegido--nuevo {
+  border-left-color: var(--destaque);
+  background: var(--destaque-suave);
+}
+
+/* =================================================== bloques */
+
+.bloque {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e3);
+  padding-top: var(--e4);
+  border-top: 1px solid var(--linea-suave);
+}
+
+.bloque__titulo {
+  font-size: var(--texto-s);
+  font-weight: var(--peso-fuerte);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--acento);
+}
+
+/* Las dos cifras que se teclean cien veces al día se ven de lejos. */
+.campo input.grande {
+  height: calc(var(--alto-control) + 8px);
+  font-size: var(--texto-l);
+}
+
+.campo--medio {
+  max-width: 260px;
+}
+
+.nota {
+  font-size: var(--texto-xs);
+}
+
+.margen {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--e2);
+  align-items: baseline;
+  padding: var(--e2) var(--e3);
+  border-radius: var(--radio-s);
+  border-left: 3px solid var(--acento);
+  background: var(--acento-suave);
+  font-size: var(--texto-m);
+}
+
+.margen strong {
+  color: var(--acento);
+}
+
+.margen span {
+  color: var(--apagado);
+}
+
+.margen--riesgo {
+  border-left-color: var(--rojo);
+  background: var(--rojo-suave);
+}
+
+.margen--riesgo strong {
+  color: var(--rojo);
+}

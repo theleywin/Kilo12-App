@@ -1,0 +1,241 @@
+<section class="pagina">
+  <header class="cabecera-pagina">
+    <h1>Entrada</h1>
+    <p class="descripcion">
+      Llegó mercancía. Se registra una cosa detrás de otra; si es la primera vez que llega algo,
+      se crea aquí mismo.
+    </p>
+  </header>
+
+  @if (error(); as fallo) {
+    <div
+      class="aviso"
+      [class.aviso--error]="!fallo.delUsuario"
+      [class.aviso--atencion]="fallo.delUsuario"
+      role="alert"
+    >
+      <strong>{{ fallo.mensaje }}</strong>
+      <span class="codigo">{{ fallo.codigo }}</span>
+    </div>
+  }
+
+  <form class="panel panel--entrada" [formGroup]="formulario" (ngSubmit)="registrar()">
+    <div class="panel__cuerpo pila-larga">
+      <!-- ----------------------------------------- qué llegó -->
+      <div class="campo">
+        <label for="buscador" class="pregunta">¿Qué llegó?</label>
+
+        <div class="buscador">
+          <input
+            id="buscador"
+            class="buscador__campo"
+            autocomplete="off"
+            placeholder="Escribe el nombre del producto…"
+            [value]="busqueda()"
+            (input)="alEscribir($any($event.target).value)"
+          />
+          @if (busqueda()) {
+            <button type="button" class="boton boton--discreto" (click)="empezarDeNuevo()">
+              Cambiar
+            </button>
+          }
+        </div>
+
+        @if (elegido(); as producto) {
+          <div class="elegido">
+            <span class="etiqueta etiqueta--acento">{{ producto.sku }}</span>
+            <span>
+              Se vende por {{ producto.unidadNombre }} · Ahora tienes
+              <strong class="cifra">{{ producto.existenciaTotal }}</strong>
+              {{ producto.unidadBase }}
+            </span>
+          </div>
+        } @else if (creando()) {
+          <div class="elegido elegido--nuevo">
+            <span class="etiqueta etiqueta--atencion">Primera vez</span>
+            <span>Se creará «{{ busqueda() }}» con esta entrada.</span>
+          </div>
+        } @else if (busqueda()) {
+          <div class="sugerencias">
+            @for (producto of coincidencias(); track producto.id) {
+              <button type="button" class="sugerencia" (click)="elegirProducto(producto)">
+                <span>{{ producto.nombre }}</span>
+                <span class="apagado mono">
+                  {{ producto.existenciaTotal }} {{ producto.unidadBase }}
+                </span>
+              </button>
+            }
+            @if (puedeCrear()) {
+              <button type="button" class="sugerencia sugerencia--nueva" (click)="crearProducto()">
+                <span>Crear «{{ busqueda() }}»</span>
+                <span class="apagado">Es la primera vez que llega</span>
+              </button>
+            }
+          </div>
+        }
+      </div>
+
+      @if (hayProducto) {
+        <!-- --------------------------- si es la primera vez -->
+        @if (creando()) {
+          <div class="bloque">
+            <span class="bloque__titulo">Cómo se vende</span>
+
+            <div class="segmento">
+              <button
+                type="button"
+                [attr.aria-pressed]="!formulario.controls.porPeso.value"
+                (click)="elegirForma(false)"
+              >
+                Por unidad
+              </button>
+              <button
+                type="button"
+                [attr.aria-pressed]="formulario.controls.porPeso.value"
+                (click)="elegirForma(true)"
+              >
+                Por peso o volumen
+              </button>
+            </div>
+
+            @if (formulario.controls.porPeso.value) {
+              <div class="segmento">
+                @for (opcion of unidades; track opcion.valor) {
+                  <button
+                    type="button"
+                    [attr.aria-pressed]="formulario.controls.unidadBase.value === opcion.valor"
+                    (click)="elegirUnidad(opcion.valor)"
+                  >
+                    {{ opcion.nombre }}
+                  </button>
+                }
+              </div>
+            }
+
+            <div class="campo campo--medio">
+              <label for="precio">
+                Precio de venta <span class="opcional">por {{ simbolo }}</span>
+              </label>
+              <input
+                id="precio"
+                class="control--cifra"
+                formControlName="precio"
+                inputmode="decimal"
+                placeholder="180.00"
+              />
+            </div>
+          </div>
+        }
+
+        <!-- ------------------------------------- cuánto y a cuánto -->
+        <div class="bloque">
+          <span class="bloque__titulo">Cuánto llegó</span>
+
+          <div class="rejilla">
+            <div class="campo">
+              <label for="cantidad">Cantidad <span class="opcional">en {{ simbolo }}</span></label>
+              <input
+                id="cantidad"
+                class="control--cifra grande"
+                formControlName="cantidad"
+                inputmode="decimal"
+                placeholder="0"
+              />
+            </div>
+
+            <div class="campo">
+              <label for="costo">Costo <span class="opcional">por {{ simbolo }}</span></label>
+              <input
+                id="costo"
+                class="control--cifra grande"
+                formControlName="costoUnitario"
+                inputmode="decimal"
+                placeholder="120.00"
+              />
+              <span class="pista">Lo que pagaste en ESTA compra.</span>
+            </div>
+
+            <div class="campo">
+              <label>Va a</label>
+              <div class="segmento">
+                @for (ubicacion of ubicaciones; track ubicacion.valor) {
+                  <button
+                    type="button"
+                    [attr.aria-pressed]="formulario.controls.ubicacion.value === ubicacion.valor"
+                    (click)="elegirUbicacion(ubicacion.valor)"
+                  >
+                    {{ ubicacion.nombre }}
+                  </button>
+                }
+              </div>
+            </div>
+          </div>
+
+          @if (margen(); as calculo) {
+            <div class="margen" [class.margen--riesgo]="calculo.enRiesgo">
+              @if (calculo.enRiesgo) {
+                <strong>Cuidado: pierdes {{ calculo.ganancia }} por {{ simbolo }}.</strong>
+                <span>El costo se come el precio.</span>
+              } @else {
+                <strong>Ganas {{ calculo.ganancia }} por {{ simbolo }}.</strong>
+                <span>Margen del {{ calculo.porcentaje }} %.</span>
+              }
+            </div>
+          }
+
+          <div class="fila">
+            <button type="submit" class="boton boton--grande" [disabled]="guardando()">
+              {{ guardando() ? 'Guardando…' : 'Registrar entrada' }}
+            </button>
+            <span class="apagado nota">Al guardar, el cursor vuelve arriba para el siguiente.</span>
+          </div>
+        </div>
+      }
+    </div>
+  </form>
+
+  <!-- ==================================== lo de esta sesión -->
+  @if (recibido().length) {
+    <div class="panel">
+      <div class="panel__cabecera">
+        <span class="panel__titulo">Acabas de recibir</span>
+        <span class="apagado nota">
+          {{ recibido().length }}
+          {{ recibido().length === 1 ? 'entrada registrada' : 'entradas registradas' }}
+        </span>
+      </div>
+
+      <div class="tabla-envoltorio">
+        <table class="tabla">
+          <thead>
+            <tr>
+              <th>Producto</th>
+              <th class="derecha">Cantidad</th>
+              <th class="derecha">Costo</th>
+              <th class="derecha">Pagaste</th>
+              <th>Fue a</th>
+              <th class="derecha">Queda en almacén</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (linea of recibido(); track linea.movimiento.id) {
+              <tr>
+                <td>
+                  {{ linea.nombre }}
+                  @if (linea.esNuevo) {
+                    <span class="etiqueta etiqueta--atencion">Nuevo</span>
+                  }
+                </td>
+                <td class="derecha cifra">{{ linea.movimiento.cantidad }}</td>
+                <td class="derecha cifra">{{ linea.movimiento.costoUnitario }}</td>
+                <td class="derecha cifra">{{ linea.movimiento.importe }}</td>
+                <td class="apagado">{{ linea.movimiento.destino }}</td>
+                <td class="derecha cifra apagado">{{ linea.movimiento.bodegaResultante }}</td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+  }
+</section>
