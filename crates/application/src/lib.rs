@@ -19,4 +19,7 @@ pub mod sku;
 
 pub use error::{ErrorAplicacion, Resultado};
 pub use margen::Margen;
-pub use puertos::{Asiento, MovimientoRegistrado, ProductoConInventario, RepositorioProducto};
+pub use puertos::{
+    Asiento, CambioDePrecio, CambioRegistrado, MovimientoRegistrado, ProductoConInventario,
+    RepositorioProducto,
+};

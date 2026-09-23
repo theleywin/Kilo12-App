@@ -46,6 +46,6 @@ impl<'a, R: RepositorioProducto> FijarObjetivoVitrina<'a, R> {
 
         let producto = producto.con_objetivo_vitrina(objetivo)?;
 
-        self.repositorio.actualizar_producto(&producto)
+        self.repositorio.actualizar_producto(&producto, &[])
     }
 }

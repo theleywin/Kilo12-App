@@ -6,7 +6,7 @@
 //! adentro (DT-5) y lo que permitirá cambiar SQLite, o añadir un lector de
 //! código de barras, sin tocar ninguna regla de negocio.
 
-use domain::{Existencias, IdProducto, Inventario, Movimiento, Producto};
+use domain::{Dinero, Existencias, IdPresentacion, IdProducto, Inventario, Movimiento, Producto};
 
 use crate::error::Resultado;
 
@@ -47,6 +47,28 @@ pub struct Asiento {
     pub resultante: Existencias,
 }
 
+/// Un cambio de precio, para el historial (RF-PRE-04).
+///
+/// El precio de ayer no se deduce del de hoy: si no se anota cuando cambia,
+/// se pierde, y con él la posibilidad de saber si una venta vieja dejaba
+/// ganancia.
+#[derive(Debug, Clone)]
+pub struct CambioDePrecio {
+    pub presentacion: IdPresentacion,
+    pub anterior: Dinero,
+    pub nuevo: Dinero,
+}
+
+/// Un cambio de precio ya registrado, con su fecha.
+#[derive(Debug, Clone)]
+pub struct CambioRegistrado {
+    pub id: i64,
+    pub presentacion: IdPresentacion,
+    pub anterior: Dinero,
+    pub nuevo: Dinero,
+    pub cambiado_en: String,
+}
+
 /// Acceso al catálogo de productos y a su inventario.
 pub trait RepositorioProducto {
     /// Guarda un producto nuevo con su existencia de apertura y devuelve el
@@ -66,11 +88,19 @@ pub trait RepositorioProducto {
     /// Recupera un producto con sus presentaciones y su existencia.
     fn obtener(&self, id: IdProducto) -> Resultado<Option<ProductoConInventario>>;
 
-    /// Guarda los datos editables de un producto.
+    /// Guarda los datos editables de un producto y sus presentaciones.
     ///
     /// No toca la existencia ni el valor: eso solo cambia con un
     /// movimiento, nunca editando una ficha.
-    fn actualizar_producto(&self, producto: &Producto) -> Resultado<()>;
+    ///
+    /// Los cambios de precio viajan aparte porque el historial necesita
+    /// saber de dónde venía cada uno, y eso el producto ya no lo recuerda:
+    /// dentro de él solo está el precio nuevo.
+    fn actualizar_producto(&self, producto: &Producto, cambios: &[CambioDePrecio])
+        -> Resultado<()>;
+
+    /// Devuelve el historial de precios de un producto (RF-PRE-04).
+    fn historial_precios(&self, id: IdProducto) -> Resultado<Vec<CambioRegistrado>>;
 
     /// Lista los productos del catálogo.
     ///
