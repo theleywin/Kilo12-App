@@ -1,0 +1,516 @@
+/* Piezas reutilizables de la interfaz.
+   ---------------------------------------------------------------------
+   Son globales a propósito. Un botón tiene que verse igual en Vender que
+   en Almacén, y eso no se consigue copiando estilos de pantalla en
+   pantalla: se consigue teniendo UN botón.
+
+   Todo valor sale de fichas.css. Aquí no hay números mágicos salvo los
+   que describen la geometría de la propia pieza. */
+
+/* ============================================================== página */
+
+.pagina {
+  padding: var(--e5) var(--e6) var(--e7);
+  max-width: 1180px;
+}
+
+.pagina--ancha {
+  max-width: none;
+}
+
+.cabecera-pagina {
+  margin-bottom: var(--e5);
+}
+
+.cabecera-pagina h1 {
+  font-size: var(--texto-2xl);
+}
+
+.cabecera-pagina .descripcion {
+  margin-top: var(--e1);
+  color: var(--apagado);
+  font-size: var(--texto-m);
+  max-width: 62ch;
+}
+
+/* =============================================================== panel
+   La superficie sobre la que se agrupa todo: un formulario, una tabla,
+   un resumen. */
+
+.panel {
+  border: 1px solid var(--linea);
+  border-radius: var(--radio-m);
+  background: var(--superficie);
+  box-shadow: var(--sombra-1);
+}
+
+.panel__cabecera {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--e4);
+  padding: var(--e3) var(--e4);
+  border-bottom: 1px solid var(--linea);
+}
+
+.panel__titulo {
+  font-size: var(--texto-s);
+  font-weight: var(--peso-fuerte);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--apagado);
+}
+
+.panel__cuerpo {
+  padding: var(--e4);
+}
+
+/* La tabla ocupa el panel entera, sin relleno propio. */
+.panel__cuerpo--sin-relleno {
+  padding: 0;
+}
+
+/* =============================================================== botón */
+
+.boton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--e2);
+  height: var(--alto-control);
+  padding: 0 var(--e4);
+  border: 1px solid transparent;
+  border-radius: var(--radio-s);
+  background: var(--acento);
+  color: var(--acento-tinta);
+  font-size: var(--texto-m);
+  font-weight: var(--peso-medio);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--transicion), border-color var(--transicion);
+}
+
+.boton:hover:not(:disabled) {
+  background: var(--acento-hundido);
+}
+
+.boton:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.boton:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Acción secundaria: existe, pero no compite con la principal. */
+.boton--secundario {
+  background: var(--fondo);
+  border-color: var(--linea);
+  color: var(--tinta);
+}
+
+.boton--secundario:hover:not(:disabled) {
+  background: var(--superficie-fuerte);
+  border-color: var(--apagado);
+}
+
+/* Acción destacada: cobrar, confirmar la venta. Tinta oscura porque el
+   naranja de la marca no da contraste con letra blanca. */
+.boton--destacado {
+  background: var(--destaque);
+  color: var(--destaque-tinta);
+  font-weight: var(--peso-fuerte);
+}
+
+.boton--destacado:hover:not(:disabled) {
+  background: var(--destaque-hundido);
+}
+
+/* Acción destructiva: anular, borrar. */
+.boton--peligro {
+  background: transparent;
+  border-color: var(--rojo);
+  color: var(--rojo);
+}
+
+.boton--peligro:hover:not(:disabled) {
+  background: var(--rojo-suave);
+}
+
+/* Sin peso visual: acciones de fila, «ver detalle». */
+.boton--discreto {
+  background: transparent;
+  color: var(--apagado);
+  padding: 0 var(--e2);
+}
+
+.boton--discreto:hover:not(:disabled) {
+  background: var(--superficie-fuerte);
+  color: var(--tinta);
+}
+
+/* Para el mostrador: lo que se pulsa con prisa se hace grande. */
+.boton--grande {
+  height: calc(var(--alto-control) + 14px);
+  padding: 0 var(--e5);
+  font-size: var(--texto-l);
+}
+
+.boton--ancho {
+  width: 100%;
+}
+
+/* ============================================================== campos */
+
+.campo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e1);
+  min-width: 0;
+}
+
+.campo > label {
+  font-size: var(--texto-s);
+  font-weight: var(--peso-medio);
+  color: var(--apagado);
+}
+
+.campo > label .opcional {
+  font-weight: var(--peso-normal);
+  text-transform: none;
+  opacity: 0.8;
+}
+
+.control,
+.campo input,
+.campo select {
+  height: var(--alto-control);
+  padding: 0 var(--e3);
+  border: 1px solid var(--linea);
+  border-radius: var(--radio-s);
+  background: var(--fondo);
+  color: var(--tinta);
+  font-size: var(--texto-m);
+  transition: border-color var(--transicion), box-shadow var(--transicion);
+}
+
+.control:focus,
+.campo input:focus,
+.campo select:focus {
+  outline: none;
+  border-color: var(--acento);
+  box-shadow: 0 0 0 3px var(--acento-halo);
+}
+
+.campo input::placeholder {
+  color: var(--apagado);
+  opacity: 0.7;
+}
+
+/* Solo se marca en rojo lo que el usuario ya tocó: señalar un campo vacío
+   que todavía no visitó es regañarlo por adelantado. */
+.campo input.ng-touched.ng-invalid,
+.campo select.ng-touched.ng-invalid {
+  border-color: var(--rojo);
+}
+
+/* Importes y cantidades: cifras de ancho fijo para que las columnas
+   cuadren y el ojo compare de un vistazo. */
+.control--cifra,
+.campo input.control--cifra {
+  font-family: var(--letra-cifra);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.campo .pista {
+  font-size: var(--texto-xs);
+  color: var(--apagado);
+}
+
+.campo .error {
+  font-size: var(--texto-xs);
+  color: var(--rojo);
+}
+
+/* Casilla de verificación con su texto, alineadas de verdad. */
+.casilla {
+  display: flex;
+  align-items: center;
+  gap: var(--e2);
+  min-height: var(--alto-control);
+  font-size: var(--texto-m);
+  cursor: pointer;
+}
+
+.casilla input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--acento);
+  cursor: pointer;
+}
+
+.casilla--inactiva {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* ============================================================ segmento
+   Elegir entre pocas opciones excluyentes sin desplegar nada: se ven
+   todas las salidas de una vez. */
+
+.segmento {
+  display: inline-flex;
+  padding: 3px;
+  border: 1px solid var(--linea);
+  border-radius: var(--radio-s);
+  background: var(--superficie-fuerte);
+}
+
+.segmento button {
+  height: calc(var(--alto-control) - 8px);
+  padding: 0 var(--e3);
+  border: 0;
+  border-radius: calc(var(--radio-s) - 2px);
+  background: transparent;
+  color: var(--apagado);
+  font-size: var(--texto-m);
+  font-weight: var(--peso-medio);
+  cursor: pointer;
+  transition: background var(--transicion), color var(--transicion);
+}
+
+.segmento button:hover {
+  color: var(--tinta);
+}
+
+.segmento button[aria-pressed='true'] {
+  background: var(--acento);
+  color: var(--acento-tinta);
+  box-shadow: var(--sombra-1);
+}
+
+/* =============================================================== tabla */
+
+.tabla-envoltorio {
+  overflow-x: auto;
+}
+
+.tabla {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--texto-m);
+}
+
+.tabla th {
+  position: sticky;
+  top: 0;
+  padding: var(--relleno-celda);
+  text-align: left;
+  font-size: var(--texto-xs);
+  font-weight: var(--peso-fuerte);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--apagado);
+  background: var(--superficie-fuerte);
+  border-bottom: 1px solid var(--linea);
+  white-space: nowrap;
+}
+
+.tabla td {
+  padding: var(--relleno-celda);
+  border-bottom: 1px solid var(--linea-suave);
+  background: var(--fondo);
+}
+
+.tabla tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.tabla tbody tr:hover td {
+  background: var(--acento-suave);
+}
+
+/* La fila que el teclado tiene seleccionada. Se marca con una barra a la
+   izquierda, no solo con color: sobrevive a cualquier daltonismo. */
+.tabla tbody tr[aria-selected='true'] td {
+  background: var(--acento-suave);
+}
+
+.tabla tbody tr[aria-selected='true'] td:first-child {
+  box-shadow: inset 3px 0 0 var(--acento);
+}
+
+.derecha {
+  text-align: right;
+}
+
+.centro {
+  text-align: center;
+}
+
+/* ============================================================== cifras */
+
+.cifra {
+  font-family: var(--letra-cifra);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+/* El número que importa: el total, el valor del inventario. */
+.cifra--grande {
+  font-size: var(--texto-3xl);
+  font-weight: var(--peso-fuerte);
+  letter-spacing: -0.02em;
+}
+
+.cifra--positiva {
+  color: var(--acento);
+}
+
+.cifra--negativa {
+  color: var(--rojo);
+}
+
+/* ============================================================== avisos */
+
+.aviso {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--e4);
+  padding: var(--e3) var(--e4);
+  border-radius: var(--radio-s);
+  border-left: 3px solid var(--acento);
+  background: var(--acento-suave);
+  font-size: var(--texto-m);
+}
+
+/* Algo que revisar: stock bajo, margen flaco, vitrina vacía. */
+.aviso--atencion {
+  border-left-color: var(--destaque);
+  background: var(--destaque-suave);
+}
+
+/* La operación no se hizo. */
+.aviso--error {
+  border-left-color: var(--rojo);
+  background: var(--rojo-suave);
+}
+
+.aviso .codigo {
+  font-family: var(--letra-cifra);
+  font-size: var(--texto-xs);
+  letter-spacing: 0.04em;
+  color: var(--apagado);
+  white-space: nowrap;
+}
+
+/* =========================================================== etiquetas */
+
+.etiqueta {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px var(--e2);
+  border-radius: var(--radio-pildora);
+  background: var(--superficie-fuerte);
+  color: var(--apagado);
+  font-size: var(--texto-xs);
+  font-weight: var(--peso-medio);
+  white-space: nowrap;
+}
+
+.etiqueta--acento {
+  background: var(--acento-suave);
+  color: var(--acento);
+}
+
+.etiqueta--atencion {
+  background: var(--destaque-suave);
+  color: var(--destaque-texto);
+}
+
+.etiqueta--error {
+  background: var(--rojo-suave);
+  color: var(--rojo);
+}
+
+/* ================================================================ tecla
+   El atajo de teclado, dibujado como la tecla que hay que pulsar. Si la
+   aplicación se opera con el teclado, el teclado tiene que verse. */
+
+.tecla {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 var(--e1);
+  border: 1px solid var(--linea);
+  border-bottom-width: 2px;
+  border-radius: var(--radio-s);
+  background: var(--fondo);
+  color: var(--apagado);
+  font-family: var(--letra-cifra);
+  font-size: var(--texto-xs);
+  font-weight: var(--peso-medio);
+}
+
+/* ========================================================= estado vacío
+   Una tabla vacía nunca dice solo «no hay datos»: dice qué hacer. */
+
+.vacio {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--e2);
+  padding: var(--e7) var(--e5);
+  text-align: center;
+  color: var(--apagado);
+}
+
+.vacio__titulo {
+  font-size: var(--texto-l);
+  font-weight: var(--peso-medio);
+  color: var(--tinta);
+}
+
+.vacio__texto {
+  font-size: var(--texto-m);
+  max-width: 44ch;
+}
+
+/* ============================================================ utilidad
+   Lo mínimo para componer sin inventar un marco de utilidades entero. */
+
+.fila {
+  display: flex;
+  align-items: center;
+  gap: var(--e3);
+}
+
+.fila--separada {
+  justify-content: space-between;
+}
+
+.pila {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e3);
+}
+
+.rejilla {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: var(--e4);
+}
+
+.apagado {
+  color: var(--apagado);
+}
+
+.mono {
+  font-family: var(--letra-cifra);
+  font-size: var(--texto-s);
+}
