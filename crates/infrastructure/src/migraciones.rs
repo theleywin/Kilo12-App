@@ -74,6 +74,37 @@ const MIGRACIONES: &[&str] = &[
     r#"
     ALTER TABLE producto DROP COLUMN es_granel;
     "#,
+    // 3 — El kárdex: todo cambio de existencia deja su asiento (RF-INV-03).
+    //
+    // La tabla `existencia` guarda el saldo; esta guarda por qué el saldo es
+    // el que es. Ninguna fila se edita ni se borra nunca: un error se
+    // corrige con otro movimiento que lo compense.
+    r#"
+    CREATE TABLE movimiento (
+        id                 INTEGER PRIMARY KEY,
+        producto_id        INTEGER NOT NULL REFERENCES producto(id),
+        tipo               TEXT    NOT NULL CHECK (tipo IN
+                                   ('ENTRADA','VENTA','TRASPASO','MERMA',
+                                    'AJUSTE','DEVOLUCION')),
+        -- De dónde salió y a dónde fue. Una entrada no tiene origen y una
+        -- merma no tiene destino: la mercancía entra o sale del negocio.
+        origen             TEXT    CHECK (origen  IN ('BODEGA','VITRINA')),
+        destino            TEXT    CHECK (destino IN ('BODEGA','VITRINA')),
+        cantidad           INTEGER NOT NULL CHECK (cantidad > 0),
+        -- Costo vigente en el momento, congelado (RF-COS-07). Recalcular el
+        -- pasado con el costo de hoy convertiría el historial en ficción.
+        costo_unitario     INTEGER NOT NULL CHECK (costo_unitario >= 0),
+        -- Existencia que quedó después del movimiento, para que el kárdex se
+        -- lea sin recalcular nada (RF-INV-05).
+        bodega_resultante  INTEGER NOT NULL CHECK (bodega_resultante  >= 0),
+        vitrina_resultante INTEGER NOT NULL CHECK (vitrina_resultante >= 0),
+        -- Obligatorio en mermas y ajustes (RF-INV-08).
+        motivo             TEXT,
+        ocurrido_en        TEXT    NOT NULL
+    );
+
+    CREATE INDEX idx_movimiento_producto ON movimiento(producto_id, id);
+    "#,
 ];
 
 /// Lleva el esquema a la última versión.
