@@ -28,6 +28,7 @@ export interface Seccion {
 
 export type Icono =
   | 'vender'
+  | 'entrada'
   | 'vitrina'
   | 'almacen'
   | 'productos'
@@ -53,10 +54,19 @@ export const SECCIONES: readonly Seccion[] = [
     ],
   },
   {
+    ruta: 'entrada',
+    titulo: 'Entrada',
+    descripcion: 'Llegó mercancía. Se registra aquí, una cosa detrás de otra.',
+    tecla: 'F2',
+    icono: 'entrada',
+    densidad: 'amplia',
+    incluye: [],
+  },
+  {
     ruta: 'vitrina',
     titulo: 'Vitrina',
     descripcion: 'Qué hay exhibido y qué falta reponer desde el almacén.',
-    tecla: 'F2',
+    tecla: 'F3',
     icono: 'vitrina',
     densidad: 'amplia',
     incluye: [
@@ -69,36 +79,36 @@ export const SECCIONES: readonly Seccion[] = [
   {
     ruta: 'almacen',
     titulo: 'Almacén',
-    descripcion: 'La existencia en bodega, su valor y las entradas de mercancía.',
-    tecla: 'F3',
+    descripcion: 'Qué hay guardado, cuánto vale y qué se perdió.',
+    tecla: 'F4',
     icono: 'almacen',
     densidad: 'amplia',
     incluye: [
-      'Existencia en bodega de todo el catálogo',
-      'Registrar la entrada de una compra con su costo',
-      'Valor del inventario a costo promedio ponderado',
-      'Mermas, ajustes y conteo físico',
+      'Existencia y valor de todo lo guardado',
+      'Bajas por merma, siempre con su motivo',
+      'Historial completo de cada producto',
+      'Conteo físico y ajustes',
     ],
   },
   {
     ruta: 'productos',
     titulo: 'Productos',
     descripcion: 'El catálogo: qué vendes, a cuánto lo compras y a cuánto lo vendes.',
-    tecla: 'F4',
+    tecla: 'F5',
     icono: 'productos',
     densidad: 'amplia',
     incluye: [
-      'Alta de producto con costo, precio y cantidades iniciales',
-      'Margen de ganancia visible mientras escribes',
-      'Presentaciones: paquete, caja, media libra',
+      'Costo, precio, ganancia y margen de cada producto',
       'Aviso cuando el costo se come el precio',
+      'Cambiar precios sin tocar el inventario',
+      'Presentaciones: paquete, caja, media libra',
     ],
   },
   {
     ruta: 'ventas',
     titulo: 'Ventas',
     descripcion: 'Todo lo que se vendió, con su detalle.',
-    tecla: 'F5',
+    tecla: 'F6',
     icono: 'ventas',
     densidad: 'amplia',
     incluye: [
@@ -112,7 +122,7 @@ export const SECCIONES: readonly Seccion[] = [
     ruta: 'caja',
     titulo: 'Caja',
     descripcion: 'Abrir el turno, cerrarlo y cuadrar el efectivo.',
-    tecla: 'F6',
+    tecla: 'F7',
     icono: 'caja',
     densidad: 'amplia',
     incluye: [
@@ -126,7 +136,7 @@ export const SECCIONES: readonly Seccion[] = [
     ruta: 'informes',
     titulo: 'Informes',
     descripcion: 'Qué se vende, qué deja ganancia y qué está por agotarse.',
-    tecla: 'F7',
+    tecla: 'F8',
     icono: 'informes',
     densidad: 'amplia',
     incluye: [
@@ -143,7 +153,7 @@ export const GUIA: Seccion = {
   ruta: 'guia',
   titulo: 'Guía de estilo',
   descripcion: 'El lenguaje visual de Kilo12: colores, textos y piezas.',
-  tecla: 'F8',
+  tecla: 'F9',
   icono: 'guia',
   densidad: 'amplia',
   incluye: [],

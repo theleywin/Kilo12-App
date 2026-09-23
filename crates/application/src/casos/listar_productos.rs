@@ -1,7 +1,8 @@
 //! Caso de uso: consultar el catálogo.
 
-use domain::{Cantidad, Producto, Ubicacion};
+use domain::{Cantidad, Ubicacion};
 
+use crate::casos::formatear_cantidad;
 use crate::error::Resultado;
 use crate::margen;
 use crate::puertos::{ProductoConInventario, RepositorioProducto};
@@ -52,7 +53,7 @@ pub struct ProductoListado {
 }
 
 impl ProductoListado {
-    fn desde(fila: &ProductoConInventario) -> Self {
+    pub(crate) fn desde(fila: &ProductoConInventario) -> Self {
         let ProductoConInventario {
             producto,
             inventario,
@@ -89,9 +90,9 @@ impl ProductoListado {
                 |m| format!("{} %", m.porcentaje.formatear(1)),
             ),
             en_riesgo: calculo.is_some_and(|m| m.en_riesgo),
-            en_almacen: formatear(existencias.en(Ubicacion::Bodega), producto),
-            en_vitrina: formatear(existencias.en(Ubicacion::Vitrina), producto),
-            existencia_total: formatear(total, producto),
+            en_almacen: formatear_cantidad(existencias.en(Ubicacion::Bodega), producto),
+            en_vitrina: formatear_cantidad(existencias.en(Ubicacion::Vitrina), producto),
+            existencia_total: formatear_cantidad(total, producto),
             bajo_minimo: producto.esta_bajo_minimo(total),
             agotado: total.es_cero(),
             presentacion: predeterminada
@@ -100,15 +101,6 @@ impl ProductoListado {
             total_presentaciones: producto.presentaciones().len(),
         }
     }
-}
-
-/// Formatea una cantidad con los decimales que su unidad admite.
-///
-/// «3 latas» y «3.500 lb» son ambas correctas; «3.000 latas» solo consigue
-/// que el ojo tropiece.
-fn formatear(cantidad: Cantidad, producto: &Producto) -> String {
-    let decimales = if producto.es_granel() { 3 } else { 0 };
-    cantidad.formatear(decimales)
 }
 
 /// Lista los productos del catálogo.

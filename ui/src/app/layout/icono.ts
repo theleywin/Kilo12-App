@@ -34,6 +34,11 @@ import { Icono as NombreIcono } from './navegacion';
           <path d="M4 7h12l-1.2 9.5H5.2L4 7z" />
           <path d="M7.6 7V5.6a2.4 2.4 0 0 1 4.8 0V7" />
         }
+        @case ('entrada') {
+          <!-- Una caja que se abre: llegó mercancía. -->
+          <path d="M3 8.4h14v8.2H3V8.4z" />
+          <path d="M2.4 4.6h15.2v3.8H2.4V4.6zM8 12.4h4" />
+        }
         @case ('vitrina') {
           <rect x="2.8" y="4" width="14.4" height="12.6" rx="1.4" />
           <path d="M2.8 8.4h14.4M2.8 12.6h14.4" />

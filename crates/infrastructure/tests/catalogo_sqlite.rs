@@ -8,7 +8,10 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use application::casos::{
-    ComandoRegistrarProducto, ListarProductos, ProductoListado, RegistrarProducto,
+    ComandoFijarObjetivo, ComandoRegistrarEntrada, ComandoRegistrarMerma, ComandoRegistrarProducto,
+    ComandoSimular, ComandoTraspasar, ConsultarAlmacen, ConsultarKardex, ConsultarVitrina,
+    FijarObjetivoVitrina, LineaKardex, ListarProductos, ProductoListado, RegistrarEntrada,
+    RegistrarMerma, RegistrarProducto, ResumenVitrina, SimularMovimiento, Traspasar,
 };
 use infrastructure::{BaseDatos, RepositorioProductoSqlite};
 
@@ -289,4 +292,443 @@ fn limpiar(ruta: &Path) {
     for sufijo in ["", "-wal", "-shm"] {
         let _ = std::fs::remove_file(format!("{}{sufijo}", ruta.display()));
     }
+}
+
+// ============================================== movimientos y kárdex
+
+/// Alta con mercancía, que es el punto de partida de casi toda prueba de
+/// almacén: 50 libras a 120 el costo.
+fn alta_con_mercancia(repositorio: &RepositorioProductoSqlite) -> i64 {
+    let mut comando = alta("Arroz blanco");
+    comando.unidad_base = "lb".to_owned();
+    comando.precio_unitario = "180.00".to_owned();
+    comando.costo_unitario = Some("120.00".to_owned());
+    comando.cantidad_almacen = Some("50".to_owned());
+
+    RegistrarProducto::nuevo(repositorio)
+        .ejecutar(comando)
+        .expect("registrar el producto")
+        .0
+}
+
+fn kardex(repositorio: &RepositorioProductoSqlite, producto: i64) -> Vec<LineaKardex> {
+    ConsultarKardex::nuevo(repositorio)
+        .ejecutar(producto, 50)
+        .expect("consultar el kárdex")
+}
+
+#[test]
+fn la_mercancia_de_apertura_deja_su_asiento() {
+    let repositorio = repositorio_en_memoria();
+    let producto = alta_con_mercancia(&repositorio);
+
+    let historial = kardex(&repositorio, producto);
+    assert_eq!(historial.len(), 1);
+    assert_eq!(historial[0].tipo, "ENTRADA");
+    assert_eq!(historial[0].cantidad, "50.000");
+    assert_eq!(historial[0].costo_unitario, "120.00");
+    assert_eq!(historial[0].importe, "6000.00");
+    assert_eq!(historial[0].destino.as_deref(), Some("Bodega"));
+    assert_eq!(historial[0].bodega_resultante, "50.000");
+}
+
+#[test]
+fn una_entrada_recalcula_el_costo_promedio_ponderado() {
+    let repositorio = repositorio_en_memoria();
+    let producto = alta_con_mercancia(&repositorio);
+
+    // Segunda compra más cara: 50 lb a 160.
+    RegistrarEntrada::nuevo(&repositorio)
+        .ejecutar(ComandoRegistrarEntrada {
+            producto,
+            cantidad: "50".to_owned(),
+            costo_unitario: "160.00".to_owned(),
+            destino: "BODEGA".to_owned(),
+        })
+        .expect("registrar la entrada");
+
+    // (6 000 + 8 000) / 100 = 140 exactos.
+    let ficha = unico(&repositorio);
+    assert_eq!(ficha.costo, "140.00");
+    assert_eq!(ficha.en_almacen, "100.000");
+
+    // El asiento guarda el costo de ESA compra, no el promedio resultante.
+    let historial = kardex(&repositorio, producto);
+    assert_eq!(historial.len(), 2);
+    assert_eq!(historial[0].costo_unitario, "160.00");
+    assert_eq!(historial[0].bodega_resultante, "100.000");
+}
+
+#[test]
+fn una_merma_descuenta_existencia_y_valor_sin_mover_el_costo() {
+    let repositorio = repositorio_en_memoria();
+    let producto = alta_con_mercancia(&repositorio);
+
+    RegistrarMerma::nuevo(&repositorio)
+        .ejecutar(ComandoRegistrarMerma {
+            producto,
+            cantidad: "10".to_owned(),
+            origen: "BODEGA".to_owned(),
+            motivo: "Se mojó con la lluvia".to_owned(),
+        })
+        .expect("registrar la merma");
+
+    let ficha = unico(&repositorio);
+    assert_eq!(ficha.en_almacen, "40.000");
+    // El costo unitario no cambia al salir mercancía (RF-COS-06).
+    assert_eq!(ficha.costo, "120.00");
+
+    let historial = kardex(&repositorio, producto);
+    assert_eq!(historial[0].tipo, "MERMA");
+    assert_eq!(historial[0].origen.as_deref(), Some("Bodega"));
+    assert_eq!(historial[0].destino, None);
+    assert_eq!(
+        historial[0].motivo.as_deref(),
+        Some("Se mojó con la lluvia")
+    );
+    assert_eq!(historial[0].importe, "1200.00");
+    assert_eq!(historial[0].bodega_resultante, "40.000");
+}
+
+#[test]
+fn no_se_puede_mermar_mas_de_lo_que_hay() {
+    let repositorio = repositorio_en_memoria();
+    let producto = alta_con_mercancia(&repositorio);
+
+    let error = RegistrarMerma::nuevo(&repositorio)
+        .ejecutar(ComandoRegistrarMerma {
+            producto,
+            cantidad: "60".to_owned(),
+            origen: "BODEGA".to_owned(),
+            motivo: "Se mojó con la lluvia".to_owned(),
+        })
+        .expect_err("no hay 60 libras que perder");
+
+    assert_eq!(error.codigo(), "EXISTENCIA_INSUFICIENTE");
+    // Nada se movió: la operación entera se deshizo.
+    assert_eq!(unico(&repositorio).en_almacen, "50.000");
+    assert_eq!(kardex(&repositorio, producto).len(), 1);
+}
+
+#[test]
+fn no_hay_merma_sin_motivo() {
+    let repositorio = repositorio_en_memoria();
+    let producto = alta_con_mercancia(&repositorio);
+
+    let error = RegistrarMerma::nuevo(&repositorio)
+        .ejecutar(ComandoRegistrarMerma {
+            producto,
+            cantidad: "1".to_owned(),
+            origen: "BODEGA".to_owned(),
+            motivo: "   ".to_owned(),
+        })
+        .expect_err("la mercancía no desaparece sin explicación");
+
+    assert_eq!(error.codigo(), "MOTIVO_OBLIGATORIO");
+}
+
+#[test]
+fn el_almacen_suma_el_valor_de_todo_el_inventario() {
+    let repositorio = repositorio_en_memoria();
+    alta_con_mercancia(&repositorio);
+
+    let mut otro = alta("Refresco 500 ml");
+    otro.precio_unitario = "145.00".to_owned();
+    otro.costo_unitario = Some("100.00".to_owned());
+    otro.cantidad_almacen = Some("12".to_owned());
+    RegistrarProducto::nuevo(&repositorio)
+        .ejecutar(otro)
+        .expect("registrar el segundo producto");
+
+    let resumen = ConsultarAlmacen::nuevo(&repositorio)
+        .ejecutar()
+        .expect("consultar el almacén");
+
+    // 50 × 120 + 12 × 100 = 7 200.
+    assert_eq!(resumen.valor_total, "7200.00");
+    assert_eq!(resumen.con_existencia, 2);
+    assert_eq!(resumen.agotados, 0);
+}
+
+#[test]
+fn el_kardex_de_un_producto_que_no_existe_no_inventa_nada() {
+    let repositorio = repositorio_en_memoria();
+
+    let error = ConsultarKardex::nuevo(&repositorio)
+        .ejecutar(9999, 50)
+        .expect_err("ese producto no existe");
+
+    assert_eq!(error.codigo(), "NO_ENCONTRADO");
+}
+
+// ============================================== traspasos y previsión
+
+#[test]
+fn un_traspaso_mueve_cantidad_sin_tocar_el_valor() {
+    let repositorio = repositorio_en_memoria();
+    let producto = alta_con_mercancia(&repositorio);
+
+    Traspasar::nuevo(&repositorio)
+        .ejecutar(ComandoTraspasar {
+            producto,
+            cantidad: "12".to_owned(),
+            origen: "BODEGA".to_owned(),
+        })
+        .expect("traspasar a la vitrina");
+
+    let ficha = unico(&repositorio);
+    assert_eq!(ficha.en_almacen, "38.000");
+    assert_eq!(ficha.en_vitrina, "12.000");
+    // El total y el costo no se mueven: la mercancía solo cambió de sitio.
+    assert_eq!(ficha.existencia_total, "50.000");
+    assert_eq!(ficha.costo, "120.00");
+
+    let historial = kardex(&repositorio, producto);
+    assert_eq!(historial[0].tipo, "TRASPASO");
+    assert_eq!(historial[0].origen.as_deref(), Some("Bodega"));
+    assert_eq!(historial[0].destino.as_deref(), Some("Vitrina"));
+    assert_eq!(historial[0].bodega_resultante, "38.000");
+    assert_eq!(historial[0].vitrina_resultante, "12.000");
+}
+
+#[test]
+fn el_valor_del_almacen_no_cambia_al_traspasar() {
+    let repositorio = repositorio_en_memoria();
+    let producto = alta_con_mercancia(&repositorio);
+
+    let antes = ConsultarAlmacen::nuevo(&repositorio)
+        .ejecutar()
+        .expect("consultar antes");
+
+    Traspasar::nuevo(&repositorio)
+        .ejecutar(ComandoTraspasar {
+            producto,
+            cantidad: "20".to_owned(),
+            origen: "BODEGA".to_owned(),
+        })
+        .expect("traspasar");
+
+    let despues = ConsultarAlmacen::nuevo(&repositorio)
+        .ejecutar()
+        .expect("consultar después");
+
+    assert_eq!(antes.valor_total, despues.valor_total);
+}
+
+#[test]
+fn no_se_traspasa_mas_de_lo_que_hay() {
+    let repositorio = repositorio_en_memoria();
+    let producto = alta_con_mercancia(&repositorio);
+
+    let error = Traspasar::nuevo(&repositorio)
+        .ejecutar(ComandoTraspasar {
+            producto,
+            cantidad: "80".to_owned(),
+            origen: "BODEGA".to_owned(),
+        })
+        .expect_err("no hay 80 libras en bodega");
+
+    assert_eq!(error.codigo(), "EXISTENCIA_INSUFICIENTE");
+    assert_eq!(unico(&repositorio).en_almacen, "50.000");
+}
+
+#[test]
+fn la_vista_previa_dice_como_quedaria() {
+    let repositorio = repositorio_en_memoria();
+    let producto = alta_con_mercancia(&repositorio);
+
+    let simulacion = SimularMovimiento::nuevo(&repositorio)
+        .ejecutar(ComandoSimular {
+            producto,
+            tipo: "TRASPASO".to_owned(),
+            cantidad: "12".to_owned(),
+            ubicacion: "BODEGA".to_owned(),
+        })
+        .expect("simular");
+
+    assert!(simulacion.posible);
+    assert_eq!(simulacion.disponible, "50.000");
+    assert_eq!(simulacion.bodega_resultante, "38.000");
+    assert_eq!(simulacion.vitrina_resultante, "12.000");
+
+    // Y simular no cambia nada.
+    assert_eq!(unico(&repositorio).en_almacen, "50.000");
+}
+
+#[test]
+fn la_vista_previa_avisa_antes_de_intentarlo() {
+    let repositorio = repositorio_en_memoria();
+    let producto = alta_con_mercancia(&repositorio);
+
+    let simulacion = SimularMovimiento::nuevo(&repositorio)
+        .ejecutar(ComandoSimular {
+            producto,
+            tipo: "MERMA".to_owned(),
+            cantidad: "80".to_owned(),
+            ubicacion: "BODEGA".to_owned(),
+        })
+        .expect("simular");
+
+    assert!(!simulacion.posible);
+    assert_eq!(
+        simulacion.problema.as_deref(),
+        Some("No alcanza: en bodega solo hay 50.000 lb")
+    );
+    // Cuando no se puede, se enseña la existencia actual sin cambios.
+    assert_eq!(simulacion.bodega_resultante, "50.000");
+}
+
+// ==================================================== vitrina
+
+fn vitrina(repositorio: &RepositorioProductoSqlite) -> ResumenVitrina {
+    ConsultarVitrina::nuevo(repositorio)
+        .ejecutar()
+        .expect("consultar la vitrina")
+}
+
+fn fijar_objetivo(repositorio: &RepositorioProductoSqlite, producto: i64, objetivo: &str) {
+    FijarObjetivoVitrina::nuevo(repositorio)
+        .ejecutar(ComandoFijarObjetivo {
+            producto,
+            objetivo: objetivo.to_owned(),
+        })
+        .expect("fijar el objetivo");
+}
+
+#[test]
+fn sin_objetivo_la_vitrina_no_sugiere_nada() {
+    let repositorio = repositorio_en_memoria();
+    alta_con_mercancia(&repositorio);
+
+    let estado = vitrina(&repositorio);
+    assert_eq!(estado.por_reponer, 0);
+    assert!(!estado.productos[0].hay_que_reponer);
+    // Pero sí avisa de que hay mercancía guardada que nadie ve.
+    assert_eq!(estado.sin_exhibir, 1);
+    assert!(estado.productos[0].disponible_sin_exhibir);
+}
+
+#[test]
+fn sugiere_bajar_lo_que_falta_para_alcanzar_el_objetivo() {
+    let repositorio = repositorio_en_memoria();
+    let producto = alta_con_mercancia(&repositorio);
+
+    fijar_objetivo(&repositorio, producto, "8");
+
+    let estado = vitrina(&repositorio);
+    assert_eq!(estado.productos[0].objetivo, "8.000");
+    assert_eq!(estado.productos[0].en_vitrina, "0.000");
+    assert_eq!(estado.productos[0].sugerido, "8.000");
+    assert_eq!(estado.por_reponer, 1);
+}
+
+#[test]
+fn la_sugerencia_descuenta_lo_que_ya_esta_exhibido() {
+    let repositorio = repositorio_en_memoria();
+    let producto = alta_con_mercancia(&repositorio);
+
+    fijar_objetivo(&repositorio, producto, "8");
+    Traspasar::nuevo(&repositorio)
+        .ejecutar(ComandoTraspasar {
+            producto,
+            cantidad: "3".to_owned(),
+            origen: "BODEGA".to_owned(),
+        })
+        .expect("bajar 3 a la vitrina");
+
+    let estado = vitrina(&repositorio);
+    assert_eq!(estado.productos[0].en_vitrina, "3.000");
+    // Faltan 5 para los 8 que se quieren exhibir.
+    assert_eq!(estado.productos[0].sugerido, "5.000");
+    assert!(estado.productos[0].esta_exhibido);
+}
+
+#[test]
+fn nunca_sugiere_bajar_mas_de_lo_que_hay_guardado() {
+    let repositorio = repositorio_en_memoria();
+    let producto = alta_con_mercancia(&repositorio);
+
+    // Se quieren 200 exhibidas pero en el almacén solo hay 50.
+    fijar_objetivo(&repositorio, producto, "200");
+
+    let estado = vitrina(&repositorio);
+    assert_eq!(estado.productos[0].sugerido, "50.000");
+}
+
+#[test]
+fn alcanzado_el_objetivo_deja_de_sugerir() {
+    let repositorio = repositorio_en_memoria();
+    let producto = alta_con_mercancia(&repositorio);
+
+    fijar_objetivo(&repositorio, producto, "5");
+    Traspasar::nuevo(&repositorio)
+        .ejecutar(ComandoTraspasar {
+            producto,
+            cantidad: "5".to_owned(),
+            origen: "BODEGA".to_owned(),
+        })
+        .expect("bajar 5");
+
+    let estado = vitrina(&repositorio);
+    assert_eq!(estado.productos[0].sugerido, "0.000");
+    assert!(!estado.productos[0].hay_que_reponer);
+    assert_eq!(estado.por_reponer, 0);
+    // Ya no está "guardado sin exhibir": hay algo en la vitrina.
+    assert_eq!(estado.sin_exhibir, 0);
+}
+
+#[test]
+fn el_objetivo_en_blanco_desactiva_la_sugerencia() {
+    let repositorio = repositorio_en_memoria();
+    let producto = alta_con_mercancia(&repositorio);
+
+    fijar_objetivo(&repositorio, producto, "8");
+    assert_eq!(vitrina(&repositorio).por_reponer, 1);
+
+    fijar_objetivo(&repositorio, producto, "");
+    assert_eq!(vitrina(&repositorio).por_reponer, 0);
+}
+
+#[test]
+fn el_objetivo_no_altera_la_existencia() {
+    let repositorio = repositorio_en_memoria();
+    let producto = alta_con_mercancia(&repositorio);
+
+    fijar_objetivo(&repositorio, producto, "8");
+
+    // Cambiar una ficha no mueve mercancía ni deja asiento.
+    let ficha = unico(&repositorio);
+    assert_eq!(ficha.en_almacen, "50.000");
+    assert_eq!(ficha.costo, "120.00");
+    assert_eq!(kardex(&repositorio, producto).len(), 1);
+}
+
+#[test]
+fn lo_que_esta_solo_en_vitrina_no_cuenta_como_por_reponer() {
+    let repositorio = repositorio_en_memoria();
+
+    // Mercancía que entró DIRECTA a la vitrina: el almacén queda vacío.
+    let mut comando = alta("Refresco 500 ml");
+    comando.costo_unitario = Some("100.00".to_owned());
+    comando.cantidad_vitrina = Some("6".to_owned());
+    let producto = RegistrarProducto::nuevo(&repositorio)
+        .ejecutar(comando)
+        .expect("registrar")
+        .0;
+
+    fijar_objetivo(&repositorio, producto, "20");
+
+    let estado = vitrina(&repositorio);
+    assert_eq!(estado.productos[0].en_vitrina, "6");
+    assert_eq!(estado.productos[0].objetivo, "20");
+    assert_eq!(estado.productos[0].en_almacen, "0");
+    // Falta para el objetivo, pero NO hay nada que bajar: reponer sería
+    // imposible. Lo que hace falta es comprar.
+    assert_eq!(estado.productos[0].sugerido, "0");
+    assert!(!estado.productos[0].hay_que_reponer);
+    assert_eq!(estado.por_reponer, 0);
+    // Pero sí se avisa de que hay que comprarlo: lo contrario sería decir
+    // una verdad inútil y dejar al dueño creyendo que está todo bien.
+    assert!(estado.productos[0].falta_comprar);
+    assert_eq!(estado.falta_comprar, 1);
 }

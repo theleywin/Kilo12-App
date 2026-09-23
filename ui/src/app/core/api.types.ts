@@ -57,6 +57,108 @@ export interface NuevoProductoDto {
   readonly objetivoVitrina?: string;
 }
 
+/** Estado del almacén: qué hay y cuánto vale. */
+export interface AlmacenDto {
+  readonly productos: readonly ProductoDto[];
+  /** Valor de todo el inventario, a costo promedio ponderado. */
+  readonly valorTotal: string;
+  readonly conExistencia: number;
+  readonly bajoMinimo: number;
+  readonly agotados: number;
+}
+
+/** Entrada de mercancía comprada. */
+export interface NuevaEntradaDto {
+  readonly producto: number;
+  readonly cantidad: string;
+  /** Lo que costó cada unidad en ESTA compra. */
+  readonly costoUnitario: string;
+  readonly destino: string;
+}
+
+/** Baja de mercancía perdida. El motivo es obligatorio. */
+export interface NuevaMermaDto {
+  readonly producto: number;
+  readonly cantidad: string;
+  readonly origen: string;
+  readonly motivo: string;
+}
+
+/** Un producto visto desde la vitrina. */
+export interface LineaVitrinaDto {
+  readonly id: number;
+  readonly sku: string;
+  readonly nombre: string;
+  readonly unidadBase: string;
+  readonly unidadNombre: string;
+  readonly enVitrina: string;
+  /** Cuánto se quiere mantener exhibido. */
+  readonly objetivo: string;
+  readonly enAlmacen: string;
+  /** Cuánto habría que bajar para alcanzar el objetivo. */
+  readonly sugerido: string;
+  readonly hayQueReponer: boolean;
+  readonly estaExhibido: boolean;
+  /** Falta para el objetivo y no hay repuesto guardado: hay que comprar. */
+  readonly faltaComprar: boolean;
+  /** Guardado en el almacén pero invisible para el cliente. */
+  readonly disponibleSinExhibir: boolean;
+  readonly agotado: boolean;
+}
+
+/** Estado de la vitrina. */
+export interface VitrinaDto {
+  readonly productos: readonly LineaVitrinaDto[];
+  readonly exhibidos: number;
+  readonly porReponer: number;
+  readonly sinExhibir: number;
+  readonly faltaComprar: number;
+}
+
+/** Traslado entre almacén y vitrina. No lleva costo. */
+export interface NuevoTraspasoDto {
+  readonly producto: number;
+  readonly cantidad: string;
+  /** De dónde sale. El destino es la otra ubicación. */
+  readonly origen: string;
+}
+
+/** Cómo quedaría la existencia si el movimiento se hiciera. */
+export interface SimulacionDto {
+  readonly posible: boolean;
+  /** Por qué no se puede, ya redactado. */
+  readonly problema: string | null;
+  /** Cuánto hay ahora en la ubicación implicada. */
+  readonly disponible: string;
+  readonly bodegaResultante: string;
+  readonly vitrinaResultante: string;
+}
+
+/** Una línea del historial de un producto. */
+export interface MovimientoDto {
+  readonly id: number;
+  /** Código estable: `ENTRADA`, `MERMA`, `VENTA`… */
+  readonly tipo: string;
+  readonly tipoNombre: string;
+  readonly esEntrada: boolean;
+  readonly cantidad: string;
+  readonly costoUnitario: string;
+  readonly importe: string;
+  readonly origen: string | null;
+  readonly destino: string | null;
+  /** Existencia que quedó después de este movimiento. */
+  readonly bodegaResultante: string;
+  readonly vitrinaResultante: string;
+  readonly motivo: string | null;
+  readonly ocurridoEn: string;
+}
+
+/** Las dos ubicaciones, tal como las nombra el negocio. */
+export const UBICACIONES: ReadonlyArray<{ valor: string; nombre: string }> = [
+  { valor: 'BODEGA', nombre: 'Almacén' },
+  { valor: 'VITRINA', nombre: 'Vitrina' },
+];
+
 /** Ganancia y margen de un precio frente a su costo. */
 export interface MargenDto {
   readonly ganancia: string;

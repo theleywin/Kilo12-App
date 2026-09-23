@@ -1,0 +1,219 @@
+<section class="pagina pagina--ancha">
+  <header class="cabecera-pagina">
+    <h1>Almacén</h1>
+    <p class="descripcion">
+      Lo que tienes guardado y lo que vale. La mercancía entra por Entrada
+      <kbd class="tecla">F2</kbd> y se exhibe desde Vitrina <kbd class="tecla">F3</kbd>.
+    </p>
+  </header>
+
+  @if (error(); as fallo) {
+    <div
+      class="aviso"
+      [class.aviso--error]="!fallo.delUsuario"
+      [class.aviso--atencion]="fallo.delUsuario"
+      role="alert"
+    >
+      <strong>{{ fallo.mensaje }}</strong>
+      <span class="codigo">{{ fallo.codigo }}</span>
+    </div>
+  }
+
+  @if (almacen(); as datos) {
+    <!-- ================================================= resumen -->
+    <div class="rejilla-tarjetas">
+      <div class="panel tarjeta">
+        <span class="tarjeta__titulo">Valor del inventario</span>
+        <span class="cifra cifra--grande">{{ datos.valorTotal }}</span>
+        <span class="apagado nota">A costo promedio ponderado.</span>
+      </div>
+
+      <div class="panel tarjeta">
+        <span class="tarjeta__titulo">Con existencia</span>
+        <span class="cifra cifra--grande">{{ datos.conExistencia }}</span>
+        <span class="apagado nota">Productos que puedes vender hoy.</span>
+      </div>
+
+      <div class="panel tarjeta" [class.tarjeta--atencion]="datos.bajoMinimo > 0">
+        <span class="tarjeta__titulo">Por agotarse</span>
+        <span class="cifra cifra--grande">{{ datos.bajoMinimo }}</span>
+        <span class="apagado nota">Por debajo del mínimo que fijaste.</span>
+      </div>
+
+      <div class="panel tarjeta" [class.tarjeta--error]="datos.agotados > 0">
+        <span class="tarjeta__titulo">Agotados</span>
+        <span class="cifra cifra--grande">{{ datos.agotados }}</span>
+        <span class="apagado nota">Sin nada, ni en almacén ni en vitrina.</span>
+      </div>
+    </div>
+
+    <!-- ============================================ existencias -->
+    <div class="panel panel--lista">
+      <div class="panel__cabecera">
+        <span class="panel__titulo">Existencias</span>
+        <span class="apagado nota">Elige un producto para ver su historial</span>
+      </div>
+
+      <div class="tabla-envoltorio">
+        <table class="tabla">
+          <thead>
+            <tr>
+              <th>Producto</th>
+              <th>Código</th>
+              <th>Se vende por</th>
+              <th class="derecha">Costo</th>
+              <th class="derecha">Almacén</th>
+              <th class="derecha">Vitrina</th>
+              <th class="derecha">Total</th>
+              <th>Estado</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (producto of datos.productos; track producto.id) {
+              <tr
+                class="fila-clicable"
+                [attr.aria-selected]="seleccionado()?.id === producto.id"
+                (click)="verHistorial(producto)"
+              >
+                <td>{{ producto.nombre }}</td>
+                <td class="mono">{{ producto.sku }}</td>
+                <td class="apagado">{{ producto.unidadNombre }}</td>
+                <td class="derecha cifra">{{ producto.costo }}</td>
+                <td class="derecha cifra">{{ producto.enAlmacen }}</td>
+                <td class="derecha cifra apagado">{{ producto.enVitrina }}</td>
+                <td class="derecha cifra">{{ producto.existenciaTotal }}</td>
+                <td>
+                  @if (producto.agotado) {
+                    <span class="etiqueta">Sin existencia</span>
+                  } @else if (producto.bajoMinimo) {
+                    <span class="etiqueta etiqueta--atencion">Por agotarse</span>
+                  } @else {
+                    <span class="etiqueta etiqueta--acento">Normal</span>
+                  }
+                </td>
+              </tr>
+            } @empty {
+              <tr>
+                <td colspan="8">
+                  <div class="vacio">
+                    @if (cargando()) {
+                      <span class="vacio__titulo">Cargando…</span>
+                    } @else {
+                      <span class="vacio__titulo">Todavía no hay nada guardado</span>
+                      <span class="vacio__texto">
+                        Registra lo primero que llegó en Entrada <kbd class="tecla">F2</kbd>.
+                      </span>
+                    }
+                  </div>
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ====================================== producto elegido -->
+    @if (seleccionado(); as producto) {
+      <div class="panel panel--lista">
+        <div class="panel__cabecera">
+          <span class="panel__titulo">{{ producto.nombre }}</span>
+          <button type="button" class="boton boton--discreto" (click)="cerrarHistorial()">
+            Cerrar
+          </button>
+        </div>
+
+        <div class="panel__cuerpo">
+          <!-- La ubicación no se pregunta: estás mirando el almacén. -->
+          <form class="merma" [formGroup]="formularioMerma" (ngSubmit)="mermar()">
+            <div class="campo">
+              <label for="merma-cantidad">
+                Se perdió <span class="opcional">del almacén, en {{ producto.unidadBase }}</span>
+              </label>
+              <input
+                id="merma-cantidad"
+                class="control--cifra"
+                formControlName="cantidad"
+                inputmode="decimal"
+                placeholder="0"
+              />
+            </div>
+
+            <div class="campo campo--ancho">
+              <label for="merma-motivo">¿Qué pasó?</label>
+              <input
+                id="merma-motivo"
+                formControlName="motivo"
+                autocomplete="off"
+                placeholder="Se echó a perder, se rompió, se mojó…"
+              />
+            </div>
+
+            <button type="submit" class="boton boton--peligro" [disabled]="ocupado()">
+              Dar de baja
+            </button>
+          </form>
+        </div>
+
+        <div class="tabla-envoltorio">
+          <table class="tabla">
+            <thead>
+              <tr>
+                <th>Cuándo</th>
+                <th>Qué pasó</th>
+                <th class="derecha">Cantidad</th>
+                <th class="derecha">Costo</th>
+                <th class="derecha">Importe</th>
+                <th class="derecha">Almacén</th>
+                <th class="derecha">Vitrina</th>
+                <th>Motivo</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (linea of kardex(); track linea.id) {
+                <tr>
+                  <td class="mono">{{ linea.ocurridoEn }}</td>
+                  <td>
+                    <span
+                      class="etiqueta"
+                      [class.etiqueta--acento]="linea.esEntrada"
+                      [class.etiqueta--error]="!linea.esEntrada"
+                    >
+                      {{ linea.tipoNombre }}
+                    </span>
+                    @if (linea.origen && linea.destino) {
+                      <span class="apagado nota">{{ linea.origen }} → {{ linea.destino }}</span>
+                    }
+                  </td>
+                  <td class="derecha cifra">
+                    {{ linea.esEntrada ? '+' : '−' }}{{ linea.cantidad }}
+                  </td>
+                  <td class="derecha cifra">{{ linea.costoUnitario }}</td>
+                  <td class="derecha cifra">{{ linea.importe }}</td>
+                  <td class="derecha cifra">{{ linea.bodegaResultante }}</td>
+                  <td class="derecha cifra apagado">{{ linea.vitrinaResultante }}</td>
+                  <td class="apagado">{{ linea.motivo ?? '—' }}</td>
+                </tr>
+              } @empty {
+                <tr>
+                  <td colspan="8">
+                    <div class="vacio">
+                      @if (cargandoKardex()) {
+                        <span class="vacio__titulo">Cargando…</span>
+                      } @else {
+                        <span class="vacio__titulo">Sin movimientos</span>
+                        <span class="vacio__texto">
+                          Este producto se creó antes de que existiera el historial.
+                        </span>
+                      }
+                    </div>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </div>
+    }
+  }
+</section>
