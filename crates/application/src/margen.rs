@@ -19,6 +19,14 @@ pub struct Margen {
     pub en_riesgo: bool,
 }
 
+/// Precio que hay que cobrar para dejar el margen pedido (RF-PRE-02).
+///
+/// Es el camino inverso de [`calcular`]: en vez de preguntar cuánto deja un
+/// precio, se dice cuánto se quiere dejar y sale el precio.
+pub fn precio_para(costo: Dinero, margen: Porcentaje) -> Result<Dinero, ErrorDominio> {
+    costo.precio_para_margen(margen.diezmilesimas())
+}
+
 /// Calcula la ganancia y el margen de un precio frente a su costo.
 pub fn calcular(costo: Dinero, precio: Dinero) -> Result<Margen, ErrorDominio> {
     let ganancia = precio.restar(costo)?;
