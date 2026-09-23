@@ -7,13 +7,16 @@ use std::sync::Arc;
 
 use application::error::Resultado;
 use application::puertos::{
-    Asiento, CambioDePrecio, CambioRegistrado, DetalleVenta, LineaRegistrada, MovimientoRegistrado,
-    PagoRegistrado, ProductoConInventario, RepositorioProducto, ResumenDia, VentaConfirmada,
-    VentaRegistrada,
+    AcumuladoSesion, AnulacionConfirmada, Asiento, CambioDePrecio, CambioRegistrado,
+    CierreConfirmado, DetalleVenta, LineaRegistrada, MovimientoEfectivoRegistrado,
+    MovimientoRegistrado, PagoRegistrado, ProductoConInventario, RepositorioProducto, ResumenDia,
+    SesionRegistrada, VentaConfirmada, VentaRegistrada,
 };
 use domain::{
-    Cantidad, Dinero, Existencias, IdPresentacion, IdProducto, Inventario, MetodoPago, Movimiento,
-    Presentacion, Producto, TipoMovimiento, Ubicacion, UnidadBase,
+    ArqueoMoneda, Cantidad, Comision, Dinero, ErrorDominio, EstadoSesion, Existencias,
+    IdPresentacion, IdProducto, IdSesion, Inventario, MetodoPago, ModoCierre, Movimiento,
+    MovimientoEfectivo, Presentacion, Producto, ResumenCierre, SesionCaja, TipoMovimiento,
+    TipoMovimientoEfectivo, TotalesCaja, Ubicacion, UnidadBase,
 };
 
 use rusqlite::{params, Connection, Row, Transaction};
@@ -329,6 +332,7 @@ impl RepositorioProducto for RepositorioProductoSqlite {
             costo_total,
             vuelto,
             descuentos,
+            sesion,
         } = confirmada;
 
         let folio = self.base.en_transaccion(|tx| {
@@ -341,13 +345,14 @@ impl RepositorioProducto for RepositorioProductoSqlite {
             )?;
 
             tx.execute(
-                "INSERT INTO venta (folio, total, costo_total, vuelto, ocurrido_en)
-                 VALUES (?1, ?2, ?3, ?4, datetime('now', 'localtime'))",
+                "INSERT INTO venta (folio, total, costo_total, vuelto, sesion_id, ocurrido_en)
+                 VALUES (?1, ?2, ?3, ?4, ?5, datetime('now', 'localtime'))",
                 params![
                     folio,
                     total.millonesimas(),
                     costo_total.millonesimas(),
                     vuelto.millonesimas(),
+                    sesion.0,
                 ],
             )?;
 
@@ -426,7 +431,8 @@ impl RepositorioProducto for RepositorioProductoSqlite {
     fn listar_ventas(&self, limite: usize) -> Resultado<Vec<VentaRegistrada>> {
         let ventas = self.base.con(|conexion| {
             let mut consulta = conexion.prepare(
-                "SELECT id, folio, total, costo_total, vuelto, ocurrido_en
+                "SELECT id, folio, total, costo_total, vuelto, ocurrido_en,
+                        sesion_id, anulada_en, motivo_anulacion
                  FROM venta
                  ORDER BY folio DESC
                  LIMIT ?1",
@@ -448,7 +454,8 @@ impl RepositorioProducto for RepositorioProductoSqlite {
     fn detalle_venta(&self, id: i64) -> Resultado<Option<DetalleVenta>> {
         let detalle = self.base.con(|conexion| {
             let mut cabecera = conexion.prepare(
-                "SELECT id, folio, total, costo_total, vuelto, ocurrido_en
+                "SELECT id, folio, total, costo_total, vuelto, ocurrido_en,
+                        sesion_id, anulada_en, motivo_anulacion
                  FROM venta WHERE id = ?1",
             )?;
 
@@ -522,24 +529,425 @@ impl RepositorioProducto for RepositorioProductoSqlite {
             // El corte del día lo decide la base con su propio reloj. Si lo
             // calculara Rust tendría que saber en qué huso está la tienda, y
             // la tienda está exactamente donde está esta máquina.
-            let resumen = conexion.query_row(
+            // Las anuladas no cuentan: la mercancía volvió y el dinero se
+            // devolvió. Dejarlas sumando inflaría el día entero.
+            let (cuantas, total, costo) = conexion.query_row(
                 "SELECT COUNT(*), COALESCE(SUM(total), 0), COALESCE(SUM(costo_total), 0)
                  FROM venta
-                 WHERE date(ocurrido_en) = date('now', 'localtime')",
+                 WHERE date(ocurrido_en) = date('now', 'localtime')
+                   AND anulada_en IS NULL",
                 [],
-                |fila| {
-                    Ok(ResumenDia {
-                        cuantas: fila.get(0)?,
-                        total: Dinero::desde_millonesimas(fila.get(1)?),
-                        costo_total: Dinero::desde_millonesimas(fila.get(2)?),
-                    })
-                },
+                |fila| Ok((fila.get(0)?, fila.get(1)?, fila.get(2)?)),
             )?;
+
+            let resumen = ResumenDia {
+                cuantas,
+                total: Dinero::desde_millonesimas(total),
+                costo_total: Dinero::desde_millonesimas(costo),
+            };
 
             Ok(resumen)
         })?;
 
         Ok(resumen)
+    }
+
+    fn anular_venta(&self, anulacion: &AnulacionConfirmada<'_>) -> Resultado<()> {
+        self.base.en_transaccion(|tx| {
+            // Solo se anula lo que sigue vivo. El `anulada_en IS NULL` no es
+            // adorno: sin él, anular dos veces devolvería la mercancía dos
+            // veces y la vitrina acabaría con existencia inventada.
+            let marcadas = tx.execute(
+                "UPDATE venta
+                    SET anulada_en = datetime('now', 'localtime'), motivo_anulacion = ?2
+                  WHERE id = ?1 AND anulada_en IS NULL",
+                params![anulacion.venta, anulacion.motivo],
+            )?;
+
+            if marcadas == 0 {
+                return Err(ErrorInfra::Dominio(ErrorDominio::VentaYaAnulada));
+            }
+
+            for reversa in anulacion.reversas.iter() {
+                tx.execute(
+                    "UPDATE producto SET valor_total = ?2 WHERE id = ?1",
+                    params![
+                        reversa.producto.0,
+                        reversa.inventario.valor_total().millonesimas()
+                    ],
+                )?;
+
+                for ubicacion in Ubicacion::TODAS {
+                    tx.execute(
+                        "UPDATE existencia SET cantidad = ?3
+                         WHERE producto_id = ?1 AND ubicacion = ?2",
+                        params![
+                            reversa.producto.0,
+                            ubicacion.como_texto(),
+                            reversa.inventario.existencias().en(ubicacion).milesimas(),
+                        ],
+                    )?;
+                }
+
+                escribir_movimiento(
+                    tx,
+                    reversa.producto.0,
+                    &reversa.movimiento,
+                    reversa.inventario.existencias(),
+                )?;
+            }
+
+            Ok(())
+        })?;
+
+        Ok(())
+    }
+
+    // --------------------------------------------------------- caja
+
+    fn abrir_sesion(&self, sesion: &SesionCaja) -> Resultado<IdSesion> {
+        let id = self.base.en_transaccion(|tx| {
+            // La comprobación va dentro de la transacción, y además existe
+            // el índice único parcial: uno da el mensaje bueno, el otro es
+            // la garantía de verdad.
+            let abiertas: i64 = tx.query_row(
+                "SELECT COUNT(*) FROM sesion_caja WHERE estado = 'ABIERTA'",
+                [],
+                |fila| fila.get(0),
+            )?;
+
+            if abiertas > 0 {
+                return Err(ErrorInfra::Dominio(ErrorDominio::SesionYaAbierta));
+            }
+
+            tx.execute(
+                "INSERT INTO sesion_caja (operador, fondo_inicial, estado, abierta_en)
+                 VALUES (?1, ?2, 'ABIERTA', datetime('now', 'localtime'))",
+                params![sesion.operador(), sesion.fondo_inicial().millonesimas()],
+            )?;
+
+            Ok(tx.last_insert_rowid())
+        })?;
+
+        Ok(IdSesion(id))
+    }
+
+    fn sesion_abierta(&self) -> Resultado<Option<SesionRegistrada>> {
+        let sesion = self.base.con(|conexion| {
+            let mut consulta = conexion.prepare(
+                "SELECT id, operador, fondo_inicial, estado, abierta_en, cerrada_en
+                 FROM sesion_caja WHERE estado = 'ABIERTA'",
+            )?;
+
+            let mut filas = consulta.query([])?;
+            match filas.next()? {
+                Some(fila) => Ok(Some(leer_sesion(fila)?)),
+                None => Ok(None),
+            }
+        })?;
+
+        Ok(sesion)
+    }
+
+    fn sesion(&self, id: IdSesion) -> Resultado<Option<SesionRegistrada>> {
+        let sesion = self.base.con(|conexion| {
+            let mut consulta = conexion.prepare(
+                "SELECT id, operador, fondo_inicial, estado, abierta_en, cerrada_en
+                 FROM sesion_caja WHERE id = ?1",
+            )?;
+
+            let mut filas = consulta.query(params![id.0])?;
+            match filas.next()? {
+                Some(fila) => Ok(Some(leer_sesion(fila)?)),
+                None => Ok(None),
+            }
+        })?;
+
+        Ok(sesion)
+    }
+
+    fn acumulado_de_sesion(&self, id: IdSesion) -> Resultado<AcumuladoSesion> {
+        let acumulado = self.base.con(|conexion| {
+            // Las ventas anuladas no cuentan para nada: ni venta, ni costo,
+            // ni efectivo. Se quedan en la tabla por su rastro (RF-VTA-15).
+            let (cuantas, vendido, costo, vuelto): (i64, i64, i64, i64) = conexion.query_row(
+                "SELECT COUNT(*),
+                        COALESCE(SUM(total), 0),
+                        COALESCE(SUM(costo_total), 0),
+                        COALESCE(SUM(vuelto), 0)
+                   FROM venta
+                  WHERE sesion_id = ?1 AND anulada_en IS NULL",
+                params![id.0],
+                |fila| Ok((fila.get(0)?, fila.get(1)?, fila.get(2)?, fila.get(3)?)),
+            )?;
+
+            let suma_pagos = |metodo: &str, columna: &str| -> ResultadoInfra<i64> {
+                let total: i64 = conexion.query_row(
+                    &format!(
+                        "SELECT COALESCE(SUM(p.{columna}), 0)
+                           FROM venta_pago p
+                           JOIN venta v ON v.id = p.venta_id
+                          WHERE v.sesion_id = ?1 AND v.anulada_en IS NULL
+                            AND p.metodo = ?2"
+                    ),
+                    params![id.0, metodo],
+                    |fila| fila.get(0),
+                )?;
+                Ok(total)
+            };
+
+            let entregado_cup = suma_pagos("EFECTIVO_CUP", "entregado")?;
+            let transferencia = suma_pagos("TRANSFERENCIA", "entregado")?;
+            let efectivo_usd = suma_pagos("EFECTIVO_USD", "entregado")?;
+            let efectivo_usd_en_cup = suma_pagos("EFECTIVO_USD", "equivalente_cup")?;
+
+            let mover = |tipo: &str| -> ResultadoInfra<i64> {
+                let total: i64 = conexion.query_row(
+                    "SELECT COALESCE(SUM(importe), 0)
+                       FROM movimiento_efectivo
+                      WHERE sesion_id = ?1 AND tipo = ?2",
+                    params![id.0, tipo],
+                    |fila| fila.get(0),
+                )?;
+                Ok(total)
+            };
+
+            // La merma se imputa por ventana de tiempo: el kárdex no sabe de
+            // sesiones, y darle esa columna lo ataría a un concepto de caja
+            // que no le corresponde.
+            let merma: i64 = conexion.query_row(
+                "SELECT COALESCE(SUM(m.cantidad * m.costo_unitario / 1000), 0)
+                   FROM movimiento m
+                   JOIN sesion_caja s ON s.id = ?1
+                  WHERE m.tipo = 'MERMA'
+                    AND m.ocurrido_en >= s.abierta_en
+                    AND (s.cerrada_en IS NULL OR m.ocurrido_en <= s.cerrada_en)",
+                params![id.0],
+                |fila| fila.get(0),
+            )?;
+
+            Ok(AcumuladoSesion {
+                cuantas_ventas: cuantas,
+                total_vendido: Dinero::desde_millonesimas(vendido),
+                costo_vendido: Dinero::desde_millonesimas(costo),
+                transferencia: Dinero::desde_millonesimas(transferencia),
+                efectivo_usd: Dinero::desde_millonesimas(efectivo_usd),
+                efectivo_usd_en_cup: Dinero::desde_millonesimas(efectivo_usd_en_cup),
+                // Billetes de peso: lo que entró menos el vuelto que salió.
+                efectivo_cup_neto: Dinero::desde_millonesimas(entregado_cup - vuelto),
+                entradas: Dinero::desde_millonesimas(mover("ENTRADA")?),
+                salidas: Dinero::desde_millonesimas(mover("SALIDA")?),
+                merma_costo: Dinero::desde_millonesimas(merma),
+            })
+        })?;
+
+        Ok(acumulado)
+    }
+
+    fn registrar_movimiento_efectivo(
+        &self,
+        sesion: IdSesion,
+        movimiento: &MovimientoEfectivo,
+    ) -> Resultado<()> {
+        self.base.con(|conexion| {
+            conexion.execute(
+                "INSERT INTO movimiento_efectivo (sesion_id, tipo, importe, motivo, ocurrido_en)
+                 VALUES (?1, ?2, ?3, ?4, datetime('now', 'localtime'))",
+                params![
+                    sesion.0,
+                    movimiento.tipo().como_texto(),
+                    movimiento.importe().millonesimas(),
+                    movimiento.motivo(),
+                ],
+            )?;
+            Ok(())
+        })?;
+
+        Ok(())
+    }
+
+    fn movimientos_efectivo(
+        &self,
+        sesion: IdSesion,
+    ) -> Resultado<Vec<MovimientoEfectivoRegistrado>> {
+        let movimientos = self.base.con(|conexion| {
+            let mut consulta = conexion.prepare(
+                "SELECT id, tipo, importe, motivo, ocurrido_en
+                   FROM movimiento_efectivo
+                  WHERE sesion_id = ?1
+                  ORDER BY id DESC",
+            )?;
+
+            let mut filas = consulta.query(params![sesion.0])?;
+            let mut movimientos = Vec::new();
+
+            while let Some(fila) = filas.next()? {
+                let tipo: String = fila.get(1)?;
+                let tipo = tipo.parse::<TipoMovimientoEfectivo>().map_err(|_| {
+                    ErrorInfra::DatoCorrupto(format!("tipo de movimiento desconocido: {tipo}"))
+                })?;
+                let motivo: String = fila.get(3)?;
+
+                movimientos.push(MovimientoEfectivoRegistrado {
+                    id: fila.get(0)?,
+                    movimiento: MovimientoEfectivo::nuevo(
+                        tipo,
+                        Dinero::desde_millonesimas(fila.get(2)?),
+                        motivo,
+                    )
+                    .map_err(ErrorInfra::Dominio)?,
+                    ocurrido_en: fila.get(4)?,
+                });
+            }
+
+            Ok(movimientos)
+        })?;
+
+        Ok(movimientos)
+    }
+
+    fn cerrar_sesion(&self, cierre: &CierreConfirmado) -> Resultado<()> {
+        self.base.en_transaccion(|tx| {
+            let resumen = &cierre.resumen;
+            let totales = &resumen.totales;
+
+            // El `estado = 'ABIERTA'` de la cláusula es lo que hace que
+            // cerrar dos veces sea imposible aunque dos pantallas lo
+            // intenten a la vez (RF-CAJ-08).
+            let cerradas = tx.execute(
+                "UPDATE sesion_caja
+                    SET estado = 'CERRADA',
+                        cerrada_en = datetime('now', 'localtime'),
+                        modo_cierre = ?2,
+                        contado_cup = ?3, contado_usd = ?4,
+                        esperado_cup = ?5, esperado_usd = ?6,
+                        vendido_cup = ?7, vendido_transferencia = ?8,
+                        vendido_usd = ?9, vendido_usd_en_cup = ?10,
+                        costo_vendido = ?11, merma_costo = ?12,
+                        comision_porcentaje = ?13, comision_base = ?14,
+                        comision_importe = ?15
+                  WHERE id = ?1 AND estado = 'ABIERTA'",
+                params![
+                    cierre.sesion.0,
+                    match resumen.modo {
+                        ModoCierre::Separado => "SEPARADO",
+                        ModoCierre::Consolidado => "CONSOLIDADO",
+                    },
+                    resumen.arqueo_cup.contado.millonesimas(),
+                    resumen.arqueo_usd.contado.millonesimas(),
+                    resumen.arqueo_cup.esperado.millonesimas(),
+                    resumen.arqueo_usd.esperado.millonesimas(),
+                    totales.efectivo_cup().millonesimas(),
+                    totales.transferencia().millonesimas(),
+                    totales.efectivo_usd().millonesimas(),
+                    totales.efectivo_usd_en_cup().millonesimas(),
+                    cierre.costo_vendido.millonesimas(),
+                    cierre.merma_costo.millonesimas(),
+                    cierre.comision.porcentaje(),
+                    cierre.comision.base().millonesimas(),
+                    cierre.comision.importe().millonesimas(),
+                ],
+            )?;
+
+            if cerradas == 0 {
+                return Err(ErrorInfra::Dominio(ErrorDominio::SesionCerrada));
+            }
+
+            Ok(())
+        })?;
+
+        Ok(())
+    }
+
+    fn listar_sesiones(&self, limite: usize) -> Resultado<Vec<SesionRegistrada>> {
+        let sesiones = self.base.con(|conexion| {
+            let mut consulta = conexion.prepare(
+                "SELECT id, operador, fondo_inicial, estado, abierta_en, cerrada_en
+                   FROM sesion_caja
+                  ORDER BY id DESC
+                  LIMIT ?1",
+            )?;
+
+            let mut filas = consulta.query(params![limite as i64])?;
+            let mut sesiones = Vec::new();
+
+            while let Some(fila) = filas.next()? {
+                sesiones.push(leer_sesion(fila)?);
+            }
+
+            Ok(sesiones)
+        })?;
+
+        Ok(sesiones)
+    }
+
+    fn cierre_de_sesion(&self, id: IdSesion) -> Resultado<Option<CierreConfirmado>> {
+        let cierre = self.base.con(|conexion| {
+            let mut consulta = conexion.prepare(
+                "SELECT modo_cierre, contado_cup, contado_usd, esperado_cup, esperado_usd,
+                        vendido_cup, vendido_transferencia, vendido_usd, vendido_usd_en_cup,
+                        costo_vendido, merma_costo,
+                        comision_porcentaje, comision_base, comision_importe
+                   FROM sesion_caja
+                  WHERE id = ?1 AND estado = 'CERRADA'",
+            )?;
+
+            let mut filas = consulta.query(params![id.0])?;
+            let Some(fila) = filas.next()? else {
+                return Ok(None);
+            };
+
+            let modo: String = fila.get(0)?;
+            let modo = match modo.as_str() {
+                "CONSOLIDADO" => ModoCierre::Consolidado,
+                _ => ModoCierre::Separado,
+            };
+
+            // Se reconstruye tal cual se guardó: ni una cifra se recalcula.
+            // Ese es todo el sentido de RF-CAJ-08.
+            let vendido_cup = Dinero::desde_millonesimas(fila.get(5)?);
+            let transferencia = Dinero::desde_millonesimas(fila.get(6)?);
+            let usd_en_cup = Dinero::desde_millonesimas(fila.get(8)?);
+            let total_vendido = vendido_cup
+                .sumar(transferencia)
+                .and_then(|suma| suma.sumar(usd_en_cup))
+                .map_err(ErrorInfra::Dominio)?;
+
+            let totales = TotalesCaja::nuevos(
+                total_vendido,
+                transferencia,
+                Dinero::desde_millonesimas(fila.get(7)?),
+                usd_en_cup,
+                // El neto ya no hace falta para leer: el esperado se guardó.
+                Dinero::CERO,
+            )
+            .map_err(ErrorInfra::Dominio)?;
+
+            Ok(Some(CierreConfirmado {
+                sesion: id,
+                resumen: ResumenCierre {
+                    totales,
+                    modo,
+                    arqueo_cup: ArqueoMoneda::nuevo(
+                        Dinero::desde_millonesimas(fila.get(3)?),
+                        Dinero::desde_millonesimas(fila.get(1)?),
+                    ),
+                    arqueo_usd: ArqueoMoneda::nuevo(
+                        Dinero::desde_millonesimas(fila.get(4)?),
+                        Dinero::desde_millonesimas(fila.get(2)?),
+                    ),
+                },
+                costo_vendido: Dinero::desde_millonesimas(fila.get(9)?),
+                merma_costo: Dinero::desde_millonesimas(fila.get(10)?),
+                comision: Comision::liquidada(
+                    Dinero::desde_millonesimas(fila.get(12)?),
+                    fila.get(11)?,
+                    Dinero::desde_millonesimas(fila.get(13)?),
+                ),
+            }))
+        })?;
+
+        Ok(cierre)
     }
 
     fn configuracion(&self, clave: &str) -> Resultado<Option<String>> {
@@ -584,11 +992,32 @@ impl RepositorioProducto for RepositorioProductoSqlite {
     }
 }
 
+/// Lee una sesión de caja.
+fn leer_sesion(fila: &Row<'_>) -> ResultadoInfra<SesionRegistrada> {
+    let estado: String = fila.get(3)?;
+    let estado = estado
+        .parse::<EstadoSesion>()
+        .map_err(|_| ErrorInfra::DatoCorrupto(format!("estado de sesión desconocido: {estado}")))?;
+
+    Ok(SesionRegistrada {
+        sesion: SesionCaja::rehidratar(
+            IdSesion(fila.get(0)?),
+            fila.get::<_, String>(1)?,
+            Dinero::desde_millonesimas(fila.get(2)?),
+            estado,
+        ),
+        abierta_en: fila.get(4)?,
+        cerrada_en: fila.get(5)?,
+    })
+}
+
 /// Lee la cabecera de una venta.
 ///
 /// Las columnas van en el mismo orden en las dos consultas que la usan; si
 /// una cambia, cambian las dos.
 fn leer_venta(fila: &Row<'_>) -> ResultadoInfra<VentaRegistrada> {
+    let anulada_en: Option<String> = fila.get(7)?;
+
     Ok(VentaRegistrada {
         id: fila.get(0)?,
         folio: fila.get(1)?,
@@ -596,6 +1025,9 @@ fn leer_venta(fila: &Row<'_>) -> ResultadoInfra<VentaRegistrada> {
         costo_total: Dinero::desde_millonesimas(fila.get(3)?),
         vuelto: Dinero::desde_millonesimas(fila.get(4)?),
         ocurrido_en: fila.get(5)?,
+        sesion: fila.get(6)?,
+        anulada: anulada_en.is_some(),
+        motivo_anulacion: fila.get(8)?,
     })
 }
 
