@@ -198,6 +198,53 @@
             </span>
           </div>
 
+          <!-- Traer del almacén (RF-VIT-01). Va lo primero porque es lo
+               que más se hace, y porque un producto guardado que nadie ve
+               no se vende. -->
+          <div class="traer" [class.traer--urgente]="producto.disponibleSinExhibir">
+            <div class="campo">
+              <label for="traer-cantidad">
+                Traer del almacén
+                <span class="opcional">
+                  hay {{ producto.enAlmacen }} {{ producto.unidadBase }} guardados
+                </span>
+              </label>
+              <input
+                id="traer-cantidad"
+                class="control--cifra"
+                inputmode="decimal"
+                placeholder="0"
+                [value]="aTraer()"
+                (input)="aTraer.set($any($event.target).value)"
+                (keydown.enter)="traer(producto)"
+              />
+            </div>
+
+            <button
+              type="button"
+              class="boton boton--discreto"
+              [disabled]="ocupado()"
+              (click)="traerTodo(producto)"
+            >
+              Todo
+            </button>
+
+            <button
+              type="button"
+              class="boton boton--destacado"
+              [disabled]="ocupado() || !aTraer().trim()"
+              (click)="traer(producto)"
+            >
+              Traer a la vitrina
+            </button>
+
+            @if (producto.disponibleSinExhibir) {
+              <span class="nota nota--urgente">
+                Está guardado y no se exhibe: el cliente no puede comprarlo.
+              </span>
+            }
+          </div>
+
           @if (producto.estaExhibido) {
             <!-- Retirar de la exhibición y guardarlo (RF-VIT-02). La
                  cantidad es suya: no tiene nada que ver con la de bajar. -->

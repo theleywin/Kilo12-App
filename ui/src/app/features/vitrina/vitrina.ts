@@ -55,6 +55,15 @@ export class Vitrina {
    */
   protected readonly aDevolver = signal('');
 
+  /**
+   * Cuánto se trae del almacén a la vitrina.
+   *
+   * Tiene su propia casilla, como la de devolver: son dos cantidades que
+   * van en direcciones opuestas y compartirlas era justo el error que esta
+   * pantalla ya tuvo una vez.
+   */
+  protected readonly aTraer = signal('');
+
   protected readonly formularioMerma = this.fb.nonNullable.group({
     cantidad: ['', [Validators.required, Validators.pattern(DECIMAL)]],
     motivo: ['', Validators.required],
@@ -154,6 +163,39 @@ export class Vitrina {
     }
   }
 
+  /**
+   * Trae mercancía del almacén a la vitrina (RF-VIT-01).
+   *
+   * Es el movimiento que hace falta a diario y el que faltaba aquí: la
+   * lista de reposición solo propone cuando hay un objetivo fijado, así que
+   * sin objetivo no había forma de sacar nada del almacén desde esta
+   * pantalla. Ahora está en la ficha del producto, que es donde se busca.
+   */
+  protected async traer(producto: LineaVitrinaDto): Promise<void> {
+    const cantidad = this.aTraer().trim();
+    if (!DECIMAL.test(cantidad)) {
+      return;
+    }
+
+    this.ocupado.set(true);
+    try {
+      await this.api.traspasar({ producto: producto.id, cantidad, origen: 'BODEGA' });
+      this.error.set(null);
+      this.aTraer.set('');
+      await this.recargar();
+      await this.verHistorial(producto);
+    } catch (fallo) {
+      this.error.set(comoError(fallo));
+    } finally {
+      this.ocupado.set(false);
+    }
+  }
+
+  /** Rellena la casilla con todo lo que hay guardado. */
+  protected traerTodo(producto: LineaVitrinaDto): void {
+    this.aTraer.set(producto.enAlmacen);
+  }
+
   /** Fija cuánto se quiere tener exhibido (RF-VIT-03). */
   protected async fijarObjetivo(producto: LineaVitrinaDto, valor: string): Promise<void> {
     const objetivo = valor.trim();
@@ -224,6 +266,7 @@ export class Vitrina {
     this.seleccionado.set(null);
     this.kardex.set([]);
     this.aDevolver.set('');
+    this.aTraer.set('');
     this.formularioMerma.reset();
   }
 }
