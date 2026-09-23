@@ -1,0 +1,274 @@
+/* La única pantalla densa de la aplicación.
+   ---------------------------------------------------------------------
+   Se usa con gente esperando, así que prima ver todo de una vez: lo que
+   se lleva el cliente a la izquierda y lo que hay que cobrar a la
+   derecha, sin desplazarse. */
+
+:host {
+  display: block;
+  height: 100%;
+}
+
+.mostrador {
+  display: grid;
+  grid-template-columns: 1fr 340px;
+  gap: var(--e4);
+  padding: var(--e4) var(--e5) var(--e5);
+  align-items: start;
+}
+
+.columna {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e3);
+  min-width: 0;
+}
+
+/* La columna del cobro se queda a la vista aunque la venta crezca. */
+.columna--cobro {
+  position: sticky;
+  top: var(--e4);
+}
+
+/* ============================================= buscar el producto */
+
+.buscador {
+  padding: var(--e4);
+}
+
+.pregunta {
+  display: block;
+  margin-bottom: var(--e2);
+  font-size: var(--texto-l);
+  font-weight: var(--peso-fuerte);
+}
+
+.buscador__campo {
+  width: 100%;
+  height: calc(var(--alto-control) + 10px);
+  padding: 0 var(--e3);
+  border: 1px solid var(--linea);
+  border-radius: var(--radio-s);
+  background: var(--fondo);
+  color: var(--tinta);
+  font-size: var(--texto-xl);
+}
+
+.buscador__campo:focus {
+  outline: none;
+  border-color: var(--acento);
+  box-shadow: 0 0 0 3px var(--acento-halo);
+}
+
+.resultados {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: var(--e2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.resultado {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--e3);
+  width: 100%;
+  padding: var(--e2) var(--e3);
+  border: 0;
+  border-radius: var(--radio-s);
+  background: transparent;
+  color: var(--tinta);
+  font-size: var(--texto-l);
+  text-align: left;
+  cursor: pointer;
+}
+
+/* El resaltado por el teclado se marca con color Y con una barra: se
+   opera mirando de reojo mientras se cobra. */
+.resultado--resaltado {
+  background: var(--acento-suave);
+  box-shadow: inset 3px 0 0 var(--acento);
+}
+
+.resultado--agotado {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.resultado__nombre {
+  font-weight: var(--peso-medio);
+}
+
+/* ================================================== la línea nueva */
+
+.panel--linea {
+  border-color: var(--acento);
+}
+
+.campo input.grande {
+  height: calc(var(--alto-control) + 10px);
+  font-size: var(--texto-xl);
+  width: 120px;
+}
+
+.fila--faltante td {
+  background: var(--rojo-suave);
+}
+
+/* ======================================================= el cobro */
+
+.total {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e1);
+  padding: var(--e4);
+  border-color: var(--destaque);
+}
+
+.total__titulo {
+  font-size: var(--texto-s);
+  font-weight: var(--peso-fuerte);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--apagado);
+}
+
+/* El total es la cifra que el cliente va a pagar: manda sobre todo lo
+   demás de la pantalla. */
+.total .cifra--grande {
+  color: var(--destaque-texto);
+}
+
+.panel--pago,
+.panel--lista {
+  min-width: 0;
+}
+
+.parte {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e2);
+  padding-bottom: var(--e3);
+  border-bottom: 1px solid var(--linea-suave);
+}
+
+.parte:last-of-type {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.segmento--pago button {
+  padding: 0 var(--e2);
+  font-size: var(--texto-s);
+}
+
+.fila--entrega {
+  gap: var(--e2);
+}
+
+.fila--entrega input {
+  flex: 1;
+  min-width: 0;
+}
+
+.moneda {
+  font-size: var(--texto-s);
+}
+
+.nota {
+  font-size: var(--texto-xs);
+}
+
+.pista--fuerte {
+  color: var(--destaque-texto);
+}
+
+/* El vuelto se lee de lejos: es lo que hay que devolverle al cliente. */
+.vuelto {
+  margin-top: var(--e2);
+  font-family: var(--letra-cifra);
+  font-size: var(--texto-2xl);
+  font-weight: var(--peso-fuerte);
+  color: var(--destaque-texto);
+}
+
+@media (max-width: 1000px) {
+  .mostrador {
+    grid-template-columns: 1fr;
+  }
+
+  .columna--cobro {
+    position: static;
+  }
+}
+
+/* =================================== la cuenta mientras se paga
+   Entregado y vuelto en grande: son las dos cifras que el cajero
+   mira mientras cuenta los billetes. */
+
+.cuenta {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e1);
+  padding: var(--e3);
+  border-radius: var(--radio-s);
+  border-left: 3px solid var(--acento);
+  background: var(--acento-suave);
+}
+
+.cuenta__fila {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--e3);
+  font-size: var(--texto-s);
+}
+
+.cuenta__fila--vuelto {
+  font-size: var(--texto-l);
+  font-weight: var(--peso-fuerte);
+  color: var(--acento);
+}
+
+.cuenta__fila--vuelto .cifra {
+  font-size: var(--texto-xl);
+}
+
+/* Lo que falta se ve distinto de lo que sobra: son decisiones opuestas. */
+.cuenta--falta {
+  border-left-color: var(--rojo);
+  background: var(--rojo-suave);
+}
+
+.cuenta--falta .cuenta__fila--vuelto {
+  color: var(--rojo);
+}
+
+/* ================================================ la tasa del dólar
+   Vive en el panel del cobro porque es ahí donde estorba cuando falta:
+   se arregla sin salir de la venta. */
+
+.tasa {
+  display: flex;
+  align-items: center;
+  gap: var(--e2);
+  flex-wrap: wrap;
+  padding-top: var(--e2);
+  border-top: 1px solid var(--linea-suave);
+}
+
+.tasa .nota {
+  flex: 1;
+  min-width: 0;
+}
+
+.tasa--editando input {
+  width: 100px;
+}
+
+.tasa label {
+  font-size: var(--texto-s);
+  color: var(--apagado);
+}
