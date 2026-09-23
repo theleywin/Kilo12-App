@@ -1,0 +1,11 @@
+# Formato del código Rust.
+#
+# Se adopta el estilo POR DEFECTO de rustfmt, a propósito y sin retoques: el
+# formato deja de ser una opinión y pasa a ser una herramienta. Discutir dónde
+# va un salto de línea en una revisión de código es tiempo que no se dedica a
+# discutir si la lógica está bien.
+#
+# La verificación es `cargo fmt --all --check`, y falla la compilación de la
+# revisión si no pasa.
+
+edition = "2021"

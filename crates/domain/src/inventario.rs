@@ -150,9 +150,7 @@ impl Inventario {
         let valor_total = if existencias.total()?.es_cero() {
             Dinero::CERO
         } else {
-            self.valor_total
-                .restar(valor_salida)?
-                .o_cero_si_negativo()
+            self.valor_total.restar(valor_salida)?.o_cero_si_negativo()
         };
 
         Ok(Salida {

@@ -70,11 +70,7 @@ impl Existencias {
     }
 
     /// Suma cantidad en una ubicación.
-    pub fn agregar(
-        &self,
-        cantidad: Cantidad,
-        ubicacion: Ubicacion,
-    ) -> Result<Self, ErrorDominio> {
+    pub fn agregar(&self, cantidad: Cantidad, ubicacion: Ubicacion) -> Result<Self, ErrorDominio> {
         if cantidad.es_negativa() {
             return Err(ErrorDominio::CantidadNegativa);
         }
@@ -142,9 +138,7 @@ impl Existencias {
             return Cantidad::CERO;
         }
 
-        let faltante = objetivo
-            .restar(self.vitrina)
-            .unwrap_or(Cantidad::CERO);
+        let faltante = objetivo.restar(self.vitrina).unwrap_or(Cantidad::CERO);
 
         if faltante > self.bodega {
             self.bodega

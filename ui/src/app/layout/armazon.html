@@ -1,0 +1,36 @@
+<div class="armazon">
+  <nav class="menu" aria-label="Secciones">
+    <div class="marca">
+      <img src="logo.jpeg" alt="Kilo12, mercadito" />
+    </div>
+
+    <ul class="menu__lista">
+      @for (seccion of secciones; track seccion.ruta) {
+        <li>
+          <a
+            class="enlace"
+            [routerLink]="seccion.ruta"
+            routerLinkActive="enlace--activo"
+            [title]="seccion.descripcion"
+          >
+            <app-icono [nombre]="seccion.icono" />
+            <span class="enlace__titulo">{{ seccion.titulo }}</span>
+            <kbd class="tecla">{{ seccion.tecla }}</kbd>
+          </a>
+        </li>
+      }
+    </ul>
+
+    <div class="menu__pie">
+      <a class="enlace enlace--tenue" [routerLink]="guia.ruta" routerLinkActive="enlace--activo">
+        <app-icono [nombre]="guia.icono" />
+        <span class="enlace__titulo">{{ guia.titulo }}</span>
+        <kbd class="tecla">{{ guia.tecla }}</kbd>
+      </a>
+    </div>
+  </nav>
+
+  <main class="lienzo" [class.densidad-densa]="densidad() === 'densa'">
+    <router-outlet />
+  </main>
+</div>

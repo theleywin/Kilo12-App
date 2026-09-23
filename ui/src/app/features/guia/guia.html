@@ -1,0 +1,335 @@
+<section class="pagina pagina--ancha">
+  <header class="cabecera-pagina">
+    <h1>Guía de estilo</h1>
+    <p class="descripcion">
+      El lenguaje visual de Kilo12. Toda pantalla se construye con estas piezas: si algo no
+      está aquí, no se usa. Los colores salen del logo, muestreados del archivo.
+    </p>
+  </header>
+
+  <!-- ====================================================== marca -->
+  <h2 class="titulo-bloque">Colores de la marca</h2>
+  <div class="rejilla rejilla--dos">
+    @for (color of marca; track color.valor) {
+      <div class="panel">
+        <div class="muestra" [style.background]="color.valor"></div>
+        <div class="panel__cuerpo">
+          <div class="fila fila--separada">
+            <strong>{{ color.nombre }}</strong>
+            <span class="mono seleccionable">{{ color.valor }}</span>
+          </div>
+          <p class="apagado nota">{{ color.uso }}</p>
+        </div>
+      </div>
+    }
+  </div>
+
+  <div class="aviso aviso--atencion regla">
+    <span>
+      <strong>Regla de contraste.</strong> El verde da 5.08:1 sobre blanco y admite letra
+      blanca encima. El naranja da 2.68:1: es relleno con tinta oscura, nunca texto blanco ni
+      texto pequeño sobre el fondo.
+    </span>
+  </div>
+
+  <!-- ================================================ superficies -->
+  <h2 class="titulo-bloque">Superficies y tintas</h2>
+  <div class="panel">
+    <div class="panel__cuerpo--sin-relleno tabla-envoltorio">
+      <table class="tabla">
+        <thead>
+          <tr>
+            <th class="centro">Color</th>
+            <th>Ficha</th>
+            <th>Para qué</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (superficie of superficies; track superficie.ficha) {
+            <tr>
+              <td class="centro">
+                <span class="punto" [style.background]="'var(' + superficie.ficha + ')'"></span>
+              </td>
+              <td class="mono">{{ superficie.ficha }}</td>
+              <td class="apagado">{{ superficie.uso }}</td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ================================================= tipografía -->
+  <h2 class="titulo-bloque">Escala tipográfica</h2>
+  <div class="panel">
+    <div class="panel__cuerpo pila">
+      @for (paso of escala; track paso.ficha) {
+        <div class="fila fila--separada linea-escala">
+          <span [style.font-size]="'var(' + paso.ficha + ')'">Arroz blanco 1 kg</span>
+          <span class="fila">
+            <span class="mono apagado">{{ paso.ficha }}</span>
+          </span>
+        </div>
+      }
+    </div>
+  </div>
+
+  <!-- ==================================================== botones -->
+  <h2 class="titulo-bloque">Botones</h2>
+  <div class="panel">
+    <div class="panel__cuerpo pila">
+      <div class="fila envolver">
+        <button type="button" class="boton">Guardar producto</button>
+        <button type="button" class="boton boton--secundario">Cancelar</button>
+        <button type="button" class="boton boton--destacado">Cobrar</button>
+        <button type="button" class="boton boton--peligro">Anular venta</button>
+        <button type="button" class="boton boton--discreto">Ver detalle</button>
+        <button type="button" class="boton" disabled>Guardando…</button>
+      </div>
+      <p class="apagado nota">
+        Uno principal por pantalla. El destacado se reserva para cobrar: si todo destaca, no
+        destaca nada.
+      </p>
+      <div class="fila">
+        <button type="button" class="boton boton--destacado boton--grande">
+          Cobrar <kbd class="tecla">Enter</kbd>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================================================== campos -->
+  <h2 class="titulo-bloque">Campos</h2>
+  <div class="panel">
+    <div class="panel__cuerpo pila">
+      <div class="rejilla">
+        <div class="campo">
+          <label for="g-nombre">Nombre</label>
+          <input id="g-nombre" value="Arroz blanco" />
+        </div>
+
+        <div class="campo">
+          <label for="g-costo">Costo</label>
+          <input id="g-costo" class="control--cifra" value="120.00" />
+          <span class="pista">Lo que te cuesta a ti.</span>
+        </div>
+
+        <div class="campo">
+          <label for="g-precio">Precio de venta</label>
+          <input id="g-precio" class="control--cifra" value="180.00" />
+          <span class="pista">Ganas 60.00 por libra · 33 %</span>
+        </div>
+
+        <div class="campo">
+          <label for="g-codigo">Código <span class="opcional">opcional</span></label>
+          <input id="g-codigo" placeholder="Se genera del nombre" />
+        </div>
+      </div>
+
+      <div class="campo">
+        <label for="g-mal">Campo con error</label>
+        <input id="g-mal" class="ng-touched ng-invalid" value="abc" />
+        <span class="error">El precio tiene que ser un número.</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================================================== segmentos -->
+  <h2 class="titulo-bloque">Elegir entre pocas opciones</h2>
+  <div class="panel">
+    <div class="panel__cuerpo pila">
+      <div class="campo">
+        <label>¿Cómo se vende este producto?</label>
+        <div class="segmento">
+          <button type="button" [attr.aria-pressed]="!aGranel()" (click)="elegirForma(false)">
+            Por unidad
+          </button>
+          <button type="button" [attr.aria-pressed]="aGranel()" (click)="elegirForma(true)">
+            Por peso o volumen
+          </button>
+        </div>
+      </div>
+
+      @if (aGranel()) {
+        <div class="campo">
+          <label>¿En qué se mide?</label>
+          <div class="segmento">
+            @for (opcion of unidades; track opcion.valor) {
+              <button
+                type="button"
+                [attr.aria-pressed]="unidad() === opcion.valor"
+                (click)="elegirUnidad(opcion.valor)"
+              >
+                {{ opcion.nombre }}
+              </button>
+            }
+          </div>
+          <span class="pista">
+            Podrás vender cantidades con decimales: 1.5, 0.750, lo que haga falta.
+          </span>
+        </div>
+      } @else {
+        <p class="apagado nota">
+          Se vende de uno en uno. En la venta no se admiten decimales: no existe media lata.
+        </p>
+      }
+    </div>
+  </div>
+
+  <!-- ====================================================== tabla -->
+  <h2 class="titulo-bloque">Tablas y cifras</h2>
+  <div class="panel">
+    <div class="panel__cabecera">
+      <span class="panel__titulo">Catálogo</span>
+      <span class="apagado nota">3 productos</span>
+    </div>
+    <div class="tabla-envoltorio">
+      <table class="tabla">
+        <thead>
+          <tr>
+            <th>Producto</th>
+            <th>Se vende por</th>
+            <th class="derecha">Costo</th>
+            <th class="derecha">Precio</th>
+            <th class="derecha">Margen</th>
+            <th>Estado</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr aria-selected="true">
+            <td>Arroz blanco</td>
+            <td class="apagado">Libra</td>
+            <td class="derecha cifra">120.00</td>
+            <td class="derecha cifra">180.00</td>
+            <td class="derecha cifra cifra--positiva">+33 %</td>
+            <td><span class="etiqueta etiqueta--acento">Normal</span></td>
+          </tr>
+          <tr>
+            <td>Café molido</td>
+            <td class="apagado">Kilogramo</td>
+            <td class="derecha cifra">890.00</td>
+            <td class="derecha cifra">1 150.00</td>
+            <td class="derecha cifra cifra--positiva">+23 %</td>
+            <td><span class="etiqueta etiqueta--atencion">Quedan 2 kg</span></td>
+          </tr>
+          <tr>
+            <td>Refresco 500 ml</td>
+            <td class="apagado">Unidad</td>
+            <td class="derecha cifra">150.00</td>
+            <td class="derecha cifra">145.00</td>
+            <td class="derecha cifra cifra--negativa">−3 %</td>
+            <td><span class="etiqueta etiqueta--error">Pierdes dinero</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ===================================================== avisos -->
+  <h2 class="titulo-bloque">Avisos</h2>
+  <div class="pila">
+    <div class="aviso">
+      <span>La venta se registró. Vuelto: 320.00</span>
+      <span class="codigo">VENTA_OK</span>
+    </div>
+    <div class="aviso aviso--atencion">
+      <span>Quedan 2 kg de café molido, por debajo del mínimo de 5 kg.</span>
+      <span class="codigo">STOCK_BAJO</span>
+    </div>
+    <div class="aviso aviso--error">
+      <span>Ya existe un producto con el código «ARR-001».</span>
+      <span class="codigo">SKU_DUPLICADO</span>
+    </div>
+  </div>
+
+  <!-- =============================================== total y vacío -->
+  <h2 class="titulo-bloque">El número que importa y la pantalla vacía</h2>
+  <div class="rejilla rejilla--dos">
+    <div class="panel">
+      <div class="panel__cabecera">
+        <span class="panel__titulo">Total a cobrar</span>
+      </div>
+      <div class="panel__cuerpo total">
+        <span class="cifra cifra--grande">1 485.00</span>
+        <div class="fila">
+          <span class="etiqueta">4 líneas</span>
+          <span class="etiqueta etiqueta--atencion">Efectivo</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="vacio">
+        <span class="vacio__titulo">Todavía no hay productos</span>
+        <span class="vacio__texto">
+          Agrega el primero con su costo y su precio. Aparecerá aquí y ya podrás venderlo.
+        </span>
+        <button type="button" class="boton">Agregar producto</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- =================================================== densidad -->
+  <h2 class="titulo-bloque">Densidad</h2>
+  <p class="apagado nota nota--suelta">
+    Vender va densa porque se usa con gente esperando. El resto va amplia porque se usa con
+    calma. Es la misma tabla: solo cambian las fichas de densidad.
+  </p>
+  <div class="rejilla rejilla--dos">
+    <div class="panel">
+      <div class="panel__cabecera"><span class="panel__titulo">Amplia · el resto</span></div>
+      <div class="tabla-envoltorio">
+        <table class="tabla">
+          <thead>
+            <tr>
+              <th>Producto</th>
+              <th class="derecha">Precio</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>Arroz blanco</td><td class="derecha cifra">180.00</td></tr>
+            <tr><td>Café molido</td><td class="derecha cifra">1 150.00</td></tr>
+            <tr><td>Refresco 500 ml</td><td class="derecha cifra">145.00</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="panel densidad-densa">
+      <div class="panel__cabecera"><span class="panel__titulo">Densa · Vender</span></div>
+      <div class="tabla-envoltorio">
+        <table class="tabla">
+          <thead>
+            <tr>
+              <th>Producto</th>
+              <th class="derecha">Precio</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><td>Arroz blanco</td><td class="derecha cifra">180.00</td></tr>
+            <tr><td>Café molido</td><td class="derecha cifra">1 150.00</td></tr>
+            <tr><td>Refresco 500 ml</td><td class="derecha cifra">145.00</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====================================================== teclas -->
+  <h2 class="titulo-bloque">Teclado</h2>
+  <div class="panel">
+    <div class="panel__cuerpo pila">
+      <p class="apagado nota">
+        Kilo12 se opera con las manos en el teclado. Todo atajo se dibuja donde está la acción:
+        un atajo que hay que memorizar es un atajo que nadie usa.
+      </p>
+      <div class="fila envolver">
+        <span class="fila atajo"><kbd class="tecla">F1</kbd> Vender</span>
+        <span class="fila atajo"><kbd class="tecla">F4</kbd> Productos</span>
+        <span class="fila atajo"><kbd class="tecla">Enter</kbd> Confirmar</span>
+        <span class="fila atajo"><kbd class="tecla">Esc</kbd> Cancelar</span>
+        <span class="fila atajo"><kbd class="tecla">↑</kbd><kbd class="tecla">↓</kbd> Moverse</span>
+      </div>
+    </div>
+  </div>
+</section>

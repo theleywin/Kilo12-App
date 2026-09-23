@@ -1,0 +1,81 @@
+/* Casi todo viene del sistema (estilos/). Aquí solo queda la disposición
+   propia de este formulario: los bloques que agrupan las preguntas. */
+
+.pila-larga {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e5);
+}
+
+/* Cada bloque es una pregunta del negocio, no un grupo de campos: «qué es»,
+   «cómo se vende», «el dinero». Quien rellena el formulario avanza por
+   ideas, no por casillas. */
+.bloque {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e3);
+}
+
+.bloque + .bloque {
+  padding-top: var(--e5);
+  border-top: 1px solid var(--linea-suave);
+}
+
+.bloque__titulo {
+  font-size: var(--texto-s);
+  font-weight: var(--peso-fuerte);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--acento);
+}
+
+.bloque__titulo .opcional {
+  color: var(--apagado);
+  font-weight: var(--peso-normal);
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.campo--ancho {
+  grid-column: span 2;
+}
+
+/* El resultado de la cuenta, en cuanto hay costo y precio. Es la
+   información por la que se abre esta pantalla: si el precio deja
+   ganancia. */
+.margen {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--e2);
+  align-items: baseline;
+  padding: var(--e2) var(--e3);
+  border-radius: var(--radio-s);
+  border-left: 3px solid var(--acento);
+  background: var(--acento-suave);
+  font-size: var(--texto-m);
+}
+
+.margen strong {
+  color: var(--acento);
+}
+
+.margen span {
+  color: var(--apagado);
+}
+
+.margen--riesgo {
+  border-left-color: var(--rojo);
+  background: var(--rojo-suave);
+}
+
+.margen--riesgo strong {
+  color: var(--rojo);
+}
+
+.pista--fuerte {
+  color: var(--destaque-texto);
+}
+
+.panel--lista {
+  margin-top: var(--e5);
+}

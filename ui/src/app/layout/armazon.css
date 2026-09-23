@@ -1,0 +1,122 @@
+/* El armazón ocupa la ventana entera y no la deja desplazarse: quien se
+   desplaza es la pantalla activa, para que el menú siempre esté a la
+   vista. */
+
+:host {
+  display: block;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.armazon {
+  display: grid;
+  grid-template-columns: 216px 1fr;
+  height: 100%;
+}
+
+/* ================================================================ menú */
+
+.menu {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e4);
+  padding: var(--e4) var(--e3);
+  border-right: 1px solid var(--linea);
+  background: var(--superficie);
+  overflow-y: auto;
+}
+
+/* El logo va sobre una placa clara: el archivo tiene fondo blanco y en el
+   tema oscuro quedaría un recuadro accidental. Puesto así, es a propósito. */
+.marca {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--e2) var(--e3);
+  border: 1px solid var(--linea);
+  border-radius: var(--radio-m);
+  background: #ffffff;
+}
+
+.marca img {
+  width: 100%;
+  max-width: 150px;
+  height: auto;
+  display: block;
+}
+
+.menu__lista {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.menu__pie {
+  margin-top: auto;
+  padding-top: var(--e3);
+  border-top: 1px solid var(--linea);
+}
+
+/* ============================================================= enlaces */
+
+.enlace {
+  display: flex;
+  align-items: center;
+  gap: var(--e2);
+  padding: var(--e2) var(--e2);
+  border-radius: var(--radio-s);
+  color: var(--apagado);
+  text-decoration: none;
+  font-size: var(--texto-m);
+  font-weight: var(--peso-medio);
+  transition: background var(--transicion), color var(--transicion);
+}
+
+.enlace:hover {
+  background: var(--superficie-fuerte);
+  color: var(--tinta);
+}
+
+.enlace__titulo {
+  flex: 1;
+  min-width: 0;
+}
+
+/* La sección activa se marca con color Y con una barra: quien no distinga
+   bien los colores sigue sabiendo dónde está. */
+.enlace--activo {
+  position: relative;
+  background: var(--acento-suave);
+  color: var(--acento);
+  font-weight: var(--peso-fuerte);
+}
+
+.enlace--activo::before {
+  content: '';
+  position: absolute;
+  left: calc(var(--e3) * -1);
+  top: 6px;
+  bottom: 6px;
+  width: 3px;
+  border-radius: 0 var(--radio-pildora) var(--radio-pildora) 0;
+  background: var(--destaque);
+}
+
+.enlace--tenue {
+  font-weight: var(--peso-normal);
+  font-size: var(--texto-s);
+}
+
+.enlace .tecla {
+  opacity: 0.75;
+}
+
+/* ============================================================= lienzo */
+
+.lienzo {
+  overflow-y: auto;
+  background: var(--fondo);
+}

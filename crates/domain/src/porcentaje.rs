@@ -70,10 +70,7 @@ impl Porcentaje {
             .checked_mul(1_000_000)
             .ok_or(ErrorDominio::DesbordeAritmetico)?;
 
-        let razon = crate::dinero::dividir_redondeando(
-            numerador,
-            total.millonesimas() as i128,
-        )?;
+        let razon = crate::dinero::dividir_redondeando(numerador, total.millonesimas() as i128)?;
 
         i64::try_from(razon)
             .map(Self)

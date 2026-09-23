@@ -1,0 +1,149 @@
+/* Fichas de diseño: los valores de los que sale TODO lo demás.
+   ---------------------------------------------------------------------
+   Regla dura: ningún componente escribe un color, un tamaño de letra o un
+   espaciado a mano. Si hace falta un valor nuevo, se agrega aquí y se le
+   pone nombre. Un color suelto dentro de un componente es una decisión que
+   nadie revisó y que dentro de seis meses nadie encuentra. */
+
+:root {
+  /* ------------------------------------------------------ marca
+     Muestreados del logo (docs/logo.jpeg), no elegidos a ojo. */
+  --marca-verde: #687501;
+  --marca-naranja: #eb8401;
+
+  /* ------------------------------------------------------------ color
+     Nombres por FUNCIÓN, no por aspecto: «acento», no «verde». El día que
+     la marca cambie, no hay que renombrar media aplicación.
+
+     Contraste medido sobre el fondo claro:
+       verde oliva  5.08:1  → sirve para texto y para botón con letra blanca
+       naranja      2.68:1  → NO sirve para texto ni con letra blanca encima
+     Por eso el naranja es siempre relleno con tinta oscura. */
+  --fondo: #ffffff;
+  --superficie: #f7f8f3;
+  --superficie-fuerte: #eef0e4;
+  --linea: #dcdfd0;
+  --linea-suave: #eceee4;
+
+  --tinta: #1c2114;
+  --apagado: #6b7360;
+
+  /* Acento: acción y navegación. Es el verde de la bolsa del logo. */
+  --acento: var(--marca-verde);
+  --acento-hundido: #545e01;
+  --acento-suave: #f0f3e0;
+  --acento-tinta: #ffffff;
+  --acento-halo: rgba(104, 117, 1, 0.3);
+
+  /* Destaque: lo que tiene que llamarte. El círculo naranja del logo.
+     SIEMPRE con tinta oscura encima, nunca blanca. */
+  --destaque: var(--marca-naranja);
+  --destaque-hundido: #c56f00;
+  --destaque-suave: #fdf1e0;
+  --destaque-tinta: #2b1a00;
+  /* Versión oscurecida, para cuando el naranja tiene que ser TEXTO y el
+     contraste del naranja puro no alcanza. */
+  --destaque-texto: #94550a;
+
+  /* Error: la operación no se hizo. */
+  --rojo: #b3261e;
+  --rojo-suave: #fdeceb;
+
+  /* ------------------------------------------------------- tipografía
+     Sin fuentes externas: la aplicación funciona sin internet y la
+     política de seguridad de Tauri bloquea cualquier descarga. Se usa la
+     del sistema, que además es la que el usuario ya sabe leer. */
+  --letra: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --letra-cifra: ui-monospace, 'SF Mono', Menlo, 'Cascadia Mono', Consolas, monospace;
+
+  --texto-xs: 11px;
+  --texto-s: 12.5px;
+  --texto-m: 14px;
+  --texto-l: 16px;
+  --texto-xl: 20px;
+  --texto-2xl: 26px;
+  --texto-3xl: 34px;
+
+  --peso-normal: 400;
+  --peso-medio: 500;
+  --peso-fuerte: 600;
+
+  /* --------------------------------------------------------- espaciado
+     Escala de 4 en 4. Todo margen y todo relleno sale de aquí: es lo que
+     hace que dos pantallas distintas se sientan la misma aplicación. */
+  --e1: 4px;
+  --e2: 8px;
+  --e3: 12px;
+  --e4: 16px;
+  --e5: 24px;
+  --e6: 32px;
+  --e7: 48px;
+
+  /* ------------------------------------------------------------ forma */
+  --radio-s: 6px;
+  --radio-m: 10px;
+  --radio-l: 14px;
+  --radio-pildora: 999px;
+
+  --sombra-1: 0 1px 2px rgba(28, 33, 20, 0.07);
+  --sombra-2: 0 8px 24px rgba(28, 33, 20, 0.12);
+
+  /* ------------------------------------------------------- movimiento
+     Corto a propósito: en una caja registradora, una animación que se
+     hace notar es tiempo que el cliente pasa esperando. */
+  --transicion: 120ms ease;
+
+  /* --------------------------------------------------------- densidad
+     Lo único que cambia entre pantallas. Aquí va el modo amplio, que es
+     el de casi toda la aplicación. */
+  --alto-control: 38px;
+  --relleno-celda: 11px 14px;
+  --texto-base: 15px;
+}
+
+/* Modo denso: la pantalla de Vender.
+   Se usa con gente esperando en el mostrador, así que prima ver mucho de
+   una vez por encima de que la pantalla respire. */
+.densidad-densa {
+  --alto-control: 32px;
+  --relleno-celda: 6px 10px;
+  --texto-base: 14px;
+  --e5: 16px;
+  --e6: 20px;
+  --e7: 28px;
+}
+
+/* Tema oscuro. No es un capricho: el mercadito abre temprano y cierra de
+   noche, y una pantalla blanca a las nueve cansa la vista.
+   El verde y el naranja se aclaran, porque los de la marca son demasiado
+   oscuros para leerse sobre un fondo oscuro. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fondo: #171a12;
+    --superficie: #1f2318;
+    --superficie-fuerte: #2a2f20;
+    --linea: #353b29;
+    --linea-suave: #262b1d;
+
+    --tinta: #eaeee0;
+    --apagado: #99a189;
+
+    --acento: #a6b733;
+    --acento-hundido: #b9ca45;
+    --acento-suave: #232815;
+    --acento-tinta: #131608;
+    --acento-halo: rgba(166, 183, 51, 0.32);
+
+    --destaque: #f09a2e;
+    --destaque-hundido: #ffae4d;
+    --destaque-suave: #2c2010;
+    --destaque-tinta: #1a1000;
+    --destaque-texto: #f0a951;
+
+    --rojo: #e0736b;
+    --rojo-suave: #2b1a19;
+
+    --sombra-1: 0 1px 2px rgba(0, 0, 0, 0.45);
+    --sombra-2: 0 8px 24px rgba(0, 0, 0, 0.55);
+  }
+}

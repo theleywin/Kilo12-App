@@ -87,6 +87,33 @@ impl Presentacion {
         Ok(presentacion)
     }
 
+    /// Reconstruye una presentación tal como está guardada.
+    ///
+    /// No valida: lo persistido ya pasó por las validaciones al crearse, y
+    /// volver a aplicarlas impediría leer datos escritos por una versión
+    /// anterior con reglas distintas. La integridad de lo almacenado la
+    /// defienden las restricciones de la base de datos.
+    #[allow(clippy::too_many_arguments)]
+    pub fn reconstituir(
+        id: IdPresentacion,
+        nombre: String,
+        factor: Cantidad,
+        precio: Dinero,
+        es_predeterminada: bool,
+        codigo_barras: Option<String>,
+        activa: bool,
+    ) -> Self {
+        Self {
+            id: Some(id),
+            nombre,
+            factor,
+            precio,
+            es_predeterminada,
+            codigo_barras,
+            activa,
+        }
+    }
+
     pub fn con_id(mut self, id: IdPresentacion) -> Self {
         self.id = Some(id);
         self
