@@ -27,6 +27,8 @@ pub enum ErrorAplicacion {
     CostoRequerido,
     /// Se indicó un costo sin mercancía a la que aplicarlo (RF-COS-02).
     CantidadInicialRequerida,
+    /// Se intentó cobrar en dólares sin tasa de cambio configurada.
+    TasaNoConfigurada,
 }
 
 impl ErrorAplicacion {
@@ -41,6 +43,7 @@ impl ErrorAplicacion {
             Self::SkuAgotado(_) => "SKU_AGOTADO",
             Self::CostoRequerido => "COSTO_REQUERIDO",
             Self::CantidadInicialRequerida => "CANTIDAD_INICIAL_REQUERIDA",
+            Self::TasaNoConfigurada => "TASA_NO_CONFIGURADA",
         }
     }
 
@@ -70,6 +73,9 @@ impl fmt::Display for ErrorAplicacion {
                 "Indica cuánto te costó: si entra mercancía sin costo, el inventario \
                  valdría cero y toda venta parecería ganancia pura",
             ),
+            Self::TasaNoConfigurada => {
+                f.write_str("Falta la tasa de cambio: fíjala antes de cobrar en dólares")
+            }
             Self::CantidadInicialRequerida => f.write_str(
                 "Indica cuánta mercancía entra: el costo se calcula sobre la existencia, \
                  así que sin cantidad no hay dónde guardarlo",
