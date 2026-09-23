@@ -8,8 +8,13 @@
 //! Los nombres son verbos del negocio (`registrar_producto`), no
 //! operaciones de base de datos (DT-7).
 
+use application::casos::caja::{CLAVE_COMISION, LIMITE_POR_DEFECTO as LIMITE_CAJAS};
 use application::casos::consultar_kardex::LIMITE_POR_DEFECTO;
 use application::casos::consultar_ventas::LIMITE_POR_DEFECTO as LIMITE_VENTAS;
+use application::casos::{
+    AbrirCaja, AnularVenta, CerrarCaja, ConsultarCaja, ContarEfectivo, HistorialCajas,
+    MoverEfectivo,
+};
 use application::casos::{
     AgregarPresentacion, CambiarPrecio, ConsultarAlmacen, ConsultarHistorialPrecios,
     ConsultarKardex, ConsultarProducto, ConsultarVitrina, DesactivarPresentacion, EditarProducto,
@@ -21,6 +26,7 @@ use application::casos::{
     PrevisualizarVenta, Vender,
 };
 use application::margen;
+use application::puertos::RepositorioProducto;
 use domain::{Dinero, Porcentaje};
 use tauri::State;
 
@@ -29,6 +35,10 @@ use crate::dto::{
     ErrorDto, FichaProductoDto, MargenDto, MovimientoDto, NuevaEntradaDto, NuevaMermaDto,
     NuevaPresentacionDto, NuevoProductoDto, NuevoTraspasoDto, ObjetivoVitrinaDto, ProductoDto,
     ReferenciaPresentacionDto, SimulacionDto, VitrinaDto,
+};
+use crate::dto::{
+    AnulacionDto, AperturaCajaDto, CierreCajaDto, CierreCalculadoDto, ConteoCalculadoDto,
+    EstadoCajaDto, MovimientoEfectivoDto, SesionListadaDto,
 };
 use crate::dto::{
     CobroCalculadoDto, HistorialVentasDto, NuevaVentaDto, PagoDto, ProductoVendibleDto,
@@ -372,5 +382,138 @@ pub fn calcular_precio_para_margen(costo: String, margen: String) -> Result<Stri
 
     margen::precio_para(costo, objetivo)
         .map(|precio| precio.formatear(2))
+        .map_err(ErrorDto::from)
+}
+
+// ==================================================== caja (RF-CAJ)
+
+/// Abre la sesión de caja con su fondo inicial (RF-CAJ-01).
+#[tauri::command]
+pub fn abrir_caja(estado: State<'_, Estado>, apertura: AperturaCajaDto) -> Result<i64, ErrorDto> {
+    let caso = AbrirCaja::nuevo(estado.repositorio_producto());
+    caso.ejecutar(apertura.into()).map_err(ErrorDto::from)
+}
+
+/// Devuelve la caja abierta, o nada si no hay ninguna.
+///
+/// «No hay caja» no es un error: es el estado normal antes de empezar.
+#[tauri::command]
+pub fn consultar_caja(estado: State<'_, Estado>) -> Result<Option<EstadoCajaDto>, ErrorDto> {
+    let caso = ConsultarCaja::nuevo(estado.repositorio_producto());
+    caso.ejecutar()
+        .map(|caja| caja.map(EstadoCajaDto::from))
+        .map_err(ErrorDto::from)
+}
+
+/// Registra una entrada o salida de efectivo ajena a la venta (RF-CAJ-03).
+#[tauri::command]
+pub fn mover_efectivo(
+    estado: State<'_, Estado>,
+    movimiento: MovimientoEfectivoDto,
+) -> Result<(), ErrorDto> {
+    let caso = MoverEfectivo::nuevo(estado.repositorio_producto());
+    caso.ejecutar(movimiento.into()).map_err(ErrorDto::from)
+}
+
+/// Enseña cómo quedaría el cierre sin cerrar nada.
+#[tauri::command]
+pub fn previsualizar_cierre(
+    estado: State<'_, Estado>,
+    cierre: CierreCajaDto,
+) -> Result<CierreCalculadoDto, ErrorDto> {
+    let caso = CerrarCaja::nuevo(estado.repositorio_producto());
+    caso.previsualizar(&cierre.into())
+        .map(CierreCalculadoDto::from)
+        .map_err(ErrorDto::from)
+}
+
+/// Cierra la sesión y congela su arqueo (RF-CAJ-05, RF-CAJ-08).
+#[tauri::command]
+pub fn cerrar_caja(
+    estado: State<'_, Estado>,
+    cierre: CierreCajaDto,
+) -> Result<CierreCalculadoDto, ErrorDto> {
+    let caso = CerrarCaja::nuevo(estado.repositorio_producto());
+    caso.ejecutar(cierre.into())
+        .map(CierreCalculadoDto::from)
+        .map_err(ErrorDto::from)
+}
+
+/// Lista las sesiones de caja (RF-CAJ-07).
+#[tauri::command]
+pub fn listar_cajas(
+    estado: State<'_, Estado>,
+    limite: Option<usize>,
+) -> Result<Vec<SesionListadaDto>, ErrorDto> {
+    let caso = HistorialCajas::nuevo(estado.repositorio_producto());
+    caso.listar(limite.unwrap_or(LIMITE_CAJAS))
+        .map(|sesiones| sesiones.into_iter().map(SesionListadaDto::from).collect())
+        .map_err(ErrorDto::from)
+}
+
+/// Devuelve el cierre congelado de una sesión.
+#[tauri::command]
+pub fn consultar_cierre(
+    estado: State<'_, Estado>,
+    id: i64,
+) -> Result<CierreCalculadoDto, ErrorDto> {
+    let caso = HistorialCajas::nuevo(estado.repositorio_producto());
+    caso.cierre(id)
+        .map(CierreCalculadoDto::from)
+        .map_err(ErrorDto::from)
+}
+
+/// Anula una venta de la sesión vigente (RF-VTA-15).
+#[tauri::command]
+pub fn anular_venta(estado: State<'_, Estado>, anulacion: AnulacionDto) -> Result<(), ErrorDto> {
+    let caso = AnularVenta::nuevo(estado.repositorio_producto());
+    caso.ejecutar(anulacion.into()).map_err(ErrorDto::from)
+}
+
+/// Porcentaje de comisión del operador, si está configurado (RF-CMS-01).
+#[tauri::command]
+pub fn consultar_comision(estado: State<'_, Estado>) -> Result<Option<String>, ErrorDto> {
+    let guardado = estado
+        .repositorio_producto()
+        .configuracion(CLAVE_COMISION)
+        .map_err(ErrorDto::from)?;
+
+    Ok(match guardado {
+        None => None,
+        Some(texto) => {
+            let porcentaje: Porcentaje = texto.trim().parse()?;
+            Some(porcentaje.formatear(2))
+        }
+    })
+}
+
+/// Fija el porcentaje de comisión del operador (RF-CMS-02).
+#[tauri::command]
+pub fn fijar_comision(estado: State<'_, Estado>, porcentaje: String) -> Result<(), ErrorDto> {
+    let valor: Porcentaje = porcentaje.trim().parse()?;
+    if valor.es_negativo() {
+        return Err(ErrorDto::from(domain::ErrorDominio::PorcentajeInvalido));
+    }
+
+    estado
+        .repositorio_producto()
+        .guardar_configuracion(CLAVE_COMISION, &valor.formatear(2))
+        .map_err(ErrorDto::from)
+}
+
+/// Devuelve las denominaciones con que se cuenta la caja.
+#[tauri::command]
+pub const fn denominaciones_efectivo() -> [i64; 12] {
+    ContarEfectivo::denominaciones()
+}
+
+/// Suma un recuento de billetes (RF-CAJ-05).
+///
+/// La pantalla manda cuántos billetes hay de cada valor, en el orden de
+/// `denominaciones_efectivo`, y recibe el total ya formateado.
+#[tauri::command]
+pub fn contar_efectivo(cuantos: Vec<i64>) -> Result<ConteoCalculadoDto, ErrorDto> {
+    ContarEfectivo::ejecutar(&cuantos)
+        .map(ConteoCalculadoDto::from)
         .map_err(ErrorDto::from)
 }
