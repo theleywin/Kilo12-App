@@ -44,6 +44,10 @@ pub enum ErrorDominio {
     UnidadDesconocida,
     /// La ubicación recibida no es bodega ni vitrina.
     UbicacionDesconocida,
+    /// El tipo de movimiento recibido no es uno de los admitidos.
+    TipoMovimientoDesconocido,
+    /// El movimiento exige explicar por qué se hizo (RF-INV-08).
+    MotivoObligatorio,
     /// La moneda recibida no es una de las admitidas.
     MonedaDesconocida,
     /// El método de pago recibido no es uno de los admitidos.
@@ -84,6 +88,8 @@ impl ErrorDominio {
             Self::PresentacionDuplicada => "PRESENTACION_DUPLICADA",
             Self::UnidadDesconocida => "UNIDAD_DESCONOCIDA",
             Self::UbicacionDesconocida => "UBICACION_DESCONOCIDA",
+            Self::TipoMovimientoDesconocido => "TIPO_MOVIMIENTO_DESCONOCIDO",
+            Self::MotivoObligatorio => "MOTIVO_OBLIGATORIO",
             Self::MonedaDesconocida => "MONEDA_DESCONOCIDA",
             Self::MetodoPagoDesconocido => "METODO_PAGO_DESCONOCIDO",
             Self::TasaCambioInvalida => "TASA_CAMBIO_INVALIDA",
@@ -129,6 +135,10 @@ impl fmt::Display for ErrorDominio {
             Self::PresentacionDuplicada => f.write_str("Ya existe una presentación con ese nombre"),
             Self::UnidadDesconocida => f.write_str("La unidad de medida no es válida"),
             Self::UbicacionDesconocida => f.write_str("La ubicación no es válida"),
+            Self::TipoMovimientoDesconocido => f.write_str("El tipo de movimiento no es válido"),
+            Self::MotivoObligatorio => {
+                f.write_str("Explica el motivo: la mercancía no puede desaparecer sin razón")
+            }
             Self::MonedaDesconocida => f.write_str("La moneda no es válida"),
             Self::MetodoPagoDesconocido => f.write_str("El método de pago no es válido"),
             Self::TasaCambioInvalida => f.write_str("La tasa de cambio debe ser mayor que cero"),
