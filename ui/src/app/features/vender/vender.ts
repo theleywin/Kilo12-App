@@ -70,6 +70,14 @@ export class Vender {
   protected readonly error = signal<ErrorDto | null>(null);
   protected readonly cobrando = signal(false);
   protected readonly tasa = signal<string | null>(null);
+  /**
+   * Hay caja abierta.
+   *
+   * Se comprueba al entrar y no solo al cobrar: enterarse de que no se
+   * puede vender cuando ya tienes la venta montada y el cliente delante es
+   * la peor forma de enterarse (RF-CAJ-06).
+   */
+  protected readonly hayCaja = signal(true);
 
   /** Lo que el cliente se lleva. */
   protected readonly lineas = signal<readonly Linea[]>([]);
@@ -120,6 +128,7 @@ export class Vender {
     try {
       this.catalogo.set(await this.api.catalogoDeVenta());
       this.tasa.set(await this.api.consultarTasa());
+      this.hayCaja.set((await this.api.consultarCaja()) !== null);
       this.error.set(null);
     } catch (fallo) {
       this.error.set(comoError(fallo));
@@ -377,7 +386,7 @@ export class Vender {
   }
 
   protected get puedeCobrar(): boolean {
-    return this.lineas().length > 0 && (this.cobro()?.alcanza ?? false);
+    return this.hayCaja() && this.lineas().length > 0 && (this.cobro()?.alcanza ?? false);
   }
 
   /**
