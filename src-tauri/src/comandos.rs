@@ -8,12 +8,20 @@
 //! Los nombres son verbos del negocio (`registrar_producto`), no
 //! operaciones de base de datos (DT-7).
 
-use application::casos::{ListarProductos, RegistrarProducto};
+use application::casos::consultar_kardex::LIMITE_POR_DEFECTO;
+use application::casos::{
+    ConsultarAlmacen, ConsultarKardex, ConsultarVitrina, FijarObjetivoVitrina, ListarProductos,
+    RegistrarEntrada, RegistrarMerma, RegistrarProducto, SimularMovimiento, Traspasar,
+};
 use application::margen;
 use domain::Dinero;
 use tauri::State;
 
-use crate::dto::{ErrorDto, MargenDto, NuevoProductoDto, ProductoDto};
+use crate::dto::{
+    AlmacenDto, ConsultaSimulacionDto, ErrorDto, MargenDto, MovimientoDto, NuevaEntradaDto,
+    NuevaMermaDto, NuevoProductoDto, NuevoTraspasoDto, ObjetivoVitrinaDto, ProductoDto,
+    SimulacionDto, VitrinaDto,
+};
 use crate::estado::Estado;
 
 /// Da de alta un producto y devuelve su identificador.
@@ -25,6 +33,85 @@ pub fn registrar_producto(
     let caso = RegistrarProducto::nuevo(estado.repositorio_producto());
     caso.ejecutar(producto.into())
         .map(|id| id.0)
+        .map_err(ErrorDto::from)
+}
+
+/// Devuelve el estado del almacén: qué hay y cuánto vale.
+#[tauri::command]
+pub fn consultar_almacen(estado: State<'_, Estado>) -> Result<AlmacenDto, ErrorDto> {
+    let caso = ConsultarAlmacen::nuevo(estado.repositorio_producto());
+    caso.ejecutar()
+        .map(AlmacenDto::from)
+        .map_err(ErrorDto::from)
+}
+
+/// Registra la entrada de mercancía de una compra.
+#[tauri::command]
+pub fn registrar_entrada(
+    estado: State<'_, Estado>,
+    entrada: NuevaEntradaDto,
+) -> Result<(), ErrorDto> {
+    let caso = RegistrarEntrada::nuevo(estado.repositorio_producto());
+    caso.ejecutar(entrada.into()).map_err(ErrorDto::from)
+}
+
+/// Devuelve el estado de la vitrina y qué hace falta reponer.
+#[tauri::command]
+pub fn consultar_vitrina(estado: State<'_, Estado>) -> Result<VitrinaDto, ErrorDto> {
+    let caso = ConsultarVitrina::nuevo(estado.repositorio_producto());
+    caso.ejecutar()
+        .map(VitrinaDto::from)
+        .map_err(ErrorDto::from)
+}
+
+/// Fija cuánto se quiere mantener exhibido de un producto.
+#[tauri::command]
+pub fn fijar_objetivo_vitrina(
+    estado: State<'_, Estado>,
+    objetivo: ObjetivoVitrinaDto,
+) -> Result<(), ErrorDto> {
+    let caso = FijarObjetivoVitrina::nuevo(estado.repositorio_producto());
+    caso.ejecutar(objetivo.into()).map_err(ErrorDto::from)
+}
+
+/// Mueve mercancía entre el almacén y la vitrina.
+///
+/// No lleva costo: no se le compró nada a nadie, solo cambia de sitio.
+#[tauri::command]
+pub fn traspasar(estado: State<'_, Estado>, traspaso: NuevoTraspasoDto) -> Result<(), ErrorDto> {
+    let caso = Traspasar::nuevo(estado.repositorio_producto());
+    caso.ejecutar(traspaso.into()).map_err(ErrorDto::from)
+}
+
+/// Responde cómo quedaría la existencia si el movimiento se hiciera.
+#[tauri::command]
+pub fn simular_movimiento(
+    estado: State<'_, Estado>,
+    consulta: ConsultaSimulacionDto,
+) -> Result<SimulacionDto, ErrorDto> {
+    let caso = SimularMovimiento::nuevo(estado.repositorio_producto());
+    caso.ejecutar(consulta.into())
+        .map(SimulacionDto::from)
+        .map_err(ErrorDto::from)
+}
+
+/// Da de baja mercancía perdida.
+#[tauri::command]
+pub fn registrar_merma(estado: State<'_, Estado>, merma: NuevaMermaDto) -> Result<(), ErrorDto> {
+    let caso = RegistrarMerma::nuevo(estado.repositorio_producto());
+    caso.ejecutar(merma.into()).map_err(ErrorDto::from)
+}
+
+/// Devuelve el historial de movimientos de un producto (RF-INV-05).
+#[tauri::command]
+pub fn consultar_kardex(
+    estado: State<'_, Estado>,
+    producto: i64,
+    limite: Option<usize>,
+) -> Result<Vec<MovimientoDto>, ErrorDto> {
+    let caso = ConsultarKardex::nuevo(estado.repositorio_producto());
+    caso.ejecutar(producto, limite.unwrap_or(LIMITE_POR_DEFECTO))
+        .map(|lineas| lineas.into_iter().map(MovimientoDto::from).collect())
         .map_err(ErrorDto::from)
 }
 
