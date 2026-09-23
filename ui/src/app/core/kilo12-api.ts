@@ -4,6 +4,8 @@ import { invoke } from '@tauri-apps/api/core';
 import {
   AlmacenDto,
   CambioPrecioDto,
+  CobroCalculadoDto,
+  HistorialVentasDto,
   ErrorDto,
   FichaProductoDto,
   MargenDto,
@@ -11,9 +13,15 @@ import {
   NuevaEntradaDto,
   NuevaMermaDto,
   NuevoProductoDto,
+  LineaVentaDto,
   NuevoTraspasoDto,
+  PagoDto,
   ProductoDto,
+  ProductoVendibleDto,
   SimulacionDto,
+  VentaDetalladaDto,
+  VentaHechaDto,
+  VentaPrevistaDto,
   VitrinaDto,
 } from './api.types';
 
@@ -45,6 +53,71 @@ export class Kilo12Api {
   /** Da de alta un producto y devuelve su identificador. */
   registrarProducto(producto: NuevoProductoDto): Promise<number> {
     return invoke<number>('registrar_producto', { producto });
+  }
+
+  // -------------------------------------------------------- vender
+
+  /** Devuelve lo que se puede vender ahora mismo, con su existencia. */
+  catalogoDeVenta(): Promise<ProductoVendibleDto[]> {
+    return invoke<ProductoVendibleDto[]>('catalogo_de_venta');
+  }
+
+  /**
+   * Calcula la venta en curso sin tocar nada.
+   *
+   * La pantalla no suma dinero: pregunta. Y así se entera de si algo no
+   * cabe en la vitrina antes de intentar cobrarlo.
+   */
+  previsualizarVenta(lineas: LineaVentaDto[]): Promise<VentaPrevistaDto> {
+    return invoke<VentaPrevistaDto>('previsualizar_venta', { lineas });
+  }
+
+  /**
+   * Dice si lo entregado cubre la venta y cuánto hay que devolver.
+   *
+   * Se pregunta mientras se teclea: el vuelto se cuenta con los billetes
+   * en la mano, no después de confirmar.
+   */
+  calcularCobro(total: string, pagos: PagoDto[]): Promise<CobroCalculadoDto> {
+    return invoke<CobroCalculadoDto>('calcular_cobro', { total, pagos });
+  }
+
+  /**
+   * Cobra una venta.
+   *
+   * Va entera en una sola llamada: si algo falla no se guarda nada, ni
+   * media venta ni medio descuento de inventario.
+   */
+  vender(venta: {
+    lineas: LineaVentaDto[];
+    pagos: PagoDto[];
+  }): Promise<VentaHechaDto> {
+    return invoke<VentaHechaDto>('vender', { venta });
+  }
+
+  /**
+   * El historial de ventas con el corte del día (RF-VTA-16).
+   *
+   * Los totales y la ganancia vienen calculados: la ganancia sale del costo
+   * que tenía la mercancía cuando se vendió, no del de hoy.
+   */
+  consultarVentas(limite?: number): Promise<HistorialVentasDto> {
+    return invoke<HistorialVentasDto>('consultar_ventas', { limite });
+  }
+
+  /** Una venta concreta, con sus líneas y sus formas de pago. */
+  consultarVenta(id: number): Promise<VentaDetalladaDto> {
+    return invoke<VentaDetalladaDto>('consultar_venta', { id });
+  }
+
+  /** Tasa de cambio vigente, o nada si todavía no se fijó. */
+  consultarTasa(): Promise<string | null> {
+    return invoke<string | null>('consultar_tasa');
+  }
+
+  /** Fija la tasa con la que se convierten los dólares. */
+  fijarTasa(tasa: string): Promise<void> {
+    return invoke<void>('fijar_tasa', { tasa });
   }
 
   // ------------------------------------------------ ficha comercial
