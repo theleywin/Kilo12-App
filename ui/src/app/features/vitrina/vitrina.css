@@ -1,0 +1,109 @@
+/* Casi todo viene del sistema (estilos/). Aquí solo lo propio de esta
+   pantalla. */
+
+.rejilla-tarjetas {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--e4);
+  margin-bottom: var(--e5);
+}
+
+.tarjeta {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e1);
+  padding: var(--e4);
+}
+
+.tarjeta__titulo {
+  font-size: var(--texto-s);
+  font-weight: var(--peso-fuerte);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--apagado);
+}
+
+.tarjeta--atencion {
+  border-color: var(--destaque);
+}
+
+.tarjeta--atencion .cifra {
+  color: var(--destaque-texto);
+}
+
+.tarjeta--error .cifra {
+  color: var(--rojo);
+}
+
+.nota {
+  font-size: var(--texto-xs);
+}
+
+.panel--lista {
+  margin-bottom: var(--e5);
+}
+
+/* Campos que viven dentro de una celda: estrechos y alineados con las
+   cifras de su columna. */
+.celda-cifra {
+  width: 96px;
+  height: calc(var(--alto-control) - 6px);
+}
+
+.unidad {
+  margin-left: var(--e1);
+  font-size: var(--texto-xs);
+}
+
+/* Solo las celdas que abren el historial se comportan como pulsables; la
+   del objetivo no, porque ahí se escribe. */
+.pulsable {
+  cursor: pointer;
+}
+
+.envolver {
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+
+/* La baja por merma: no pregunta de dónde sale porque estás mirando la
+   vitrina. Un campo menos que rellenar y un error menos que cometer. */
+.merma {
+  display: grid;
+  grid-template-columns: 140px 1fr auto;
+  gap: var(--e3);
+  align-items: end;
+  padding-top: var(--e4);
+  border-top: 1px solid var(--linea-suave);
+}
+
+.merma .campo--ancho {
+  min-width: 0;
+}
+
+@media (max-width: 720px) {
+  .merma {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Retirar de la exhibición: su propia cantidad, separada de la de
+   reponer. Son dos movimientos en direcciones opuestas. */
+.devolver {
+  display: grid;
+  grid-template-columns: 200px auto 1fr;
+  gap: var(--e3);
+  align-items: end;
+  padding-top: var(--e4);
+  border-top: 1px solid var(--linea-suave);
+}
+
+.devolver .nota {
+  align-self: center;
+}
+
+@media (max-width: 720px) {
+  .devolver {
+    grid-template-columns: 1fr;
+  }
+}
