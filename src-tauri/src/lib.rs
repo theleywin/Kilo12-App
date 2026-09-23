@@ -34,6 +34,14 @@ pub fn ejecutar() {
             comandos::traspasar,
             comandos::simular_movimiento,
             comandos::consultar_kardex,
+            comandos::consultar_producto,
+            comandos::editar_producto,
+            comandos::agregar_presentacion,
+            comandos::cambiar_precio,
+            comandos::desactivar_presentacion,
+            comandos::marcar_predeterminada,
+            comandos::consultar_historial_precios,
+            comandos::calcular_precio_para_margen,
         ])
         .run(tauri::generate_context!())
         .expect("no se pudo iniciar Kilo12");

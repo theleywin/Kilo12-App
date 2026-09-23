@@ -26,23 +26,29 @@
   overflow-y: auto;
 }
 
-/* El logo va sobre una placa clara: el archivo tiene fondo blanco y en el
-   tema oscuro quedaría un recuadro accidental. Puesto así, es a propósito. */
+/* El logotipo es vectorial y con fondo transparente, así que se apoya
+   directamente sobre el menú: la placa blanca que llevaba antes era un
+   parche para tapar el fondo del JPEG, y se veía como una pegatina. */
 .marca {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--e2) var(--e3);
-  border: 1px solid var(--linea);
-  border-radius: var(--radio-m);
-  background: #ffffff;
+  display: block;
+  padding: var(--e2) var(--e2) var(--e3);
+  border-bottom: 1px solid var(--linea);
+  border-radius: 0;
 }
 
 .marca img {
   width: 100%;
-  max-width: 150px;
+  max-width: 156px;
   height: auto;
   display: block;
+}
+
+/* En el tema oscuro el verde de la marca queda apagado sobre el fondo.
+   Un punto de luz lo devuelve a la vista sin desteñir el naranja. */
+@media (prefers-color-scheme: dark) {
+  .marca img {
+    filter: brightness(1.45) saturate(1.1);
+  }
 }
 
 .menu__lista {

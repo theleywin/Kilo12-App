@@ -3,7 +3,9 @@ import { invoke } from '@tauri-apps/api/core';
 
 import {
   AlmacenDto,
+  CambioPrecioDto,
   ErrorDto,
+  FichaProductoDto,
   MargenDto,
   MovimientoDto,
   NuevaEntradaDto,
@@ -23,14 +25,88 @@ import {
  */
 @Injectable({ providedIn: 'root' })
 export class Kilo12Api {
-  /** Lista el catálogo. */
-  listarProductos(incluirInactivos = false): Promise<ProductoDto[]> {
-    return invoke<ProductoDto[]>('listar_productos', { incluirInactivos });
+  /**
+   * Lista el catálogo, ordenado por la columna que se pida.
+   *
+   * El orden lo resuelve Rust: comparar márgenes es comparar dinero.
+   */
+  listarProductos(
+    incluirInactivos = false,
+    orden?: string,
+    descendente = false,
+  ): Promise<ProductoDto[]> {
+    return invoke<ProductoDto[]>('listar_productos', {
+      incluirInactivos,
+      orden,
+      descendente,
+    });
   }
 
   /** Da de alta un producto y devuelve su identificador. */
   registrarProducto(producto: NuevoProductoDto): Promise<number> {
     return invoke<number>('registrar_producto', { producto });
+  }
+
+  // ------------------------------------------------ ficha comercial
+
+  /** Devuelve la ficha de un producto con todas sus presentaciones. */
+  consultarProducto(producto: number): Promise<FichaProductoDto> {
+    return invoke<FichaProductoDto>('consultar_producto', { producto });
+  }
+
+  /** Cambia el nombre, el mínimo o el estado de un producto. */
+  editarProducto(edicion: {
+    producto: number;
+    nombre: string;
+    stockMinimo?: string;
+    activo: boolean;
+  }): Promise<void> {
+    return invoke<void>('editar_producto', { edicion });
+  }
+
+  /** Agrega una forma de vender el producto. */
+  agregarPresentacion(presentacion: {
+    producto: number;
+    nombre: string;
+    factor: string;
+    precio: string;
+    codigoBarras?: string;
+  }): Promise<void> {
+    return invoke<void>('agregar_presentacion', { presentacion });
+  }
+
+  /** Cambia el precio de una presentación y lo anota en el historial. */
+  cambiarPrecio(cambio: {
+    producto: number;
+    presentacion: number;
+    precio: string;
+  }): Promise<void> {
+    return invoke<void>('cambiar_precio', { cambio });
+  }
+
+  /** Retira una presentación de la venta sin borrarla. */
+  desactivarPresentacion(producto: number, presentacion: number): Promise<void> {
+    return invoke<void>('desactivar_presentacion', { referencia: { producto, presentacion } });
+  }
+
+  /** Elige la presentación que usa la venta rápida. */
+  marcarPredeterminada(producto: number, presentacion: number): Promise<void> {
+    return invoke<void>('marcar_predeterminada', { referencia: { producto, presentacion } });
+  }
+
+  /** Devuelve cómo ha ido cambiando el precio de un producto. */
+  consultarHistorialPrecios(producto: number): Promise<CambioPrecioDto[]> {
+    return invoke<CambioPrecioDto[]>('consultar_historial_precios', { producto });
+  }
+
+  /**
+   * Calcula el precio que hay que cobrar para dejar el margen pedido.
+   *
+   * Es el camino inverso del margen, y la cuenta la hace Rust: dividir
+   * entre `1 − margen` en JavaScript arrastraría imprecisión.
+   */
+  calcularPrecioParaMargen(costo: string, margen: string): Promise<string> {
+    return invoke<string>('calcular_precio_para_margen', { costo, margen });
   }
 
   /** Devuelve el estado del almacén: qué hay y cuánto vale. */

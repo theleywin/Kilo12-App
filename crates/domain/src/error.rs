@@ -40,6 +40,12 @@ pub enum ErrorDominio {
     FactorInvalido,
     /// Ya existe una presentación con ese nombre en el producto.
     PresentacionDuplicada,
+    /// La presentación indicada no pertenece a este producto.
+    PresentacionNoEncontrada,
+    /// Es la única forma de venta que le queda al producto (RF-PRS-03).
+    UltimaPresentacion,
+    /// Se pidió un margen del 100 % o más, que exigiría precio infinito.
+    MargenImposible,
     /// La unidad de medida recibida no es una de las admitidas.
     UnidadDesconocida,
     /// La ubicación recibida no es bodega ni vitrina.
@@ -86,6 +92,9 @@ impl ErrorDominio {
             Self::CantidadFraccionariaNoPermitida => "CANTIDAD_FRACCIONARIA_NO_PERMITIDA",
             Self::FactorInvalido => "FACTOR_INVALIDO",
             Self::PresentacionDuplicada => "PRESENTACION_DUPLICADA",
+            Self::PresentacionNoEncontrada => "PRESENTACION_NO_ENCONTRADA",
+            Self::UltimaPresentacion => "ULTIMA_PRESENTACION",
+            Self::MargenImposible => "MARGEN_IMPOSIBLE",
             Self::UnidadDesconocida => "UNIDAD_DESCONOCIDA",
             Self::UbicacionDesconocida => "UBICACION_DESCONOCIDA",
             Self::TipoMovimientoDesconocido => "TIPO_MOVIMIENTO_DESCONOCIDO",
@@ -133,6 +142,15 @@ impl fmt::Display for ErrorDominio {
             }
             Self::FactorInvalido => f.write_str("El factor de conversión debe ser mayor que cero"),
             Self::PresentacionDuplicada => f.write_str("Ya existe una presentación con ese nombre"),
+            Self::PresentacionNoEncontrada => {
+                f.write_str("Esa presentación no pertenece a este producto")
+            }
+            Self::UltimaPresentacion => f.write_str(
+                "Es la única forma de venderlo que queda: el producto se quedaría invendible",
+            ),
+            Self::MargenImposible => {
+                f.write_str("Un margen del 100 % o más exigiría un precio infinito")
+            }
             Self::UnidadDesconocida => f.write_str("La unidad de medida no es válida"),
             Self::UbicacionDesconocida => f.write_str("La ubicación no es válida"),
             Self::TipoMovimientoDesconocido => f.write_str("El tipo de movimiento no es válido"),

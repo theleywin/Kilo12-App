@@ -105,6 +105,24 @@ const MIGRACIONES: &[&str] = &[
 
     CREATE INDEX idx_movimiento_producto ON movimiento(producto_id, id);
     "#,
+    // 4 — Historial de precios (RF-PRE-04, RF-CAT-05).
+    //
+    // Mismo motivo que el kárdex: el precio de ayer no se puede deducir del
+    // de hoy. Si no se anota cuando cambia, se pierde para siempre, y con
+    // él la posibilidad de saber si una venta vieja dejaba ganancia.
+    r#"
+    CREATE TABLE historial_precio (
+        id             INTEGER PRIMARY KEY,
+        producto_id    INTEGER NOT NULL REFERENCES producto(id),
+        presentacion_id INTEGER NOT NULL REFERENCES presentacion(id),
+        anterior       INTEGER NOT NULL CHECK (anterior >= 0),
+        nuevo          INTEGER NOT NULL CHECK (nuevo >= 0),
+        cambiado_en    TEXT    NOT NULL
+    );
+
+    CREATE INDEX idx_historial_precio_producto
+        ON historial_precio(producto_id, id);
+    "#,
 ];
 
 /// Lleva el esquema a la última versión.

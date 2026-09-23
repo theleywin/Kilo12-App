@@ -8,10 +8,13 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use application::casos::{
-    ComandoFijarObjetivo, ComandoRegistrarEntrada, ComandoRegistrarMerma, ComandoRegistrarProducto,
-    ComandoSimular, ComandoTraspasar, ConsultarAlmacen, ConsultarKardex, ConsultarVitrina,
-    FijarObjetivoVitrina, LineaKardex, ListarProductos, ProductoListado, RegistrarEntrada,
-    RegistrarMerma, RegistrarProducto, ResumenVitrina, SimularMovimiento, Traspasar,
+    AgregarPresentacion, CambiarPrecio, ComandoAgregarPresentacion, ComandoCambiarPrecio,
+    ComandoEditarProducto, ComandoFijarObjetivo, ComandoPresentacion, ComandoRegistrarEntrada,
+    ComandoRegistrarMerma, ComandoRegistrarProducto, ComandoSimular, ComandoTraspasar,
+    ConsultarAlmacen, ConsultarHistorialPrecios, ConsultarKardex, ConsultarProducto,
+    ConsultarVitrina, DesactivarPresentacion, EditarProducto, FijarObjetivoVitrina, LineaKardex,
+    ListarProductos, MarcarPredeterminada, ProductoListado, RegistrarEntrada, RegistrarMerma,
+    RegistrarProducto, ResumenVitrina, SimularMovimiento, Traspasar,
 };
 use infrastructure::{BaseDatos, RepositorioProductoSqlite};
 
@@ -731,4 +734,187 @@ fn lo_que_esta_solo_en_vitrina_no_cuenta_como_por_reponer() {
     // una verdad inútil y dejar al dueño creyendo que está todo bien.
     assert!(estado.productos[0].falta_comprar);
     assert_eq!(estado.falta_comprar, 1);
+}
+
+// ============================================ presentaciones y precios
+
+/// El ejemplo de validación del documento (§6.2), tal cual.
+///
+/// Refresco 500 ml · unidad base `unidad` · costo promedio 41.67
+///   Unidad suelta  factor 1  precio 80.00   → ganancia 38.33 · margen 47.9 %
+///   Six-pack       factor 6  precio 300.00  → ganancia 50.00 · margen 16.7 %
+#[test]
+fn reproduce_el_ejemplo_de_presentaciones_del_documento() {
+    let repositorio = repositorio_en_memoria();
+
+    // 12 unidades por 500.04 dejan un costo de 41.67 exactos.
+    let mut comando = alta("Refresco 500 ml");
+    comando.precio_unitario = "80.00".to_owned();
+    comando.costo_unitario = Some("41.67".to_owned());
+    comando.cantidad_almacen = Some("12".to_owned());
+    let producto = RegistrarProducto::nuevo(&repositorio)
+        .ejecutar(comando)
+        .expect("registrar")
+        .0;
+
+    AgregarPresentacion::nuevo(&repositorio)
+        .ejecutar(ComandoAgregarPresentacion {
+            producto,
+            nombre: "Six-pack".to_owned(),
+            factor: "6".to_owned(),
+            precio: "300.00".to_owned(),
+            codigo_barras: None,
+        })
+        .expect("agregar el six-pack");
+
+    let ficha = ConsultarProducto::nuevo(&repositorio)
+        .ejecutar(producto)
+        .expect("consultar la ficha");
+
+    assert_eq!(ficha.costo, "41.67");
+
+    let suelta = &ficha.presentaciones[0];
+    assert_eq!(suelta.precio, "80.00");
+    assert_eq!(suelta.costo, "41.67");
+    assert_eq!(suelta.ganancia, "38.33");
+    assert_eq!(suelta.margen, "47.9 %");
+    assert_eq!(suelta.precio_por_unidad_base, "80.00");
+
+    let paquete = &ficha.presentaciones[1];
+    assert_eq!(paquete.precio, "300.00");
+    assert_eq!(paquete.costo, "250.02");
+    assert_eq!(paquete.ganancia, "49.98");
+    assert_eq!(paquete.margen, "16.7 %");
+    // El six-pack sale a 50 por refresco frente a los 80 de la unidad
+    // suelta: deja menos ganancia por refresco, y eso hay que verlo.
+    assert_eq!(paquete.precio_por_unidad_base, "50.00");
+}
+
+#[test]
+fn cambiar_el_precio_deja_rastro_en_el_historial() {
+    let repositorio = repositorio_en_memoria();
+    let producto = alta_con_mercancia(&repositorio);
+    let ficha = ConsultarProducto::nuevo(&repositorio)
+        .ejecutar(producto)
+        .expect("ficha");
+    let presentacion = ficha.presentaciones[0].id;
+
+    CambiarPrecio::nuevo(&repositorio)
+        .ejecutar(ComandoCambiarPrecio {
+            producto,
+            presentacion,
+            precio: "210.00".to_owned(),
+        })
+        .expect("cambiar el precio");
+
+    let ficha = ConsultarProducto::nuevo(&repositorio)
+        .ejecutar(producto)
+        .expect("ficha");
+    assert_eq!(ficha.presentaciones[0].precio, "210.00");
+
+    let historial = ConsultarHistorialPrecios::nuevo(&repositorio)
+        .ejecutar(producto)
+        .expect("historial");
+    assert_eq!(historial.len(), 1);
+    assert_eq!(historial[0].anterior, "180.00");
+    assert_eq!(historial[0].nuevo, "210.00");
+    assert!(historial[0].subio);
+}
+
+#[test]
+fn no_se_puede_dejar_un_producto_sin_forma_de_venderse() {
+    let repositorio = repositorio_en_memoria();
+    let producto = alta_con_mercancia(&repositorio);
+    let ficha = ConsultarProducto::nuevo(&repositorio)
+        .ejecutar(producto)
+        .expect("ficha");
+
+    let error = DesactivarPresentacion::nuevo(&repositorio)
+        .ejecutar(ComandoPresentacion {
+            producto,
+            presentacion: ficha.presentaciones[0].id,
+        })
+        .expect_err("es la única que queda");
+
+    assert_eq!(error.codigo(), "ULTIMA_PRESENTACION");
+}
+
+#[test]
+fn solo_una_presentacion_puede_ser_la_predeterminada() {
+    let repositorio = repositorio_en_memoria();
+    let producto = alta_con_mercancia(&repositorio);
+
+    AgregarPresentacion::nuevo(&repositorio)
+        .ejecutar(ComandoAgregarPresentacion {
+            producto,
+            nombre: "Saco de 25".to_owned(),
+            factor: "25".to_owned(),
+            precio: "4000.00".to_owned(),
+            codigo_barras: None,
+        })
+        .expect("agregar el saco");
+
+    let ficha = ConsultarProducto::nuevo(&repositorio)
+        .ejecutar(producto)
+        .expect("ficha");
+    let saco = ficha.presentaciones[1].id;
+
+    MarcarPredeterminada::nuevo(&repositorio)
+        .ejecutar(ComandoPresentacion {
+            producto,
+            presentacion: saco,
+        })
+        .expect("marcar el saco");
+
+    let ficha = ConsultarProducto::nuevo(&repositorio)
+        .ejecutar(producto)
+        .expect("ficha");
+    assert!(!ficha.presentaciones[0].es_predeterminada);
+    assert!(ficha.presentaciones[1].es_predeterminada);
+}
+
+#[test]
+fn un_producto_por_unidades_no_admite_presentaciones_fraccionarias() {
+    let repositorio = repositorio_en_memoria();
+    let producto = RegistrarProducto::nuevo(&repositorio)
+        .ejecutar(alta("Refresco 500 ml"))
+        .expect("registrar")
+        .0;
+
+    let error = AgregarPresentacion::nuevo(&repositorio)
+        .ejecutar(ComandoAgregarPresentacion {
+            producto,
+            nombre: "Media lata".to_owned(),
+            factor: "0.5".to_owned(),
+            precio: "50.00".to_owned(),
+            codigo_barras: None,
+        })
+        .expect_err("no existe el paquete de media lata");
+
+    assert_eq!(error.codigo(), "FACTOR_INVALIDO");
+}
+
+#[test]
+fn desactivar_un_producto_lo_saca_del_catalogo_sin_borrarlo() {
+    let repositorio = repositorio_en_memoria();
+    let producto = alta_con_mercancia(&repositorio);
+
+    EditarProducto::nuevo(&repositorio)
+        .ejecutar(ComandoEditarProducto {
+            producto,
+            nombre: "Arroz blanco".to_owned(),
+            stock_minimo: Some("10".to_owned()),
+            activo: false,
+        })
+        .expect("desactivar");
+
+    // Fuera de las listas de venta…
+    assert!(catalogo(&repositorio).is_empty());
+    // …pero su ficha y su historial siguen ahí.
+    let ficha = ConsultarProducto::nuevo(&repositorio)
+        .ejecutar(producto)
+        .expect("la ficha sigue existiendo");
+    assert!(!ficha.activo);
+    assert_eq!(ficha.stock_minimo, "10.000");
+    assert_eq!(kardex(&repositorio, producto).len(), 1);
 }

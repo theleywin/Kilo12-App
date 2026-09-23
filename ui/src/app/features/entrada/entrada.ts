@@ -90,8 +90,10 @@ export class Entrada {
     if (!aguja) {
       return this.productos().slice(0, 8);
     }
+    // Empieza por, no contiene: es la misma regla que en el catálogo, y
+    // dos búsquedas que se comporten distinto confunden más que ayudan.
     return this.productos()
-      .filter((p) => plegar(p.nombre).includes(aguja) || plegar(p.sku).includes(aguja))
+      .filter((p) => plegar(p.nombre).startsWith(aguja) || plegar(p.sku).startsWith(aguja))
       .slice(0, 8);
   });
 

@@ -153,6 +153,53 @@ export interface MovimientoDto {
   readonly ocurridoEn: string;
 }
 
+/** Una forma de vender el producto, con su economía propia. */
+export interface PresentacionDto {
+  readonly id: number;
+  readonly nombre: string;
+  /** Cuántas unidades base se llevan al vender una. */
+  readonly factor: string;
+  readonly precio: string;
+  /** `factor × costo unitario base`. */
+  readonly costo: string;
+  readonly ganancia: string;
+  readonly margen: string;
+  /** Para comparar presentaciones entre sí. */
+  readonly precioPorUnidadBase: string;
+  readonly enRiesgo: boolean;
+  /** Sale más cara por unidad que una presentación menor. */
+  readonly precioAnomalo: boolean;
+  readonly esPredeterminada: boolean;
+  readonly activa: boolean;
+  readonly codigoBarras: string | null;
+}
+
+/** La ficha comercial completa de un producto. */
+export interface FichaProductoDto {
+  readonly id: number;
+  readonly sku: string;
+  readonly nombre: string;
+  readonly unidadBase: string;
+  readonly unidadNombre: string;
+  readonly esGranel: boolean;
+  readonly activo: boolean;
+  readonly costo: string;
+  readonly stockMinimo: string;
+  readonly objetivoVitrina: string;
+  readonly existenciaTotal: string;
+  readonly presentaciones: readonly PresentacionDto[];
+}
+
+/** Un cambio de precio ya ocurrido. */
+export interface CambioPrecioDto {
+  readonly id: number;
+  readonly presentacion: string;
+  readonly anterior: string;
+  readonly nuevo: string;
+  readonly subio: boolean;
+  readonly cambiadoEn: string;
+}
+
 /** Las dos ubicaciones, tal como las nombra el negocio. */
 export const UBICACIONES: ReadonlyArray<{ valor: string; nombre: string }> = [
   { valor: 'BODEGA', nombre: 'Almacén' },

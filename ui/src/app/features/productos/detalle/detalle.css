@@ -1,0 +1,129 @@
+/* Casi todo viene del sistema (estilos/). Aquí solo lo propio de esta
+   pantalla: la ficha comercial y sus tablas editables. */
+
+.panel--lista {
+  margin-bottom: var(--e5);
+}
+
+.nota {
+  font-size: var(--texto-s);
+}
+
+a.boton {
+  text-decoration: none;
+}
+
+.fila-clicable {
+  cursor: pointer;
+}
+
+/* Lo retirado de la venta sigue ahí, pero no compite por la atención. */
+.fila--inactiva td {
+  opacity: 0.55;
+}
+
+/* Cabecera de una sección dentro de la ficha. */
+.panel__cabecera--interna {
+  border-top: 1px solid var(--linea);
+}
+
+/* ============================================== datos del producto */
+
+.datos {
+  display: grid;
+  grid-template-columns: 1fr 220px auto auto;
+  gap: var(--e3);
+  align-items: end;
+}
+
+.datos .campo--ancho {
+  min-width: 0;
+}
+
+/* ============================================ campos en una celda */
+
+.celda-cifra {
+  width: 110px;
+  height: calc(var(--alto-control) - 6px);
+}
+
+.celda-margen {
+  width: 64px;
+  height: calc(var(--alto-control) - 6px);
+}
+
+.fila--compacta {
+  gap: var(--e1);
+  justify-content: flex-end;
+}
+
+.acciones {
+  display: flex;
+  gap: var(--e1);
+  justify-content: flex-end;
+  flex-wrap: wrap;
+}
+
+/* ========================================== presentación nueva */
+
+.nueva-presentacion {
+  display: grid;
+  grid-template-columns: 1fr 160px 160px 1fr auto;
+  gap: var(--e3);
+  align-items: end;
+  margin-bottom: var(--e2);
+}
+
+.pista--fuerte {
+  color: var(--destaque-texto);
+}
+
+@media (max-width: 900px) {
+  .datos,
+  .nueva-presentacion {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ============================================== cabecera de la ficha */
+
+.volver {
+  display: inline-block;
+  margin-bottom: var(--e2);
+  color: var(--apagado);
+  text-decoration: none;
+  font-size: var(--texto-s);
+}
+
+.volver:hover {
+  color: var(--acento);
+}
+
+.fila--titulo {
+  flex-wrap: wrap;
+  gap: var(--e2);
+}
+
+/* =========================================== margen objetivo
+   El precio aparece debajo del margen mientras se escribe: es el
+   número por el que se está tanteando. */
+
+.objetivo {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--e1);
+}
+
+.sugerido {
+  display: flex;
+  align-items: baseline;
+  gap: var(--e1);
+  font-size: var(--texto-s);
+  white-space: nowrap;
+}
+
+.sugerido strong {
+  color: var(--acento);
+  font-size: var(--texto-m);
+}

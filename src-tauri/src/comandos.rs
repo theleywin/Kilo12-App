@@ -10,17 +10,20 @@
 
 use application::casos::consultar_kardex::LIMITE_POR_DEFECTO;
 use application::casos::{
-    ConsultarAlmacen, ConsultarKardex, ConsultarVitrina, FijarObjetivoVitrina, ListarProductos,
-    RegistrarEntrada, RegistrarMerma, RegistrarProducto, SimularMovimiento, Traspasar,
+    AgregarPresentacion, CambiarPrecio, ConsultarAlmacen, ConsultarHistorialPrecios,
+    ConsultarKardex, ConsultarProducto, ConsultarVitrina, DesactivarPresentacion, EditarProducto,
+    FijarObjetivoVitrina, ListarProductos, MarcarPredeterminada, OrdenCatalogo, RegistrarEntrada,
+    RegistrarMerma, RegistrarProducto, SimularMovimiento, Traspasar,
 };
 use application::margen;
-use domain::Dinero;
+use domain::{Dinero, Porcentaje};
 use tauri::State;
 
 use crate::dto::{
-    AlmacenDto, ConsultaSimulacionDto, ErrorDto, MargenDto, MovimientoDto, NuevaEntradaDto,
-    NuevaMermaDto, NuevoProductoDto, NuevoTraspasoDto, ObjetivoVitrinaDto, ProductoDto,
-    SimulacionDto, VitrinaDto,
+    AlmacenDto, CambioPrecioDto, CambioPrecioListadoDto, ConsultaSimulacionDto, EdicionProductoDto,
+    ErrorDto, FichaProductoDto, MargenDto, MovimientoDto, NuevaEntradaDto, NuevaMermaDto,
+    NuevaPresentacionDto, NuevoProductoDto, NuevoTraspasoDto, ObjetivoVitrinaDto, ProductoDto,
+    ReferenciaPresentacionDto, SimulacionDto, VitrinaDto,
 };
 use crate::estado::Estado;
 
@@ -130,14 +133,121 @@ pub fn calcular_margen(costo: String, precio: String) -> Result<MargenDto, Error
         .map_err(ErrorDto::from)
 }
 
-/// Lista el catálogo.
+/// Lista el catálogo, ordenado por la columna que se pida.
+///
+/// El orden se resuelve en Rust: ordenar por margen es comparar dinero, y
+/// esa comparación tiene que ser exacta.
 #[tauri::command]
 pub fn listar_productos(
     estado: State<'_, Estado>,
     incluir_inactivos: Option<bool>,
+    orden: Option<String>,
+    descendente: Option<bool>,
 ) -> Result<Vec<ProductoDto>, ErrorDto> {
     let caso = ListarProductos::nuevo(estado.repositorio_producto());
-    caso.ejecutar(incluir_inactivos.unwrap_or(false))
-        .map(|productos| productos.into_iter().map(ProductoDto::from).collect())
+
+    let orden: OrdenCatalogo = match orden.as_deref() {
+        None | Some("") => OrdenCatalogo::default(),
+        Some(texto) => texto.parse()?,
+    };
+
+    caso.ordenado(
+        incluir_inactivos.unwrap_or(false),
+        orden,
+        descendente.unwrap_or(false),
+    )
+    .map(|productos| productos.into_iter().map(ProductoDto::from).collect())
+    .map_err(ErrorDto::from)
+}
+
+/// Devuelve la ficha comercial de un producto con sus presentaciones.
+#[tauri::command]
+pub fn consultar_producto(
+    estado: State<'_, Estado>,
+    producto: i64,
+) -> Result<FichaProductoDto, ErrorDto> {
+    let caso = ConsultarProducto::nuevo(estado.repositorio_producto());
+    caso.ejecutar(producto)
+        .map(FichaProductoDto::from)
+        .map_err(ErrorDto::from)
+}
+
+/// Cambia el nombre, el mínimo o el estado de un producto (RF-CAT-05).
+#[tauri::command]
+pub fn editar_producto(
+    estado: State<'_, Estado>,
+    edicion: EdicionProductoDto,
+) -> Result<(), ErrorDto> {
+    let caso = EditarProducto::nuevo(estado.repositorio_producto());
+    caso.ejecutar(edicion.into()).map_err(ErrorDto::from)
+}
+
+/// Agrega una forma de vender el producto (RF-PRS-02).
+#[tauri::command]
+pub fn agregar_presentacion(
+    estado: State<'_, Estado>,
+    presentacion: NuevaPresentacionDto,
+) -> Result<(), ErrorDto> {
+    let caso = AgregarPresentacion::nuevo(estado.repositorio_producto());
+    caso.ejecutar(presentacion.into()).map_err(ErrorDto::from)
+}
+
+/// Cambia el precio de una presentación y lo anota en el historial.
+#[tauri::command]
+pub fn cambiar_precio(estado: State<'_, Estado>, cambio: CambioPrecioDto) -> Result<(), ErrorDto> {
+    let caso = CambiarPrecio::nuevo(estado.repositorio_producto());
+    caso.ejecutar(cambio.into()).map_err(ErrorDto::from)
+}
+
+/// Retira una presentación de la venta sin borrarla (RF-PRS-15).
+#[tauri::command]
+pub fn desactivar_presentacion(
+    estado: State<'_, Estado>,
+    referencia: ReferenciaPresentacionDto,
+) -> Result<(), ErrorDto> {
+    let caso = DesactivarPresentacion::nuevo(estado.repositorio_producto());
+    caso.ejecutar(referencia.into()).map_err(ErrorDto::from)
+}
+
+/// Elige la presentación que usa la venta rápida (RF-PRS-08).
+#[tauri::command]
+pub fn marcar_predeterminada(
+    estado: State<'_, Estado>,
+    referencia: ReferenciaPresentacionDto,
+) -> Result<(), ErrorDto> {
+    let caso = MarcarPredeterminada::nuevo(estado.repositorio_producto());
+    caso.ejecutar(referencia.into()).map_err(ErrorDto::from)
+}
+
+/// Devuelve cómo ha ido cambiando el precio de un producto (RF-PRE-04).
+#[tauri::command]
+pub fn consultar_historial_precios(
+    estado: State<'_, Estado>,
+    producto: i64,
+) -> Result<Vec<CambioPrecioListadoDto>, ErrorDto> {
+    let caso = ConsultarHistorialPrecios::nuevo(estado.repositorio_producto());
+    caso.ejecutar(producto)
+        .map(|cambios| {
+            cambios
+                .into_iter()
+                .map(CambioPrecioListadoDto::from)
+                .collect()
+        })
+        .map_err(ErrorDto::from)
+}
+
+/// Calcula el precio que hay que cobrar para dejar el margen pedido.
+///
+/// Es el camino inverso del margen: en vez de preguntar cuánto deja un
+/// precio, se dice cuánto se quiere dejar y sale el precio (RF-PRE-02).
+#[tauri::command]
+pub fn calcular_precio_para_margen(costo: String, margen: String) -> Result<String, ErrorDto> {
+    let costo: Dinero = costo.trim().parse()?;
+    // Se llama `objetivo` y no `margen` para no tapar al módulo del mismo
+    // nombre: compila igual, pero leerlo cuesta el doble.
+    let objetivo: Porcentaje = margen.trim().parse()?;
+
+    margen::precio_para(costo, objetivo)
+        .map(|precio| precio.formatear(2))
         .map_err(ErrorDto::from)
 }

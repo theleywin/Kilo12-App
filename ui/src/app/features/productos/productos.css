@@ -1,12 +1,90 @@
-/* El catálogo es casi todo tabla, y la tabla viene del sistema. Lo único
-   propio es la nota del encabezado. */
+/* Casi todo viene del sistema (estilos/). Aquí solo lo propio del
+   catálogo: la barra de herramientas y el trato a lo retirado. */
+
+.panel--lista {
+  margin-top: var(--e4);
+}
 
 .nota {
   font-size: var(--texto-s);
 }
 
-/* Un enlace que se ve como botón necesita que el texto no se subraye ni
-   herede el color de los enlaces. */
 a.boton {
   text-decoration: none;
+}
+
+.herramientas {
+  display: grid;
+  grid-template-columns: minmax(200px, 1fr) auto auto;
+  gap: var(--e4);
+  align-items: start;
+}
+
+.buscar input {
+  height: var(--alto-control);
+  padding: 0 var(--e3);
+  border: 1px solid var(--linea);
+  border-radius: var(--radio-s);
+  background: var(--fondo);
+  color: var(--tinta);
+  font-size: var(--texto-m);
+}
+
+.buscar input:focus {
+  outline: none;
+  border-color: var(--acento);
+  box-shadow: 0 0 0 3px var(--acento-halo);
+}
+
+/* La flecha del orden va pegada al nombre de la columna, no suelta. */
+.flecha {
+  margin-left: var(--e1);
+  opacity: 0.8;
+}
+
+.fila-clicable {
+  cursor: pointer;
+}
+
+/* Lo retirado sigue ahí, pero no compite por la atención. */
+.fila--inactiva td {
+  opacity: 0.55;
+}
+
+@media (max-width: 900px) {
+  .herramientas {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* La «×» que vacía la búsqueda, dentro del propio campo. */
+.con-limpiar {
+  position: relative;
+  display: flex;
+}
+
+.con-limpiar input {
+  flex: 1;
+  padding-right: var(--e6);
+}
+
+.limpiar {
+  position: absolute;
+  right: var(--e1);
+  top: 50%;
+  transform: translateY(-50%);
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: var(--radio-pildora);
+  background: transparent;
+  color: var(--apagado);
+  font-size: var(--texto-l);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.limpiar:hover {
+  background: var(--superficie-fuerte);
+  color: var(--tinta);
 }

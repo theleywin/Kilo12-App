@@ -10,9 +10,11 @@
 //! dominio se toma el trabajo de garantizar (DT-7).
 
 use application::casos::{
-    ComandoFijarObjetivo, ComandoRegistrarEntrada, ComandoRegistrarMerma, ComandoRegistrarProducto,
-    ComandoSimular, ComandoTraspasar, LineaKardex, LineaVitrina, ProductoListado, ResumenAlmacen,
-    ResumenVitrina, Simulacion,
+    CambioDePrecioListado, ComandoAgregarPresentacion, ComandoCambiarPrecio, ComandoEditarProducto,
+    ComandoFijarObjetivo, ComandoPresentacion, ComandoRegistrarEntrada, ComandoRegistrarMerma,
+    ComandoRegistrarProducto, ComandoSimular, ComandoTraspasar, FichaProducto, LineaKardex,
+    LineaVitrina, PresentacionDetallada, ProductoListado, ResumenAlmacen, ResumenVitrina,
+    Simulacion,
 };
 use application::{ErrorAplicacion, Margen};
 use serde::{Deserialize, Serialize};
@@ -371,6 +373,193 @@ impl From<LineaKardex> for MovimientoDto {
             vitrina_resultante: linea.vitrina_resultante,
             motivo: linea.motivo,
             ocurrido_en: linea.ocurrido_en,
+        }
+    }
+}
+
+/// Una forma de vender el producto, con su economía (RF-PRS-11).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PresentacionDto {
+    pub id: i64,
+    pub nombre: String,
+    pub factor: String,
+    pub precio: String,
+    pub costo: String,
+    pub ganancia: String,
+    pub margen: String,
+    pub precio_por_unidad_base: String,
+    pub en_riesgo: bool,
+    pub precio_anomalo: bool,
+    pub es_predeterminada: bool,
+    pub activa: bool,
+    pub codigo_barras: Option<String>,
+}
+
+impl From<PresentacionDetallada> for PresentacionDto {
+    fn from(p: PresentacionDetallada) -> Self {
+        Self {
+            id: p.id,
+            nombre: p.nombre,
+            factor: p.factor,
+            precio: p.precio,
+            costo: p.costo,
+            ganancia: p.ganancia,
+            margen: p.margen,
+            precio_por_unidad_base: p.precio_por_unidad_base,
+            en_riesgo: p.en_riesgo,
+            precio_anomalo: p.precio_anomalo,
+            es_predeterminada: p.es_predeterminada,
+            activa: p.activa,
+            codigo_barras: p.codigo_barras,
+        }
+    }
+}
+
+/// La ficha comercial completa de un producto.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FichaProductoDto {
+    pub id: i64,
+    pub sku: String,
+    pub nombre: String,
+    pub unidad_base: String,
+    pub unidad_nombre: String,
+    pub es_granel: bool,
+    pub activo: bool,
+    pub costo: String,
+    pub stock_minimo: String,
+    pub objetivo_vitrina: String,
+    pub existencia_total: String,
+    pub presentaciones: Vec<PresentacionDto>,
+}
+
+impl From<FichaProducto> for FichaProductoDto {
+    fn from(ficha: FichaProducto) -> Self {
+        Self {
+            id: ficha.id,
+            sku: ficha.sku,
+            nombre: ficha.nombre,
+            unidad_base: ficha.unidad_base,
+            unidad_nombre: ficha.unidad_nombre,
+            es_granel: ficha.es_granel,
+            activo: ficha.activo,
+            costo: ficha.costo,
+            stock_minimo: ficha.stock_minimo,
+            objetivo_vitrina: ficha.objetivo_vitrina,
+            existencia_total: ficha.existencia_total,
+            presentaciones: ficha
+                .presentaciones
+                .into_iter()
+                .map(PresentacionDto::from)
+                .collect(),
+        }
+    }
+}
+
+/// Datos editables de un producto.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EdicionProductoDto {
+    pub producto: i64,
+    pub nombre: String,
+    #[serde(default)]
+    pub stock_minimo: Option<String>,
+    pub activo: bool,
+}
+
+impl From<EdicionProductoDto> for ComandoEditarProducto {
+    fn from(dto: EdicionProductoDto) -> Self {
+        Self {
+            producto: dto.producto,
+            nombre: dto.nombre,
+            stock_minimo: dto.stock_minimo,
+            activo: dto.activo,
+        }
+    }
+}
+
+/// Una presentación nueva.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NuevaPresentacionDto {
+    pub producto: i64,
+    pub nombre: String,
+    pub factor: String,
+    pub precio: String,
+    #[serde(default)]
+    pub codigo_barras: Option<String>,
+}
+
+impl From<NuevaPresentacionDto> for ComandoAgregarPresentacion {
+    fn from(dto: NuevaPresentacionDto) -> Self {
+        Self {
+            producto: dto.producto,
+            nombre: dto.nombre,
+            factor: dto.factor,
+            precio: dto.precio,
+            codigo_barras: dto.codigo_barras,
+        }
+    }
+}
+
+/// Un precio nuevo para una presentación.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CambioPrecioDto {
+    pub producto: i64,
+    pub presentacion: i64,
+    pub precio: String,
+}
+
+impl From<CambioPrecioDto> for ComandoCambiarPrecio {
+    fn from(dto: CambioPrecioDto) -> Self {
+        Self {
+            producto: dto.producto,
+            presentacion: dto.presentacion,
+            precio: dto.precio,
+        }
+    }
+}
+
+/// Qué presentación se retira o se marca como predeterminada.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReferenciaPresentacionDto {
+    pub producto: i64,
+    pub presentacion: i64,
+}
+
+impl From<ReferenciaPresentacionDto> for ComandoPresentacion {
+    fn from(dto: ReferenciaPresentacionDto) -> Self {
+        Self {
+            producto: dto.producto,
+            presentacion: dto.presentacion,
+        }
+    }
+}
+
+/// Un cambio de precio ya ocurrido (RF-PRE-04).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CambioPrecioListadoDto {
+    pub id: i64,
+    pub presentacion: String,
+    pub anterior: String,
+    pub nuevo: String,
+    pub subio: bool,
+    pub cambiado_en: String,
+}
+
+impl From<CambioDePrecioListado> for CambioPrecioListadoDto {
+    fn from(cambio: CambioDePrecioListado) -> Self {
+        Self {
+            id: cambio.id,
+            presentacion: cambio.presentacion,
+            anterior: cambio.anterior,
+            nuevo: cambio.nuevo,
+            subio: cambio.subio,
+            cambiado_en: cambio.cambiado_en,
         }
     }
 }

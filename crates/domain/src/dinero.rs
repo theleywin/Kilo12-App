@@ -111,6 +111,43 @@ impl Dinero {
         )?)
     }
 
+    /// Precio que hay que cobrar para dejar el margen pedido (RF-PRE-02).
+    ///
+    /// El margen bruto se mide sobre el PRECIO, no sobre el costo:
+    ///
+    /// ```text
+    /// margen = (precio − costo) / precio   ⇒   precio = costo / (1 − margen)
+    /// ```
+    ///
+    /// Por eso un margen del 100 % es imposible —exigiría un precio
+    /// infinito— y a partir de ahí se rechaza en lugar de devolver una
+    /// cifra sin sentido.
+    pub fn precio_para_margen(self, porcentaje: i64) -> Result<Self, ErrorDominio> {
+        // La misma escala que usa `aplicar_porcentaje`: el 1 % son diez mil
+        // unidades, así que el 100 % es un millón. Confundir esta constante
+        // hace que todo margen parezca imposible.
+        const CIEN_POR_CIENTO: i64 = 1_000_000;
+
+        if porcentaje < 0 {
+            return Err(ErrorDominio::DineroNegativo);
+        }
+        if porcentaje >= CIEN_POR_CIENTO {
+            return Err(ErrorDominio::MargenImposible);
+        }
+
+        let dividendo = (self.0 as i128)
+            .checked_mul(CIEN_POR_CIENTO as i128)
+            .ok_or(ErrorDominio::DesbordeAritmetico)?;
+
+        // La resta no puede desbordar —el margen ya se comprobó menor que
+        // el total— pero el dominio no admite aritmética sin comprobar.
+        let resto = CIEN_POR_CIENTO
+            .checked_sub(porcentaje)
+            .ok_or(ErrorDominio::DesbordeAritmetico)?;
+
+        Self::desde_i128(dividir_redondeando(dividendo, resto as i128)?)
+    }
+
     /// Aplica un porcentaje expresado en diezmilésimas.
     ///
     /// Es el cálculo de la comisión del operador de caja: el 2 % llega como
@@ -343,5 +380,82 @@ pub(crate) fn analizar_escalado(texto: &str, escala: u32) -> Result<i64, ErrorDo
         total.checked_neg().ok_or(ErrorDominio::DesbordeAritmetico)
     } else {
         Ok(total)
+    }
+}
+
+#[cfg(test)]
+mod pruebas_margen {
+    use super::*;
+    use crate::porcentaje::Porcentaje;
+
+    fn dinero(texto: &str) -> Dinero {
+        texto.parse().expect("importe válido")
+    }
+
+    fn porcentaje(texto: &str) -> Porcentaje {
+        texto.parse().expect("porcentaje válido")
+    }
+
+    /// El margen se mide sobre el PRECIO, no sobre el costo: cobrando
+    /// 171,43 con un costo de 120 se ganan 51,43, que son el 30 % de 171,43.
+    #[test]
+    fn el_precio_sale_de_dividir_entre_lo_que_no_es_margen() {
+        let precio = dinero("120.00")
+            .precio_para_margen(porcentaje("30").diezmilesimas())
+            .expect("precio");
+
+        assert_eq!(precio.formatear(2), "171.43");
+    }
+
+    #[test]
+    fn el_camino_de_ida_y_vuelta_cuadra() {
+        let costo = dinero("680.00");
+        let precio = costo
+            .precio_para_margen(porcentaje("30").diezmilesimas())
+            .expect("precio");
+        assert_eq!(precio.formatear(2), "971.43");
+
+        // Y ese precio, medido al revés, vuelve a dar el 30 %.
+        let ganancia = precio.restar(costo).expect("ganancia");
+        let margen = Porcentaje::de_razon(ganancia, precio).expect("margen");
+        assert_eq!(margen.formatear(1), "30.0");
+    }
+
+    #[test]
+    fn un_margen_de_cero_deja_el_precio_en_el_costo() {
+        let precio = dinero("120.00")
+            .precio_para_margen(porcentaje("0").diezmilesimas())
+            .expect("precio");
+
+        assert_eq!(precio.formatear(2), "120.00");
+    }
+
+    #[test]
+    fn admite_decimales_en_el_margen() {
+        let precio = dinero("41.67")
+            .precio_para_margen(porcentaje("47.9").diezmilesimas())
+            .expect("precio");
+
+        assert_eq!(precio.formatear(2), "79.98");
+    }
+
+    #[test]
+    fn el_cien_por_ciento_es_imposible() {
+        assert_eq!(
+            dinero("120.00")
+                .precio_para_margen(porcentaje("100").diezmilesimas())
+                .expect_err("exigiría un precio infinito"),
+            ErrorDominio::MargenImposible
+        );
+    }
+
+    #[test]
+    fn mas_del_cien_por_ciento_tambien() {
+        assert_eq!(
+            dinero("120.00")
+                .precio_para_margen(porcentaje("150").diezmilesimas())
+                .expect_err("tampoco existe"),
+            ErrorDominio::MargenImposible
+        );
     }
 }

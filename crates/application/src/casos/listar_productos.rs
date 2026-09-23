@@ -1,6 +1,8 @@
 //! Caso de uso: consultar el catálogo.
 
-use domain::{Cantidad, Ubicacion};
+use core::str::FromStr;
+
+use domain::{Cantidad, Dinero, ErrorDominio, Porcentaje, Ubicacion};
 
 use crate::casos::formatear_cantidad;
 use crate::error::Resultado;
@@ -103,6 +105,37 @@ impl ProductoListado {
     }
 }
 
+/// Por qué columna se ordena el catálogo.
+///
+/// Ordenar por margen es comparar dinero, así que se hace aquí y no en la
+/// pantalla: los importes son enteros escalados y su orden es exacto.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum OrdenCatalogo {
+    /// El orden con el que llega de la base de datos: alfabético.
+    #[default]
+    Nombre,
+    /// Lo que cuesta cada unidad base, a costo promedio ponderado.
+    Costo,
+    Margen,
+    Precio,
+    Existencia,
+}
+
+impl FromStr for OrdenCatalogo {
+    type Err = ErrorDominio;
+
+    fn from_str(texto: &str) -> Result<Self, Self::Err> {
+        match texto {
+            "nombre" => Ok(Self::Nombre),
+            "costo" => Ok(Self::Costo),
+            "margen" => Ok(Self::Margen),
+            "precio" => Ok(Self::Precio),
+            "existencia" => Ok(Self::Existencia),
+            _ => Err(ErrorDominio::TextoObligatorio("orden del catálogo")),
+        }
+    }
+}
+
 /// Lista los productos del catálogo.
 #[derive(Debug)]
 pub struct ListarProductos<'a, R: RepositorioProducto> {
@@ -118,4 +151,77 @@ impl<'a, R: RepositorioProducto> ListarProductos<'a, R> {
         let productos = self.repositorio.listar(incluir_inactivos)?;
         Ok(productos.iter().map(ProductoListado::desde).collect())
     }
+
+    /// Lista el catálogo ordenado por la columna pedida.
+    ///
+    /// Lo que no tiene el dato —un producto sin costo no tiene margen—
+    /// queda siempre al final, se ordene como se ordene: colocarlo entre
+    /// los peores o entre los mejores sería inventarse una posición.
+    pub fn ordenado(
+        &self,
+        incluir_inactivos: bool,
+        orden: OrdenCatalogo,
+        descendente: bool,
+    ) -> Resultado<Vec<ProductoListado>> {
+        let mut filas = self.repositorio.listar(incluir_inactivos)?;
+
+        match orden {
+            // El repositorio ya los devuelve por nombre.
+            OrdenCatalogo::Nombre => {
+                if descendente {
+                    filas.reverse();
+                }
+            }
+            OrdenCatalogo::Costo => ordenar_por(&mut filas, descendente, costo_de),
+            OrdenCatalogo::Margen => ordenar_por(&mut filas, descendente, margen_de),
+            OrdenCatalogo::Precio => ordenar_por(&mut filas, descendente, precio_de),
+            OrdenCatalogo::Existencia => ordenar_por(&mut filas, descendente, existencia_de),
+        }
+
+        Ok(filas.iter().map(ProductoListado::desde).collect())
+    }
+}
+
+/// Ordena dejando al final lo que no tiene el dato.
+fn ordenar_por<T: Ord>(
+    filas: &mut [ProductoConInventario],
+    descendente: bool,
+    clave: impl Fn(&ProductoConInventario) -> Option<T>,
+) {
+    filas.sort_by(|a, b| match (clave(a), clave(b)) {
+        (Some(a), Some(b)) => {
+            if descendente {
+                b.cmp(&a)
+            } else {
+                a.cmp(&b)
+            }
+        }
+        (Some(_), None) => core::cmp::Ordering::Less,
+        (None, Some(_)) => core::cmp::Ordering::Greater,
+        (None, None) => core::cmp::Ordering::Equal,
+    });
+}
+
+/// Costo promedio ponderado de la unidad base.
+///
+/// Un producto sin existencia no tiene costo, y por eso devuelve nada en
+/// lugar de cero: cero significaría que la mercancía es gratis.
+fn costo_de(fila: &ProductoConInventario) -> Option<Dinero> {
+    fila.inventario.costo_unitario().ok()
+}
+
+fn margen_de(fila: &ProductoConInventario) -> Option<Porcentaje> {
+    let costo = fila.inventario.costo_unitario().ok()?;
+    let precio = fila.producto.presentacion_predeterminada()?.precio();
+    margen::calcular(costo, precio).ok().map(|m| m.porcentaje)
+}
+
+fn precio_de(fila: &ProductoConInventario) -> Option<Dinero> {
+    fila.producto
+        .presentacion_predeterminada()
+        .map(|p| p.precio())
+}
+
+fn existencia_de(fila: &ProductoConInventario) -> Option<Cantidad> {
+    fila.inventario.existencias().total().ok()
 }

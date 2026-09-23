@@ -1,0 +1,326 @@
+<section class="pagina pagina--ancha">
+  @if (error(); as fallo) {
+    <div
+      class="aviso"
+      [class.aviso--error]="!fallo.delUsuario"
+      [class.aviso--atencion]="fallo.delUsuario"
+      role="alert"
+    >
+      <strong>{{ fallo.mensaje }}</strong>
+      <span class="codigo">{{ fallo.codigo }}</span>
+    </div>
+  }
+
+  @if (ficha(); as producto) {
+    <header class="cabecera-pagina">
+      <a class="volver" routerLink="/productos">← Todos los productos</a>
+      <div class="fila fila--titulo">
+        <h1>{{ producto.nombre }}</h1>
+        <span class="etiqueta etiqueta--acento">{{ producto.sku }}</span>
+        @if (!producto.activo) {
+          <span class="etiqueta">Retirado de la venta</span>
+        }
+      </div>
+      <p class="descripcion">
+        Se vende por {{ producto.unidadNombre }} · Cuesta
+        <strong class="cifra">{{ producto.costo }}</strong> por {{ producto.unidadBase }} · Tienes
+        <strong class="cifra">{{ producto.existenciaTotal }}</strong> {{ producto.unidadBase }}
+      </p>
+    </header>
+
+    <div class="panel panel--lista">
+      <div class="panel__cabecera">
+        <span class="panel__titulo">Datos del producto</span>
+      </div>
+
+      <!-- ------------------------------------------ datos básicos -->
+      <div class="panel__cuerpo">
+        <form class="datos" [formGroup]="formularioProducto" (ngSubmit)="guardarProducto()">
+          <div class="campo campo--ancho">
+            <label for="nombre">Nombre</label>
+            <input id="nombre" formControlName="nombre" autocomplete="off" />
+          </div>
+
+          <div class="campo">
+            <label for="minimo">
+              Avísame si quedan menos de
+              <span class="opcional">en {{ producto.unidadBase }}</span>
+            </label>
+            <input
+              id="minimo"
+              class="control--cifra"
+              formControlName="stockMinimo"
+              inputmode="decimal"
+              placeholder="0"
+            />
+          </div>
+
+          <label class="casilla">
+            <input type="checkbox" formControlName="activo" />
+            <span>A la venta</span>
+          </label>
+
+          <button type="submit" class="boton boton--secundario" [disabled]="ocupado()">
+            Guardar
+          </button>
+        </form>
+
+        @if (!formularioProducto.controls.activo.value) {
+          <span class="pista pista--fuerte">
+            Retirado de la venta. No aparecerá al vender, pero su historial se conserva entero.
+          </span>
+        }
+      </div>
+
+      <!-- ----------------------------------------- presentaciones -->
+      <div class="panel__cabecera panel__cabecera--interna">
+        <span class="panel__titulo">Formas de venderlo</span>
+        <button
+          type="button"
+          class="boton boton--discreto"
+          (click)="mostrarNuevaPresentacion.set(!mostrarNuevaPresentacion())"
+        >
+          {{ mostrarNuevaPresentacion() ? 'Cancelar' : 'Agregar otra' }}
+        </button>
+      </div>
+
+      <div class="tabla-envoltorio">
+        <table class="tabla">
+          <thead>
+            <tr>
+              <th>Presentación</th>
+              <th class="derecha">Lleva</th>
+              <th class="derecha">Cuesta</th>
+              <th class="derecha">Precio</th>
+              <th class="derecha">Margen objetivo</th>
+              <th class="derecha">Ganancia</th>
+              <th class="derecha">Margen</th>
+              <th class="derecha">Por {{ producto.unidadBase }}</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (presentacion of producto.presentaciones; track presentacion.id) {
+              <tr [class.fila--inactiva]="!presentacion.activa">
+                <td>
+                  {{ presentacion.nombre }}
+                  @if (presentacion.esPredeterminada) {
+                    <span class="etiqueta etiqueta--acento">Por defecto</span>
+                  }
+                  @if (!presentacion.activa) {
+                    <span class="etiqueta">Retirada</span>
+                  }
+                </td>
+                <td class="derecha cifra apagado">
+                  {{ presentacion.factor }} {{ producto.unidadBase }}
+                </td>
+                <td class="derecha cifra apagado">{{ presentacion.costo }}</td>
+
+                <td class="derecha">
+                  <input
+                    class="control control--cifra celda-cifra"
+                    inputmode="decimal"
+                    [value]="precioDe(presentacion)"
+                    (input)="alEscribirPrecio(presentacion, $any($event.target).value)"
+                    [attr.aria-label]="'Precio de ' + presentacion.nombre"
+                  />
+                </td>
+
+                <td class="derecha">
+                  <!-- El camino inverso: dices cuánto quieres ganar y el
+                       precio aparece mientras escribes. No se guarda solo:
+                       decidir por el dueño cuánto cobra sería pasarse. -->
+                  <div class="objetivo">
+                    <input
+                      class="control control--cifra celda-margen"
+                      inputmode="decimal"
+                      placeholder="%"
+                      [disabled]="producto.costo === '—'"
+                      [value]="margenDe(presentacion)"
+                      (input)="alEscribirMargen(presentacion, $any($event.target).value)"
+                      [attr.aria-label]="'Margen objetivo de ' + presentacion.nombre"
+                    />
+
+                    @if (sugeridoDe(presentacion); as sugerido) {
+                      <div class="sugerido">
+                        <span class="apagado">Cobrarías</span>
+                        <strong class="cifra">{{ sugerido }}</strong>
+                        @if (sugerido !== precioDe(presentacion)) {
+                          <button
+                            type="button"
+                            class="boton boton--discreto"
+                            (click)="usarSugerido(presentacion)"
+                          >
+                            Usar
+                          </button>
+                        }
+                      </div>
+                    } @else if (producto.costo === '—') {
+                      <span class="apagado nota">Sin costo no hay margen</span>
+                    }
+                  </div>
+                </td>
+
+                <td class="derecha cifra" [class.cifra--negativa]="presentacion.enRiesgo">
+                  {{ presentacion.ganancia }}
+                </td>
+                <td
+                  class="derecha cifra"
+                  [class.cifra--negativa]="presentacion.enRiesgo"
+                  [class.cifra--positiva]="!presentacion.enRiesgo && presentacion.margen !== '—'"
+                >
+                  {{ presentacion.margen }}
+                </td>
+                <td class="derecha cifra apagado">
+                  {{ presentacion.precioPorUnidadBase }}
+                  @if (presentacion.precioAnomalo) {
+                    <span class="etiqueta etiqueta--atencion" title="Sale más cara por unidad que una presentación menor">
+                      Anómalo
+                    </span>
+                  }
+                </td>
+
+                <td class="derecha acciones">
+                  <button
+                    type="button"
+                    class="boton"
+                    [disabled]="ocupado() || precioDe(presentacion) === presentacion.precio"
+                    (click)="guardarPrecio(presentacion)"
+                  >
+                    Cambiar precio
+                  </button>
+                  @if (presentacion.activa && !presentacion.esPredeterminada) {
+                    <button
+                      type="button"
+                      class="boton boton--discreto"
+                      [disabled]="ocupado()"
+                      (click)="marcarPredeterminada(presentacion)"
+                    >
+                      Por defecto
+                    </button>
+                    <button
+                      type="button"
+                      class="boton boton--discreto"
+                      [disabled]="ocupado()"
+                      (click)="retirar(presentacion)"
+                    >
+                      Retirar
+                    </button>
+                  }
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+
+      @if (mostrarNuevaPresentacion()) {
+        <div class="panel__cuerpo">
+          <form
+            class="nueva-presentacion"
+            [formGroup]="formularioPresentacion"
+            (ngSubmit)="agregarPresentacion()"
+          >
+            <div class="campo">
+              <label for="p-nombre">Cómo se llama</label>
+              <input id="p-nombre" formControlName="nombre" placeholder="Six-pack" autocomplete="off" />
+            </div>
+
+            <div class="campo">
+              <label for="p-factor">
+                Cuántas lleva <span class="opcional">en {{ producto.unidadBase }}</span>
+              </label>
+              <input
+                id="p-factor"
+                class="control--cifra"
+                formControlName="factor"
+                inputmode="decimal"
+                placeholder="6"
+              />
+            </div>
+
+            <div class="campo">
+              <label for="p-precio">Precio del paquete</label>
+              <input
+                id="p-precio"
+                class="control--cifra"
+                formControlName="precio"
+                inputmode="decimal"
+                placeholder="300.00"
+              />
+            </div>
+
+            <div class="campo">
+              <label for="p-codigo">Código de barras <span class="opcional">opcional</span></label>
+              <input id="p-codigo" formControlName="codigoBarras" autocomplete="off" />
+            </div>
+
+            <button type="submit" class="boton" [disabled]="ocupado()">Agregar</button>
+          </form>
+
+          <span class="pista">
+            El precio del paquete es independiente: no se calcula multiplicando el de la unidad.
+            Así puedes hacer que salga más barato por {{ producto.unidadBase }} y que se note.
+          </span>
+        </div>
+      }
+
+      <!-- --------------------------------------------- historial -->
+      <div class="panel__cabecera panel__cabecera--interna">
+        <span class="panel__titulo">Historial de precios</span>
+        <button type="button" class="boton boton--discreto" (click)="alternarHistorial()">
+          {{ mostrarHistorial() ? 'Ocultar' : 'Ver' }}
+        </button>
+      </div>
+
+      @if (mostrarHistorial()) {
+        <div class="tabla-envoltorio">
+          <table class="tabla">
+            <thead>
+              <tr>
+                <th>Cuándo</th>
+                <th>Presentación</th>
+                <th class="derecha">Antes</th>
+                <th class="derecha">Después</th>
+                <th>Qué pasó</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (cambio of historial(); track cambio.id) {
+                <tr>
+                  <td class="mono">{{ cambio.cambiadoEn }}</td>
+                  <td>{{ cambio.presentacion }}</td>
+                  <td class="derecha cifra apagado">{{ cambio.anterior }}</td>
+                  <td class="derecha cifra">{{ cambio.nuevo }}</td>
+                  <td>
+                    @if (cambio.subio) {
+                      <span class="etiqueta etiqueta--acento">Subió</span>
+                    } @else {
+                      <span class="etiqueta etiqueta--atencion">Bajó</span>
+                    }
+                  </td>
+                </tr>
+              } @empty {
+                <tr>
+                  <td colspan="5">
+                    <div class="vacio">
+                      <span class="vacio__titulo">Sin cambios de precio</span>
+                      <span class="vacio__texto">
+                        En cuanto cambies un precio, quedará anotado aquí con el valor anterior.
+                      </span>
+                    </div>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+    </div>
+  } @else if (!cargando()) {
+    <div class="vacio">
+      <span class="vacio__titulo">Ese producto no existe</span>
+      <a class="boton" routerLink="/productos">Volver al catálogo</a>
+    </div>
+  }
+</section>
