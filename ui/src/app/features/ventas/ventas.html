@@ -1,0 +1,186 @@
+<section class="ventas">
+  @if (error(); as fallo) {
+    <div
+      class="aviso"
+      [class.aviso--error]="!fallo.delUsuario"
+      [class.aviso--atencion]="fallo.delUsuario"
+      role="alert"
+    >
+      <strong>{{ fallo.mensaje }}</strong>
+      <span class="codigo">{{ fallo.codigo }}</span>
+    </div>
+  }
+
+  <!-- ------------------------------------------------- cómo va el día -->
+  @if (historial()?.hoy; as hoy) {
+    <div class="dia">
+      <div class="tarjeta tarjeta--conteo">
+        <span class="tarjeta__titulo">Ventas de hoy</span>
+        <span class="cifra cifra--grande">{{ hoy.cuantas }}</span>
+        <span class="tarjeta__pie">Cuántas veces se cobró desde que abriste</span>
+      </div>
+      <div class="tarjeta tarjeta--cobrado">
+        <span class="tarjeta__titulo">Cobrado hoy</span>
+        <span class="cifra cifra--grande">{{ hoy.total }}</span>
+        <span class="tarjeta__pie">Todo lo que entró, antes de descontar costos</span>
+      </div>
+      <div class="tarjeta tarjeta--ganancia" [class.tarjeta--perdida]="conPerdida(hoy.ganancia)">
+        <span class="tarjeta__titulo">Ganancia de hoy</span>
+        <span class="cifra cifra--grande">{{ hoy.ganancia }}</span>
+        <span class="tarjeta__pie">Ya descontado lo que costó la mercancía</span>
+      </div>
+    </div>
+  }
+
+  <div class="columnas">
+    <!-- ------------------------------------------------- la lista -->
+    <div class="panel panel--lista">
+      <div class="panel__cabecera">
+        <span class="panel__titulo">Últimas ventas</span>
+        <button type="button" class="boton boton--discreto" (click)="recargar()" [disabled]="cargando()">
+          {{ cargando() ? 'Cargando…' : 'Actualizar' }}
+        </button>
+      </div>
+
+      <div class="tabla-envoltorio">
+        <table class="tabla">
+          <thead>
+            <tr>
+              <th>Folio</th>
+              <th>Cuándo</th>
+              <th class="derecha">Total</th>
+              <th class="derecha">Ganancia</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (venta of historial()?.ventas ?? []; track venta.id) {
+              <tr
+                class="fila--pulsable"
+                [class.fila--abierta]="detalle()?.id === venta.id"
+                (click)="abrir(venta)"
+                tabindex="0"
+                (keydown.enter)="abrir(venta)"
+              >
+                <td class="mono">#{{ venta.folio }}</td>
+                <td>
+                  <span class="hora">{{ venta.hora }}</span>
+                  <span class="apagado nota">{{ venta.fecha }}</span>
+                </td>
+                <td class="derecha cifra">{{ venta.total }}</td>
+                <td class="derecha cifra" [class.negativo]="conPerdida(venta.ganancia)">
+                  {{ venta.ganancia }}
+                </td>
+              </tr>
+            } @empty {
+              <tr>
+                <td colspan="4">
+                  <div class="vacio">
+                    <span class="vacio__titulo">Todavía no has vendido nada</span>
+                    <span class="vacio__texto">
+                      Cobra en Vender <kbd class="tecla">F1</kbd> y las ventas aparecerán aquí.
+                    </span>
+                  </div>
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ------------------------------------------------ el detalle -->
+    <aside class="panel panel--detalle">
+      @if (detalle(); as venta) {
+        <div class="panel__cabecera">
+          <span class="panel__titulo">Venta #{{ venta.folio }}</span>
+          <span class="apagado nota">{{ venta.fecha }} · {{ venta.hora }}</span>
+        </div>
+
+        <div class="panel__cuerpo pila">
+          <div class="tabla-envoltorio">
+            <table class="tabla">
+              <thead>
+                <tr>
+                  <th>Producto</th>
+                  <th class="derecha">Cant.</th>
+                  <th class="derecha">Precio</th>
+                  <th class="derecha">Importe</th>
+                  <th class="derecha">Ganancia</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (linea of venta.lineas; track $index) {
+                  <tr>
+                    <td>
+                      {{ linea.nombreProducto }}
+                      <span class="apagado nota">{{ linea.nombrePresentacion }}</span>
+                    </td>
+                    <td class="derecha cifra">{{ linea.cantidad }}</td>
+                    <td class="derecha cifra apagado">{{ linea.precio }}</td>
+                    <td class="derecha cifra">{{ linea.importe }}</td>
+                    <td class="derecha cifra" [class.negativo]="conPerdida(linea.ganancia)">
+                      {{ linea.ganancia }}
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Las cuentas de la venta, con el costo a la vista: el total
+               solo no dice si el negocio ganó algo. -->
+          <div class="cuentas">
+            <div class="cuentas__fila">
+              <span class="apagado">Total cobrado</span>
+              <strong class="cifra">{{ venta.total }}</strong>
+            </div>
+            <div class="cuentas__fila">
+              <span class="apagado">Costo de la mercancía</span>
+              <span class="cifra apagado">{{ venta.costoTotal }}</span>
+            </div>
+            <div class="cuentas__fila cuentas__fila--ganancia" [class.negativo]="conPerdida(venta.ganancia)">
+              <span>Ganancia</span>
+              <strong class="cifra">{{ venta.ganancia }}</strong>
+            </div>
+          </div>
+
+          <!-- ------------------------------------------ cómo se pagó -->
+          <div class="pagos">
+            <span class="subtitulo">Cómo se pagó</span>
+            @for (pago of venta.pagos; track $index) {
+              <div class="pago">
+                <span class="etiqueta">{{ pago.metodoNombre }}</span>
+                <span class="cifra">{{ pago.entregado }} {{ pago.moneda }}</span>
+                @if (pago.tasa) {
+                  <span class="apagado nota">
+                    a {{ pago.tasa }} → {{ pago.equivalente }}
+                  </span>
+                }
+              </div>
+            }
+
+            <div class="cuentas__fila">
+              <span class="apagado">Entregó en total</span>
+              <span class="cifra">{{ venta.entregado }}</span>
+            </div>
+            <div class="cuentas__fila cuentas__fila--vuelto">
+              <span>Vuelto</span>
+              <strong class="cifra">{{ venta.vuelto }}</strong>
+            </div>
+          </div>
+        </div>
+      } @else {
+        <div class="vacio">
+          @if (cargandoDetalle()) {
+            <span class="vacio__titulo">Abriendo la venta…</span>
+          } @else {
+            <span class="vacio__titulo">Elige una venta</span>
+            <span class="vacio__texto">
+              Pulsa cualquier fila de la izquierda para ver qué se llevó el cliente y cómo pagó.
+            </span>
+          }
+        </div>
+      }
+    </aside>
+  </div>
+</section>
