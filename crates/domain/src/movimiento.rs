@@ -200,6 +200,37 @@ impl Movimiento {
         })
     }
 
+    /// Reingreso de mercancía por una venta anulada (RF-VTA-15).
+    ///
+    /// Es el espejo exacto de [`Self::venta`]: la mercancía vuelve a la
+    /// vitrina de donde salió, y vuelve **al costo con que se vendió**, no
+    /// al de hoy. Reingresarla a otro costo movería el valor del inventario
+    /// por una operación que solo deshace, y el promedio ponderado dejaría
+    /// de cuadrar con lo que realmente se compró.
+    ///
+    /// El motivo se exige en la firma, como en la merma: una anulación sin
+    /// explicación es indistinguible de un descuadre.
+    pub fn devolucion(
+        cantidad: Cantidad,
+        costo_unitario: Dinero,
+        destino: Ubicacion,
+        motivo: impl Into<String>,
+    ) -> Result<Self, ErrorDominio> {
+        let motivo = motivo.into();
+        if motivo.trim().is_empty() {
+            return Err(ErrorDominio::MotivoObligatorio);
+        }
+
+        Ok(Self {
+            tipo: TipoMovimiento::Devolucion,
+            origen: None,
+            destino: Some(destino),
+            cantidad: cantidad_positiva(cantidad)?,
+            costo_unitario: costo_no_negativo(costo_unitario)?,
+            motivo: Some(motivo),
+        })
+    }
+
     /// Reconstruye un movimiento tal como está guardado.
     pub const fn reconstituir(
         tipo: TipoMovimiento,
