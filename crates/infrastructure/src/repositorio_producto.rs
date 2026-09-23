@@ -7,12 +7,14 @@ use std::sync::Arc;
 
 use application::error::Resultado;
 use application::puertos::{
-    Asiento, MovimientoRegistrado, ProductoConInventario, RepositorioProducto,
+    Asiento, CambioDePrecio, CambioRegistrado, MovimientoRegistrado, ProductoConInventario,
+    RepositorioProducto,
 };
 use domain::{
     Cantidad, Dinero, Existencias, IdPresentacion, IdProducto, Inventario, Movimiento,
     Presentacion, Producto, TipoMovimiento, Ubicacion, UnidadBase,
 };
+
 use rusqlite::{params, Connection, Transaction};
 
 use crate::conexion::BaseDatos;
@@ -177,15 +179,19 @@ impl RepositorioProducto for RepositorioProductoSqlite {
         Ok(producto)
     }
 
-    fn actualizar_producto(&self, producto: &Producto) -> Resultado<()> {
+    fn actualizar_producto(
+        &self,
+        producto: &Producto,
+        cambios: &[CambioDePrecio],
+    ) -> Resultado<()> {
         let id = producto.id().ok_or_else(|| {
             ErrorInfra::DatoCorrupto("se intentó actualizar un producto sin id".to_owned())
         })?;
 
-        self.base.con(|conexion| {
+        self.base.en_transaccion(|tx| {
             // Solo lo editable. La existencia y el valor no se tocan aquí:
             // eso únicamente cambia con un movimiento.
-            conexion.execute(
+            tx.execute(
                 "UPDATE producto
                     SET nombre = ?2, stock_minimo = ?3, objetivo_vitrina = ?4, activo = ?5
                   WHERE id = ?1",
@@ -197,10 +203,96 @@ impl RepositorioProducto for RepositorioProductoSqlite {
                     i64::from(producto.esta_activo()),
                 ],
             )?;
+
+            for presentacion in producto.presentaciones() {
+                match presentacion.id() {
+                    Some(presentacion_id) => {
+                        tx.execute(
+                            "UPDATE presentacion
+                                SET nombre = ?2, factor = ?3, precio = ?4,
+                                    es_predeterminada = ?5, codigo_barras = ?6, activa = ?7
+                              WHERE id = ?1",
+                            params![
+                                presentacion_id.0,
+                                presentacion.nombre(),
+                                presentacion.factor().milesimas(),
+                                presentacion.precio().millonesimas(),
+                                i64::from(presentacion.es_predeterminada()),
+                                presentacion.codigo_barras(),
+                                i64::from(presentacion.esta_activa()),
+                            ],
+                        )?;
+                    }
+                    // Sin identificador: es una presentación recién añadida.
+                    None => {
+                        tx.execute(
+                            "INSERT INTO presentacion
+                               (producto_id, nombre, factor, precio,
+                                es_predeterminada, codigo_barras, activa)
+                             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                            params![
+                                id.0,
+                                presentacion.nombre(),
+                                presentacion.factor().milesimas(),
+                                presentacion.precio().millonesimas(),
+                                i64::from(presentacion.es_predeterminada()),
+                                presentacion.codigo_barras(),
+                                i64::from(presentacion.esta_activa()),
+                            ],
+                        )?;
+                    }
+                }
+            }
+
+            // El historial se escribe en la misma transacción: un precio
+            // cambiado sin su anotación es un precio que nadie puede
+            // explicar (RF-PRE-04).
+            for cambio in cambios {
+                tx.execute(
+                    "INSERT INTO historial_precio
+                       (producto_id, presentacion_id, anterior, nuevo, cambiado_en)
+                     VALUES (?1, ?2, ?3, ?4, datetime('now'))",
+                    params![
+                        id.0,
+                        cambio.presentacion.0,
+                        cambio.anterior.millonesimas(),
+                        cambio.nuevo.millonesimas(),
+                    ],
+                )?;
+            }
+
             Ok(())
         })?;
 
         Ok(())
+    }
+
+    fn historial_precios(&self, id: IdProducto) -> Resultado<Vec<CambioRegistrado>> {
+        let historial = self.base.con(|conexion| {
+            let mut consulta = conexion.prepare(
+                "SELECT id, presentacion_id, anterior, nuevo, cambiado_en
+                   FROM historial_precio
+                  WHERE producto_id = ?1
+                  ORDER BY id DESC",
+            )?;
+
+            let mut filas = consulta.query(params![id.0])?;
+            let mut historial = Vec::new();
+
+            while let Some(fila) = filas.next()? {
+                historial.push(CambioRegistrado {
+                    id: fila.get(0)?,
+                    presentacion: IdPresentacion(fila.get(1)?),
+                    anterior: Dinero::desde_millonesimas(fila.get(2)?),
+                    nuevo: Dinero::desde_millonesimas(fila.get(3)?),
+                    cambiado_en: fila.get(4)?,
+                });
+            }
+
+            Ok(historial)
+        })?;
+
+        Ok(historial)
     }
 
     fn listar(&self, incluir_inactivos: bool) -> Resultado<Vec<ProductoConInventario>> {
