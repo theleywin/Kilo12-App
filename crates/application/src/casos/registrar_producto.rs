@@ -1,9 +1,11 @@
 //! Caso de uso: dar de alta un producto en el catálogo.
 
-use domain::{Cantidad, Dinero, IdProducto, Inventario, Producto, Ubicacion, UnidadBase};
+use domain::{
+    Cantidad, Dinero, IdProducto, Inventario, Movimiento, Producto, Ubicacion, UnidadBase,
+};
 
 use crate::error::{ErrorAplicacion, Resultado};
-use crate::puertos::RepositorioProducto;
+use crate::puertos::{Asiento, RepositorioProducto};
 use crate::sku;
 
 /// Cuántos desempates se prueban antes de rendirse con un SKU derivado.
@@ -74,9 +76,9 @@ impl<'a, R: RepositorioProducto> RegistrarProducto<'a, R> {
             producto = producto.con_objetivo_vitrina(objetivo)?;
         }
 
-        let inventario = apertura(&producto, &comando)?;
+        let (inventario, asientos) = apertura(&producto, &comando)?;
 
-        self.repositorio.crear(&producto, &inventario)
+        self.repositorio.crear(&producto, &inventario, &asientos)
     }
 
     /// Acepta el SKU que escribió el usuario, si está libre.
@@ -123,7 +125,10 @@ impl<'a, R: RepositorioProducto> RegistrarProducto<'a, R> {
 /// el modelo, dos cosas distintas: la segunda es una ENTRADA con su costo,
 /// que es lo que fija el costo promedio ponderado (RF-COM-03, RF-COS-04).
 /// En la pantalla son un solo formulario, y así debe ser.
-fn apertura(producto: &Producto, comando: &ComandoRegistrarProducto) -> Resultado<Inventario> {
+fn apertura(
+    producto: &Producto,
+    comando: &ComandoRegistrarProducto,
+) -> Resultado<(Inventario, Vec<Asiento>)> {
     let almacen = cantidad_opcional(comando.cantidad_almacen.as_deref())?.unwrap_or(Cantidad::CERO);
     let vitrina = cantidad_opcional(comando.cantidad_vitrina.as_deref())?.unwrap_or(Cantidad::CERO);
     let costo = importe_opcional(comando.costo_unitario.as_deref())?;
@@ -132,7 +137,7 @@ fn apertura(producto: &Producto, comando: &ComandoRegistrarProducto) -> Resultad
     let costo = match (hay_mercancia, costo) {
         // Producto de catálogo, todavía sin comprar. Es válido: la
         // mercancía entrará después desde Almacén.
-        (false, None) => return Ok(Inventario::VACIO),
+        (false, None) => return Ok((Inventario::VACIO, Vec::new())),
         // El costo no se puede guardar solo: se deriva del valor invertido
         // entre la existencia. Sin existencia, no hay dónde ponerlo.
         (false, Some(_)) => return Err(ErrorAplicacion::CantidadInicialRequerida),
@@ -143,6 +148,7 @@ fn apertura(producto: &Producto, comando: &ComandoRegistrarProducto) -> Resultad
     };
 
     let mut inventario = Inventario::VACIO;
+    let mut asientos = Vec::new();
 
     for (cantidad, ubicacion) in [(almacen, Ubicacion::Bodega), (vitrina, Ubicacion::Vitrina)] {
         if !cantidad.es_positiva() {
@@ -157,9 +163,16 @@ fn apertura(producto: &Producto, comando: &ComandoRegistrarProducto) -> Resultad
         // que evita el redondeo intermedio que RF-COS-13 prohíbe.
         let importe = costo.multiplicar_por(cantidad)?;
         inventario = inventario.registrar_entrada(cantidad, importe, ubicacion)?;
+
+        // El saldo se toma DESPUÉS de aplicar la entrada: el kárdex tiene
+        // que poder leerse como una sucesión de fotos, no como un total.
+        asientos.push(Asiento {
+            movimiento: Movimiento::entrada(cantidad, costo, ubicacion)?,
+            resultante: inventario.existencias(),
+        });
     }
 
-    Ok(inventario)
+    Ok((inventario, asientos))
 }
 
 /// Interpreta una cantidad opcional, tratando el texto vacío como ausencia.
