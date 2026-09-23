@@ -1,9 +1,15 @@
 import { Routes } from '@angular/router';
 
-import { Productos } from './features/productos/productos';
+import { Almacen } from './features/almacen/almacen';
+import { Entrada } from './features/entrada/entrada';
+import { Vitrina } from './features/vitrina/vitrina';
 import { Guia } from './features/guia/guia';
 import { Pendiente } from './features/pendiente/pendiente';
+import { Productos } from './features/productos/productos';
 import { GUIA, SECCIONES } from './layout/navegacion';
+
+/** Secciones que ya tienen pantalla propia. */
+const CONSTRUIDAS = ['productos', 'almacen', 'vitrina', 'entrada'];
 
 /**
  * Las rutas salen de la tabla de secciones, no de una lista paralela.
@@ -15,13 +21,14 @@ import { GUIA, SECCIONES } from './layout/navegacion';
 export const routes: Routes = [
   { path: '', pathMatch: 'full', redirectTo: SECCIONES[0].ruta },
 
-  // Productos ya tiene pantalla: es el recorrido que funciona de punta a
-  // punta contra la base de datos.
   { path: 'productos', component: Productos, title: 'Productos · Kilo12' },
+  { path: 'entrada', component: Entrada, title: 'Entrada · Kilo12' },
+  { path: 'almacen', component: Almacen, title: 'Almacén · Kilo12' },
+  { path: 'vitrina', component: Vitrina, title: 'Vitrina · Kilo12' },
 
   { path: GUIA.ruta, component: Guia, title: `${GUIA.titulo} · Kilo12` },
 
-  ...SECCIONES.filter((seccion) => seccion.ruta !== 'productos').map((seccion) => ({
+  ...SECCIONES.filter((seccion) => !CONSTRUIDAS.includes(seccion.ruta)).map((seccion) => ({
     path: seccion.ruta,
     component: Pendiente,
     title: `${seccion.titulo} · Kilo12`,
