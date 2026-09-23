@@ -123,6 +123,60 @@ const MIGRACIONES: &[&str] = &[
     CREATE INDEX idx_historial_precio_producto
         ON historial_precio(producto_id, id);
     "#,
+    // 5 — La venta (RF-VTA).
+    //
+    // Cada línea guarda COPIA del nombre, el factor, el precio y el costo
+    // del momento (RF-VTA-13). No son referencias: si mañana sube el costo
+    // o se renombra el producto, la venta de hoy debe seguir contando lo
+    // que pasó hoy.
+    //
+    // Los pagos van en su propia tabla porque un cobro puede ser mixto:
+    // algo en efectivo, algo por transferencia y algo en dólares.
+    r#"
+    CREATE TABLE venta (
+        id          INTEGER PRIMARY KEY,
+        -- Consecutivo e irrepetible (RF-VTA-17).
+        folio       INTEGER NOT NULL UNIQUE,
+        total       INTEGER NOT NULL CHECK (total >= 0),
+        costo_total INTEGER NOT NULL CHECK (costo_total >= 0),
+        -- Siempre en pesos, aunque se haya pagado en dólares (R-11).
+        vuelto      INTEGER NOT NULL CHECK (vuelto >= 0),
+        ocurrido_en TEXT    NOT NULL
+    );
+
+    CREATE TABLE venta_linea (
+        id                  INTEGER PRIMARY KEY,
+        venta_id            INTEGER NOT NULL REFERENCES venta(id),
+        producto_id         INTEGER NOT NULL REFERENCES producto(id),
+        presentacion_id     INTEGER NOT NULL REFERENCES presentacion(id),
+        nombre_producto     TEXT    NOT NULL,
+        nombre_presentacion TEXT    NOT NULL,
+        cantidad            INTEGER NOT NULL CHECK (cantidad > 0),
+        factor              INTEGER NOT NULL CHECK (factor > 0),
+        precio              INTEGER NOT NULL CHECK (precio >= 0),
+        costo_unitario      INTEGER NOT NULL CHECK (costo_unitario >= 0)
+    );
+
+    CREATE TABLE venta_pago (
+        id              INTEGER PRIMARY KEY,
+        venta_id        INTEGER NOT NULL REFERENCES venta(id),
+        metodo          TEXT    NOT NULL CHECK (metodo IN
+                                ('EFECTIVO_CUP','TRANSFERENCIA','EFECTIVO_USD')),
+        entregado       INTEGER NOT NULL CHECK (entregado >= 0),
+        -- Tasa aplicada, congelada. Solo en los pagos en dólares.
+        tasa            INTEGER,
+        equivalente_cup INTEGER NOT NULL CHECK (equivalente_cup >= 0)
+    );
+
+    -- Ajustes del negocio que el dueño puede cambiar, como la tasa vigente.
+    CREATE TABLE configuracion (
+        clave TEXT PRIMARY KEY,
+        valor TEXT NOT NULL
+    );
+
+    CREATE INDEX idx_venta_linea_venta ON venta_linea(venta_id);
+    CREATE INDEX idx_venta_pago_venta  ON venta_pago(venta_id);
+    "#,
 ];
 
 /// Lleva el esquema a la última versión.

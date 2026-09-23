@@ -243,3 +243,163 @@ impl Pago {
         self.equivalente_cup.restar(total_venta)
     }
 }
+
+/// Todo lo que el cliente entrega para pagar una venta.
+///
+/// Un cobro puede ser **mixto**: quinientos en efectivo, mil por
+/// transferencia y diez dólares. Cada parte conserva su método y su tasa;
+/// lo único común es que todas se miden en pesos para compararlas con el
+/// total (R-11).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Cobro {
+    pagos: Vec<Pago>,
+}
+
+impl Cobro {
+    pub const fn nuevo() -> Self {
+        Self { pagos: Vec::new() }
+    }
+
+    pub fn con_pagos(pagos: Vec<Pago>) -> Result<Self, ErrorDominio> {
+        if pagos.is_empty() {
+            return Err(ErrorDominio::CobroSinPagos);
+        }
+        Ok(Self { pagos })
+    }
+
+    pub fn agregar(&mut self, pago: Pago) {
+        self.pagos.push(pago);
+    }
+
+    pub fn pagos(&self) -> &[Pago] {
+        &self.pagos
+    }
+
+    /// Suma de todo lo entregado, medido en pesos.
+    pub fn entregado_en_cup(&self) -> Result<Dinero, ErrorDominio> {
+        self.pagos.iter().try_fold(Dinero::CERO, |suma, pago| {
+            suma.sumar(pago.equivalente_cup())
+        })
+    }
+
+    /// Lo entregado con métodos de los que se puede sacar cambio.
+    ///
+    /// De una transferencia no se devuelve nada: el dinero ya está en la
+    /// cuenta y la gaveta no lo tiene.
+    fn entregado_devolvible(&self) -> Result<Dinero, ErrorDominio> {
+        self.pagos
+            .iter()
+            .filter(|pago| pago.metodo().admite_cambio())
+            .try_fold(Dinero::CERO, |suma, pago| {
+                suma.sumar(pago.equivalente_cup())
+            })
+    }
+
+    /// Vuelto que corresponde devolver, **siempre en pesos** (R-11).
+    ///
+    /// Se limita a lo que se pagó en efectivo: si alguien transfiere de más,
+    /// ese excedente no se puede devolver en billetes que no entraron.
+    pub fn vuelto(&self, total_venta: Dinero) -> Result<Dinero, ErrorDominio> {
+        let entregado = self.entregado_en_cup()?;
+
+        if entregado < total_venta {
+            return Err(ErrorDominio::PagoInsuficiente {
+                entregado: entregado.millonesimas(),
+                total: total_venta.millonesimas(),
+            });
+        }
+
+        let excedente = entregado.restar(total_venta)?;
+        let devolvible = self.entregado_devolvible()?;
+
+        Ok(if excedente > devolvible {
+            devolvible
+        } else {
+            excedente
+        })
+    }
+}
+
+#[cfg(test)]
+mod pruebas_cobro {
+    use super::*;
+
+    fn dinero(texto: &str) -> Dinero {
+        texto.parse().expect("importe válido")
+    }
+
+    fn tasa() -> TasaCambio {
+        TasaCambio::nueva(dinero("420.00")).expect("tasa válida")
+    }
+
+    #[test]
+    fn un_cobro_mixto_suma_todo_en_pesos() {
+        let mut cobro = Cobro::nuevo();
+        cobro.agregar(Pago::en_cup(MetodoPago::EfectivoCup, dinero("500.00")).unwrap());
+        cobro.agregar(Pago::en_cup(MetodoPago::Transferencia, dinero("1000.00")).unwrap());
+        cobro.agregar(Pago::en_usd(dinero("10.00"), tasa()).unwrap());
+
+        // 500 + 1000 + (10 × 420) = 5 700
+        assert_eq!(cobro.entregado_en_cup().unwrap().formatear(2), "5700.00");
+    }
+
+    #[test]
+    fn el_vuelto_sale_en_pesos_aunque_se_pague_en_dolares() {
+        let cobro = Cobro::con_pagos(vec![Pago::en_usd(dinero("10.00"), tasa()).unwrap()]).unwrap();
+
+        // Entregó 4 200 en pesos por una venta de 4 000.
+        assert_eq!(
+            cobro.vuelto(dinero("4000.00")).unwrap().formatear(2),
+            "200.00"
+        );
+    }
+
+    #[test]
+    fn de_una_transferencia_no_sale_cambio() {
+        let cobro = Cobro::con_pagos(vec![Pago::en_cup(
+            MetodoPago::Transferencia,
+            dinero("1000.00"),
+        )
+        .unwrap()])
+        .unwrap();
+
+        // Transfirió 1 000 por una venta de 900: el excedente no se devuelve
+        // en billetes que nunca entraron en la gaveta.
+        assert_eq!(cobro.vuelto(dinero("900.00")).unwrap().formatear(2), "0.00");
+    }
+
+    #[test]
+    fn el_cambio_se_limita_al_efectivo_recibido() {
+        let mut cobro = Cobro::nuevo();
+        cobro.agregar(Pago::en_cup(MetodoPago::Transferencia, dinero("1000.00")).unwrap());
+        cobro.agregar(Pago::en_cup(MetodoPago::EfectivoCup, dinero("100.00")).unwrap());
+
+        // Entregó 1 100 por una venta de 900: sobran 200, pero solo entraron
+        // 100 en efectivo, así que solo eso se puede devolver.
+        assert_eq!(
+            cobro.vuelto(dinero("900.00")).unwrap().formatear(2),
+            "100.00"
+        );
+    }
+
+    #[test]
+    fn no_se_confirma_una_venta_que_no_se_cubre() {
+        let cobro = Cobro::con_pagos(vec![
+            Pago::en_cup(MetodoPago::EfectivoCup, dinero("50.00")).unwrap()
+        ])
+        .unwrap();
+
+        assert!(matches!(
+            cobro.vuelto(dinero("900.00")),
+            Err(ErrorDominio::PagoInsuficiente { .. })
+        ));
+    }
+
+    #[test]
+    fn un_cobro_sin_pagos_no_es_un_cobro() {
+        assert_eq!(
+            Cobro::con_pagos(Vec::new()).expect_err("nadie pagó nada"),
+            ErrorDominio::CobroSinPagos
+        );
+    }
+}
