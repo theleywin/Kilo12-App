@@ -22,7 +22,6 @@ pub struct Producto {
     sku: String,
     nombre: String,
     unidad_base: UnidadBase,
-    es_granel: bool,
     stock_minimo: Cantidad,
     /// Cantidad que se quiere mantener exhibida en vitrina (RF-VIT-03).
     objetivo_vitrina: Cantidad,
@@ -58,7 +57,6 @@ impl Producto {
             sku,
             nombre,
             unidad_base,
-            es_granel: false,
             stock_minimo: Cantidad::CERO,
             objetivo_vitrina: Cantidad::CERO,
             presentaciones: vec![unitaria],
@@ -66,20 +64,37 @@ impl Producto {
         })
     }
 
+    /// Reconstruye un producto tal como está guardado.
+    ///
+    /// No valida ni crea presentación unitaria: recibe exactamente lo que hay
+    /// en la base de datos. Aplicar aquí las reglas de creación impediría
+    /// leer productos escritos por una versión anterior.
+    #[allow(clippy::too_many_arguments)]
+    pub fn reconstituir(
+        id: IdProducto,
+        sku: String,
+        nombre: String,
+        unidad_base: UnidadBase,
+        stock_minimo: Cantidad,
+        objetivo_vitrina: Cantidad,
+        presentaciones: Vec<Presentacion>,
+        activo: bool,
+    ) -> Self {
+        Self {
+            id: Some(id),
+            sku,
+            nombre,
+            unidad_base,
+            stock_minimo,
+            objetivo_vitrina,
+            presentaciones,
+            activo,
+        }
+    }
+
     pub fn con_id(mut self, id: IdProducto) -> Self {
         self.id = Some(id);
         self
-    }
-
-    /// Marca el producto como vendible a granel (RF-CAT-03).
-    ///
-    /// Solo tiene sentido en unidades divisibles: no se vende media lata.
-    pub fn como_granel(mut self) -> Result<Self, ErrorDominio> {
-        if !self.unidad_base.admite_fracciones() {
-            return Err(ErrorDominio::GranelNoAplicable);
-        }
-        self.es_granel = true;
-        Ok(self)
     }
 
     pub fn con_stock_minimo(mut self, minimo: Cantidad) -> Result<Self, ErrorDominio> {
@@ -114,8 +129,15 @@ impl Producto {
         self.unidad_base
     }
 
+    /// Indica si el producto se puede vender en fracciones.
+    ///
+    /// No es un dato aparte: se deduce de la unidad. Lo que se cuenta por
+    /// unidades se vende entero y lo que se pesa o se mide se puede
+    /// fraccionar (RF-CAT-03). Guardarlo como campo independiente permitía
+    /// estados que no existen en el mostrador, como «se cuenta en libras
+    /// pero no se puede vender media libra».
     pub const fn es_granel(&self) -> bool {
-        self.es_granel
+        self.unidad_base.admite_fracciones()
     }
 
     pub const fn stock_minimo(&self) -> Cantidad {
@@ -187,7 +209,7 @@ impl Producto {
             return Err(ErrorDominio::CantidadNoPositiva);
         }
 
-        if !self.es_granel && !cantidad.es_entera() {
+        if !self.es_granel() && !cantidad.es_entera() {
             return Err(ErrorDominio::CantidadFraccionariaNoPermitida);
         }
 

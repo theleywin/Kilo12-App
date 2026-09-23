@@ -38,8 +38,6 @@ pub enum ErrorDominio {
     /// El factor de conversión de una presentación debe ser mayor que cero
     /// (RF-PRS-14).
     FactorInvalido,
-    /// Se intentó marcar como granel un producto cuya unidad no se fracciona.
-    GranelNoAplicable,
     /// Ya existe una presentación con ese nombre en el producto.
     PresentacionDuplicada,
     /// La unidad de medida recibida no es una de las admitidas.
@@ -83,7 +81,6 @@ impl ErrorDominio {
             Self::PrecisionExcedida => "PRECISION_EXCEDIDA",
             Self::CantidadFraccionariaNoPermitida => "CANTIDAD_FRACCIONARIA_NO_PERMITIDA",
             Self::FactorInvalido => "FACTOR_INVALIDO",
-            Self::GranelNoAplicable => "GRANEL_NO_APLICABLE",
             Self::PresentacionDuplicada => "PRESENTACION_DUPLICADA",
             Self::UnidadDesconocida => "UNIDAD_DESCONOCIDA",
             Self::UbicacionDesconocida => "UBICACION_DESCONOCIDA",
@@ -138,9 +135,6 @@ impl fmt::Display for ErrorDominio {
             }
             Self::FactorInvalido => {
                 f.write_str("El factor de conversión debe ser mayor que cero")
-            }
-            Self::GranelNoAplicable => {
-                f.write_str("Este producto se cuenta por unidades y no puede venderse a granel")
             }
             Self::PresentacionDuplicada => {
                 f.write_str("Ya existe una presentación con ese nombre")
