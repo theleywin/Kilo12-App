@@ -4,7 +4,11 @@ import { invoke } from '@tauri-apps/api/core';
 import {
   AlmacenDto,
   CambioPrecioDto,
+  CierreCajaPedido,
+  CierreCalculadoDto,
   CobroCalculadoDto,
+  ConteoCalculadoDto,
+  EstadoCajaDto,
   HistorialVentasDto,
   ErrorDto,
   FichaProductoDto,
@@ -19,6 +23,7 @@ import {
   ProductoDto,
   ProductoVendibleDto,
   SimulacionDto,
+  SesionListadaDto,
   VentaDetalladaDto,
   VentaHechaDto,
   VentaPrevistaDto,
@@ -108,6 +113,84 @@ export class Kilo12Api {
   /** Una venta concreta, con sus líneas y sus formas de pago. */
   consultarVenta(id: number): Promise<VentaDetalladaDto> {
     return invoke<VentaDetalladaDto>('consultar_venta', { id });
+  }
+
+  // ------------------------------------------------- caja (RF-CAJ)
+
+  /**
+   * La caja abierta, o `null` si no hay ninguna.
+   *
+   * Que no haya caja no es un error: es el estado normal antes de empezar
+   * el día, y la pantalla tiene que poder dibujarlo.
+   */
+  consultarCaja(): Promise<EstadoCajaDto | null> {
+    return invoke<EstadoCajaDto | null>('consultar_caja');
+  }
+
+  /** Abre la caja con su fondo inicial y devuelve su identificador. */
+  abrirCaja(apertura: { operador: string; fondoInicial: string }): Promise<number> {
+    return invoke<number>('abrir_caja', { apertura });
+  }
+
+  /** Registra una entrada o salida de efectivo, con motivo obligatorio. */
+  moverEfectivo(movimiento: { tipo: string; importe: string; motivo: string }): Promise<void> {
+    return invoke<void>('mover_efectivo', { movimiento });
+  }
+
+  /** Enseña cómo quedaría el cierre sin cerrar nada. */
+  previsualizarCierre(cierre: CierreCajaPedido): Promise<CierreCalculadoDto> {
+    return invoke<CierreCalculadoDto>('previsualizar_cierre', { cierre });
+  }
+
+  /** Cierra la caja y congela su arqueo. No tiene vuelta atrás. */
+  cerrarCaja(cierre: CierreCajaPedido): Promise<CierreCalculadoDto> {
+    return invoke<CierreCalculadoDto>('cerrar_caja', { cierre });
+  }
+
+  /** Historial de sesiones de caja. */
+  listarCajas(limite?: number): Promise<SesionListadaDto[]> {
+    return invoke<SesionListadaDto[]>('listar_cajas', { limite });
+  }
+
+  /** El cierre congelado de una sesión ya cerrada. */
+  consultarCierre(id: number): Promise<CierreCalculadoDto> {
+    return invoke<CierreCalculadoDto>('consultar_cierre', { id });
+  }
+
+  /**
+   * Anula una venta de la sesión vigente (RF-VTA-15).
+   *
+   * Devuelve la mercancía a vitrina. Las ventas de cajas ya cerradas no son
+   * anulables: su arqueo se hizo contra dinero físico.
+   */
+  anularVenta(anulacion: { venta: number; motivo: string }): Promise<void> {
+    return invoke<void>('anular_venta', { anulacion });
+  }
+
+  /** Denominaciones con que se cuenta la caja, de menor a mayor. */
+  denominacionesEfectivo(): Promise<number[]> {
+    return invoke<number[]>('denominaciones_efectivo');
+  }
+
+  /**
+   * Suma un recuento de billetes.
+   *
+   * `cuantos` va en el mismo orden que `denominacionesEfectivo`. La suma la
+   * hace Rust: es la cifra contra la que se arquea la caja y no se calcula
+   * en la pantalla, como ninguna otra cifra de dinero.
+   */
+  contarEfectivo(cuantos: number[]): Promise<ConteoCalculadoDto> {
+    return invoke<ConteoCalculadoDto>('contar_efectivo', { cuantos });
+  }
+
+  /** Porcentaje de comisión del operador, si está configurado. */
+  consultarComision(): Promise<string | null> {
+    return invoke<string | null>('consultar_comision');
+  }
+
+  /** Fija el porcentaje de comisión del operador. */
+  fijarComision(porcentaje: string): Promise<void> {
+    return invoke<void>('fijar_comision', { porcentaje });
   }
 
   /** Tasa de cambio vigente, o nada si todavía no se fijó. */

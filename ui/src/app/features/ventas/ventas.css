@@ -217,3 +217,50 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ===================================================== anular
+   Se pide el motivo antes de dejar pulsar: una anulación sin explicación
+   es indistinguible de un descuadre cuando se arquee la caja. */
+
+.anulacion {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e2);
+  padding: var(--e3);
+  border-radius: var(--radio-s);
+  border-left: 3px solid var(--rojo);
+  background: var(--rojo-suave);
+}
+
+.anulacion label {
+  font-size: var(--texto-s);
+  font-weight: var(--peso-medio);
+}
+
+/* ============================================ ventas anuladas
+   Se quedan en la lista porque el folio ya se emitió y el historial tiene
+   que poder explicarlo. Pero se ven apagadas y tachadas: si se vieran
+   igual que las vivas, la lista mentiría sobre lo que se vendió. */
+
+.fila--anulada td {
+  opacity: 0.55;
+}
+
+.fila--anulada .cifra {
+  text-decoration: line-through;
+}
+
+.anulada {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e1);
+  padding: var(--e3);
+  border-radius: var(--radio-s);
+  border-left: 3px solid var(--rojo);
+  background: var(--rojo-suave);
+  font-size: var(--texto-s);
+}
+
+.anulada strong {
+  color: var(--rojo);
+}

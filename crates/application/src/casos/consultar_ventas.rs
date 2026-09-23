@@ -25,6 +25,8 @@ pub const LIMITE_POR_DEFECTO: usize = 100;
 pub struct VentaListada {
     pub id: i64,
     pub folio: i64,
+    /// Se anuló: sigue en el historial pero no cuenta para nada.
+    pub anulada: bool,
     pub total: String,
     /// Total menos costo congelado.
     pub ganancia: String,
@@ -83,6 +85,9 @@ pub struct PagoHecho {
 pub struct VentaDetallada {
     pub id: i64,
     pub folio: i64,
+    /// Se anuló: sigue en el historial, pero no cuenta para nada.
+    pub anulada: bool,
+    pub motivo_anulacion: Option<String>,
     pub total: String,
     pub costo_total: String,
     pub ganancia: String,
@@ -119,12 +124,14 @@ impl<'a, R: RepositorioProducto> ConsultarVentas<'a, R> {
                     total,
                     costo_total,
                     ocurrido_en,
+                    anulada,
                     ..
                 } = venta;
 
                 Ok(VentaListada {
                     id,
                     folio,
+                    anulada,
                     total: total.formatear(2),
                     ganancia: total.restar(costo_total)?.formatear(2),
                     fecha: fecha_de(&ocurrido_en).to_owned(),
@@ -210,6 +217,8 @@ impl<'a, R: RepositorioProducto> ConsultarVenta<'a, R> {
         Ok(VentaDetallada {
             id: venta.id,
             folio: venta.folio,
+            anulada: venta.anulada,
+            motivo_anulacion: venta.motivo_anulacion.clone(),
             total: venta.total.formatear(2),
             costo_total: venta.costo_total.formatear(2),
             ganancia: venta.total.restar(venta.costo_total)?.formatear(2),

@@ -54,9 +54,13 @@
           </thead>
           <tbody>
             @for (venta of historial()?.ventas ?? []; track venta.id) {
+              <!-- Una venta anulada se queda en el historial: el folio ya
+                   se emitió. Pero tiene que verse que no cuenta, o la lista
+                   miente sobre lo que se vendió. -->
               <tr
                 class="fila--pulsable"
                 [class.fila--abierta]="detalle()?.id === venta.id"
+                [class.fila--anulada]="venta.anulada"
                 (click)="abrir(venta)"
                 tabindex="0"
                 (keydown.enter)="abrir(venta)"
@@ -64,7 +68,11 @@
                 <td class="mono">#{{ venta.folio }}</td>
                 <td>
                   <span class="hora">{{ venta.hora }}</span>
-                  <span class="apagado nota">{{ venta.fecha }}</span>
+                  @if (venta.anulada) {
+                    <span class="etiqueta etiqueta--error">Anulada</span>
+                  } @else {
+                    <span class="apagado nota">{{ venta.fecha }}</span>
+                  }
                 </td>
                 <td class="derecha cifra">{{ venta.total }}</td>
                 <td class="derecha cifra" [class.negativo]="conPerdida(venta.ganancia)">
@@ -97,6 +105,17 @@
         </div>
 
         <div class="panel__cuerpo pila">
+          @if (venta.anulada) {
+            <div class="anulada" role="status">
+              <strong>Esta venta está anulada</strong>
+              @if (venta.motivoAnulacion; as porque) {
+                <span>{{ porque }}</span>
+              }
+              <span class="nota">
+                La mercancía volvió a la vitrina y no cuenta para la caja ni para el día.
+              </span>
+            </div>
+          }
           <div class="tabla-envoltorio">
             <table class="tabla">
               <thead>
@@ -168,6 +187,47 @@
               <strong class="cifra">{{ venta.vuelto }}</strong>
             </div>
           </div>
+
+          <!-- ------------------------------------------- anular
+               Solo se puede con ventas de la caja abierta. Si la sesión ya
+               se cerró, el núcleo lo rechaza y explica por qué: su arqueo
+               se hizo contra dinero físico. -->
+          @if (venta.anulada) {
+            <!-- Nada que ofrecer: ya se anuló. -->
+          } @else if (anulando()) {
+            <div class="anulacion">
+              <label for="motivo">¿Por qué se anula?</label>
+              <input
+                id="motivo"
+                class="control"
+                autocomplete="off"
+                placeholder="Cobro equivocado, el cliente se arrepintió…"
+                [value]="motivo()"
+                (input)="motivo.set($any($event.target).value)"
+                (keydown.enter)="anular()"
+              />
+              <div class="fila">
+                <button
+                  type="button"
+                  class="boton boton--peligro"
+                  [disabled]="!motivo().trim() || ocupado()"
+                  (click)="anular()"
+                >
+                  {{ ocupado() ? 'Anulando…' : 'Confirmar anulación' }}
+                </button>
+                <button type="button" class="boton boton--discreto" (click)="cancelarAnulacion()">
+                  Cancelar
+                </button>
+              </div>
+              <span class="pista">
+                La mercancía vuelve a la vitrina y la venta deja de contar para la caja.
+              </span>
+            </div>
+          } @else {
+            <button type="button" class="boton boton--discreto" (click)="empezarAnulacion()">
+              Anular esta venta
+            </button>
+          }
         </div>
       } @else {
         <div class="vacio">

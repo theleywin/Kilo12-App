@@ -1,5 +1,7 @@
 //! Casos de uso, uno por operación del negocio.
 
+pub mod anular_venta;
+pub mod caja;
 pub mod calcular_cobro;
 pub mod catalogo_venta;
 pub mod consultar_almacen;
@@ -20,6 +22,13 @@ pub mod tasa_cambio;
 pub mod traspasar;
 pub mod vender;
 
+pub use anular_venta::{AnularVenta, ComandoAnularVenta};
+pub use caja::{
+    AbrirCaja, ArqueoListado, CerrarCaja, CierreCalculado, ComandoAbrirCaja, ComandoCerrarCaja,
+    ComandoMoverEfectivo, ConsultarCaja, ContarEfectivo, ConteoCalculado, DesgloseVenta,
+    EstadoCaja, HistorialCajas, LineaConteo, MoverEfectivo, MovimientoEfectivoListado,
+    ResumenEconomico, SesionListada,
+};
 pub use calcular_cobro::{CalcularCobro, CobroCalculado};
 pub use catalogo_venta::{CatalogoDeVenta, PresentacionVendible, ProductoVendible};
 pub use consultar_almacen::{ConsultarAlmacen, ResumenAlmacen};

@@ -107,3 +107,31 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ============================================ traer del almacén
+   El movimiento que más se hace en esta pantalla. Va arriba de la ficha
+   y con el botón destacado: sacar mercancía al estante es la acción por
+   la que existe la vitrina. */
+
+.traer {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--e2);
+  flex-wrap: wrap;
+  padding: var(--e3);
+  border-radius: var(--radio-s);
+  border-left: 3px solid var(--linea);
+  background: var(--superficie);
+}
+
+/* Guardado y sin exhibir no es un estado neutro: es venta perdida. */
+.traer--urgente {
+  border-left-color: var(--destaque);
+  background: var(--destaque-suave);
+}
+
+.nota--urgente {
+  flex-basis: 100%;
+  font-size: var(--texto-xs);
+  color: var(--destaque-texto);
+}

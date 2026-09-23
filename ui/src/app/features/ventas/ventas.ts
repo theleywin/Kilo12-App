@@ -32,6 +32,11 @@ export class Ventas {
   protected readonly detalle = signal<VentaDetalladaDto | null>(null);
   protected readonly cargandoDetalle = signal(false);
 
+  /** Anulación en curso: la venta que se está anulando y su motivo. */
+  protected readonly anulando = signal(false);
+  protected readonly motivo = signal('');
+  protected readonly ocupado = signal(false);
+
   constructor() {
     void this.recargar();
   }
@@ -66,6 +71,42 @@ export class Ventas {
       this.detalle.set(null);
     } finally {
       this.cargandoDetalle.set(false);
+    }
+  }
+
+  protected empezarAnulacion(): void {
+    this.anulando.set(true);
+    this.motivo.set('');
+  }
+
+  protected cancelarAnulacion(): void {
+    this.anulando.set(false);
+  }
+
+  /**
+   * Anula la venta abierta y devuelve la mercancía a vitrina.
+   *
+   * Solo funciona con ventas de la caja vigente: si la sesión ya se cerró,
+   * el núcleo lo rechaza y la pantalla enseña por qué. No es un capricho —
+   * ese arqueo se hizo contra dinero físico.
+   */
+  protected async anular(): Promise<void> {
+    const venta = this.detalle();
+    if (!venta || !this.motivo().trim() || this.ocupado()) {
+      return;
+    }
+
+    this.ocupado.set(true);
+    try {
+      await this.api.anularVenta({ venta: venta.id, motivo: this.motivo().trim() });
+      this.anulando.set(false);
+      this.detalle.set(null);
+      this.error.set(null);
+      await this.recargar();
+    } catch (fallo) {
+      this.error.set(comoError(fallo));
+    } finally {
+      this.ocupado.set(false);
     }
   }
 

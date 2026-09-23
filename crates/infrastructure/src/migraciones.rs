@@ -177,6 +177,72 @@ const MIGRACIONES: &[&str] = &[
     CREATE INDEX idx_venta_linea_venta ON venta_linea(venta_id);
     CREATE INDEX idx_venta_pago_venta  ON venta_pago(venta_id);
     "#,
+    // 6 — La sesión de caja (RF-CAJ).
+    //
+    // El cierre guarda sus cifras CONGELADAS en vez de recalcularlas al
+    // leerlas. No es desnormalización por comodidad: una sesión cerrada ya
+    // se arqueó contra dinero físico (RF-CAJ-08), y si sus totales
+    // dependieran del estado de hoy, ese arqueo dejaría de significar nada.
+    // Lo mismo vale para el porcentaje de comisión (D-6).
+    //
+    // `venta.sesion_id` admite nulos por las ventas anteriores a este
+    // cambio: no pertenecen a ninguna sesión y no hay forma honesta de
+    // inventarles una.
+    r#"
+    CREATE TABLE sesion_caja (
+        id             INTEGER PRIMARY KEY,
+        -- Quién atiende la caja. Es un dato de la sesión, no una cuenta
+        -- de usuario (R-3, RF-CAJ-09).
+        operador       TEXT    NOT NULL,
+        fondo_inicial  INTEGER NOT NULL CHECK (fondo_inicial >= 0),
+        estado         TEXT    NOT NULL CHECK (estado IN ('ABIERTA','CERRADA')),
+        abierta_en     TEXT    NOT NULL,
+        cerrada_en     TEXT,
+
+        -- Todo lo que sigue se escribe UNA vez, al cerrar, y no se vuelve
+        -- a tocar.
+        modo_cierre    TEXT    CHECK (modo_cierre IN ('SEPARADO','CONSOLIDADO')),
+        contado_cup    INTEGER,
+        contado_usd    INTEGER,
+        esperado_cup   INTEGER,
+        esperado_usd   INTEGER,
+        vendido_cup       INTEGER,
+        vendido_transferencia INTEGER,
+        vendido_usd       INTEGER,
+        vendido_usd_en_cup INTEGER,
+        costo_vendido  INTEGER,
+        merma_costo    INTEGER,
+        comision_porcentaje INTEGER,
+        comision_base  INTEGER,
+        comision_importe INTEGER
+    );
+
+    -- Una sola sesión abierta a la vez: dos turnos compartiendo la gaveta
+    -- hacen imposible imputar un faltante. El índice parcial lo impone la
+    -- base, no un `if` que alguien puede olvidarse de escribir.
+    CREATE UNIQUE INDEX idx_sesion_unica_abierta
+        ON sesion_caja(estado) WHERE estado = 'ABIERTA';
+
+    CREATE TABLE movimiento_efectivo (
+        id          INTEGER PRIMARY KEY,
+        sesion_id   INTEGER NOT NULL REFERENCES sesion_caja(id),
+        tipo        TEXT    NOT NULL CHECK (tipo IN ('ENTRADA','SALIDA')),
+        importe     INTEGER NOT NULL CHECK (importe > 0),
+        -- Obligatorio: un retiro sin explicación es indistinguible de un
+        -- faltante (RF-CAJ-03).
+        motivo      TEXT    NOT NULL,
+        ocurrido_en TEXT    NOT NULL
+    );
+
+    CREATE INDEX idx_movimiento_efectivo_sesion
+        ON movimiento_efectivo(sesion_id, id);
+
+    ALTER TABLE venta ADD COLUMN sesion_id INTEGER REFERENCES sesion_caja(id);
+    ALTER TABLE venta ADD COLUMN anulada_en TEXT;
+    ALTER TABLE venta ADD COLUMN motivo_anulacion TEXT;
+
+    CREATE INDEX idx_venta_sesion ON venta(sesion_id);
+    "#,
 ];
 
 /// Lleva el esquema a la última versión.

@@ -13,6 +13,18 @@
       </div>
     }
 
+    <!-- Sin caja abierta no se cobra, y conviene decirlo ANTES de que
+         haya una venta montada y un cliente esperando. -->
+    @if (!hayCaja()) {
+      <div class="aviso aviso--atencion" role="alert">
+        <strong>La caja está cerrada</strong>
+        <span>
+          No se puede cobrar hasta que la abras. Ve a Caja <kbd class="tecla">F7</kbd>, cuenta con
+          cuánto empiezas y vuelve.
+        </span>
+      </div>
+    }
+
     <!-- ------------------------------------------- qué se lleva -->
     <div class="panel buscador">
       <label for="buscador" class="pregunta">¿Qué se lleva?</label>

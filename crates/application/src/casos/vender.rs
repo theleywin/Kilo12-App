@@ -69,6 +69,20 @@ impl<'a, R: RepositorioProducto> Vender<'a, R> {
             return Err(ErrorAplicacion::Dominio(domain::ErrorDominio::VentaVacia));
         }
 
+        // Sin caja abierta no se cobra (RF-CAJ-06). Se comprueba lo primero,
+        // antes de tocar existencias: una venta que no pertenece a ninguna
+        // sesión no aparece en ningún arqueo, y ese descuadre no se arregla
+        // después porque no hay a qué turno imputarla.
+        let sesion = self
+            .repositorio
+            .sesion_abierta()?
+            .ok_or(ErrorAplicacion::Dominio(
+                domain::ErrorDominio::SinSesionAbierta,
+            ))?;
+        let sesion = sesion.sesion.id().ok_or(ErrorAplicacion::Dominio(
+            domain::ErrorDominio::SinSesionAbierta,
+        ))?;
+
         let mut venta = Venta::nueva();
         // La existencia se va descontando producto a producto: si el mismo
         // producto aparece en dos líneas, la segunda tiene que ver lo que
@@ -158,6 +172,7 @@ impl<'a, R: RepositorioProducto> Vender<'a, R> {
             costo_total,
             vuelto,
             descuentos: &descuentos,
+            sesion,
         })?;
 
         Ok(VentaHecha {

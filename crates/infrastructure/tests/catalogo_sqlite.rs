@@ -9,6 +9,11 @@ use std::sync::Arc;
 
 use application::casos::vender::CLAVE_TASA;
 use application::casos::{
+    AbrirCaja, AnularVenta, CerrarCaja, ComandoAbrirCaja, ComandoAnularVenta, ComandoCerrarCaja,
+    ComandoMoverEfectivo, ComandoVender, ConsultarCaja, ConsultarVenta, ConsultarVentas,
+    HistorialCajas, LineaPedida, MoverEfectivo, PagoPedido, Vender,
+};
+use application::casos::{
     AgregarPresentacion, CambiarPrecio, ComandoAgregarPresentacion, ComandoCambiarPrecio,
     ComandoEditarProducto, ComandoFijarObjetivo, ComandoPresentacion, ComandoRegistrarEntrada,
     ComandoRegistrarMerma, ComandoRegistrarProducto, ComandoSimular, ComandoTraspasar,
@@ -16,9 +21,6 @@ use application::casos::{
     ConsultarVitrina, DesactivarPresentacion, EditarProducto, FijarObjetivoVitrina, LineaKardex,
     ListarProductos, MarcarPredeterminada, ProductoListado, RegistrarEntrada, RegistrarMerma,
     RegistrarProducto, ResumenVitrina, SimularMovimiento, Traspasar,
-};
-use application::casos::{
-    ComandoVender, ConsultarVenta, ConsultarVentas, LineaPedida, PagoPedido, Vender,
 };
 use application::puertos::RepositorioProducto;
 use infrastructure::{BaseDatos, RepositorioProductoSqlite};
@@ -927,7 +929,24 @@ fn desactivar_un_producto_lo_saca_del_catalogo_sin_borrarlo() {
 // ==================================================== la venta
 
 /// Un producto listo para vender: 20 latas en vitrina a 41,67 de costo.
+/// Abre una caja para poder cobrar (RF-CAJ-06).
+fn abrir_caja(repositorio: &RepositorioProductoSqlite) -> i64 {
+    AbrirCaja::nuevo(repositorio)
+        .ejecutar(ComandoAbrirCaja {
+            operador: "Yaneisy".to_owned(),
+            fondo_inicial: "500.00".to_owned(),
+        })
+        .expect("abrir la caja")
+}
+
+/// Producto listo para vender, **con la caja ya abierta**.
+///
+/// La caja va aquí y no en cada prueba porque sin ella no se puede cobrar,
+/// y lo que estas pruebas miden es la venta, no el turno. El caso de cobrar
+/// sin caja tiene su propia prueba.
 fn producto_en_vitrina(repositorio: &RepositorioProductoSqlite) -> (i64, i64) {
+    abrir_caja(repositorio);
+
     let mut comando = alta("Refresco 500 ml");
     comando.precio_unitario = "80.00".to_owned();
     comando.costo_unitario = Some("41.67".to_owned());
@@ -1325,4 +1344,461 @@ fn pedir_una_venta_que_no_existe_da_un_error_claro() {
         .expect_err("esa venta no existe");
 
     assert_eq!(error.codigo(), "NO_ENCONTRADO");
+}
+
+// ============================================================ caja (RF-CAJ)
+
+fn cerrar(
+    repositorio: &RepositorioProductoSqlite,
+    contado_cup: &str,
+    contado_usd: &str,
+) -> application::casos::CierreCalculado {
+    CerrarCaja::nuevo(repositorio)
+        .ejecutar(ComandoCerrarCaja {
+            contado_cup: contado_cup.to_owned(),
+            contado_usd: contado_usd.to_owned(),
+            modo: "SEPARADO".to_owned(),
+        })
+        .expect("cerrar la caja")
+}
+
+#[test]
+fn sin_caja_abierta_no_se_cobra() {
+    let repositorio = repositorio_en_memoria();
+    // Ojo: se registra el producto SIN abrir caja.
+    let mut comando = alta("Refresco 500 ml");
+    comando.precio_unitario = "80.00".to_owned();
+    comando.costo_unitario = Some("41.67".to_owned());
+    comando.cantidad_vitrina = Some("20".to_owned());
+    let producto = RegistrarProducto::nuevo(&repositorio)
+        .ejecutar(comando)
+        .expect("registrar")
+        .0;
+    let ficha = ConsultarProducto::nuevo(&repositorio)
+        .ejecutar(producto)
+        .expect("ficha");
+
+    let error = Vender::nuevo(&repositorio)
+        .ejecutar(ComandoVender {
+            lineas: vec![LineaPedida {
+                producto,
+                presentacion: ficha.presentaciones[0].id,
+                cantidad: "1".to_owned(),
+            }],
+            pagos: vec![efectivo("80.00")],
+        })
+        .expect_err("sin caja no se cobra");
+
+    // RF-CAJ-06: una venta sin sesión no aparecería en ningún arqueo.
+    assert_eq!(error.codigo(), "SIN_SESION_ABIERTA");
+    // Y no dejó rastro: la vitrina sigue intacta.
+    assert_eq!(unico(&repositorio).en_vitrina, "20");
+}
+
+#[test]
+fn no_se_abren_dos_cajas_a_la_vez() {
+    let repositorio = repositorio_en_memoria();
+    abrir_caja(&repositorio);
+
+    let error = AbrirCaja::nuevo(&repositorio)
+        .ejecutar(ComandoAbrirCaja {
+            operador: "Otro".to_owned(),
+            fondo_inicial: "100.00".to_owned(),
+        })
+        .expect_err("ya hay una abierta");
+
+    assert_eq!(error.codigo(), "SESION_YA_ABIERTA");
+}
+
+#[test]
+fn el_efectivo_esperado_no_cuenta_la_transferencia() {
+    let repositorio = repositorio_en_memoria();
+    let (producto, presentacion) = producto_en_vitrina(&repositorio);
+
+    // Una venta de 800 en efectivo justo y otra de 800 por transferencia.
+    venta_de(&repositorio, producto, presentacion, "10", "800.00");
+    Vender::nuevo(&repositorio)
+        .ejecutar(ComandoVender {
+            lineas: vec![LineaPedida {
+                producto,
+                presentacion,
+                cantidad: "10".to_owned(),
+            }],
+            pagos: vec![PagoPedido {
+                metodo: "TRANSFERENCIA".to_owned(),
+                entregado: "800.00".to_owned(),
+            }],
+        })
+        .expect("cobrar por transferencia");
+
+    let caja = ConsultarCaja::nuevo(&repositorio)
+        .ejecutar()
+        .expect("consultar")
+        .expect("hay caja abierta");
+
+    // Se vendieron 1 600, pero en la gaveta solo hay el fondo más los 800
+    // en billetes: la transferencia fue a una cuenta (RF-CAJ-04).
+    assert_eq!(caja.desglose.total_en_pesos, "1600.00");
+    assert_eq!(caja.desglose.transferencia, "800.00");
+    assert_eq!(caja.efectivo_esperado, "1300.00");
+}
+
+#[test]
+fn el_vuelto_de_un_pago_en_dolares_sale_de_la_gaveta_de_pesos() {
+    let repositorio = repositorio_en_memoria();
+    let (producto, presentacion) = producto_en_vitrina(&repositorio);
+    repositorio
+        .guardar_configuracion(CLAVE_TASA, "420.00")
+        .expect("fijar la tasa");
+
+    // Venta de 800: paga 200 en efectivo y 2 USD (840). Vuelto: 240.
+    Vender::nuevo(&repositorio)
+        .ejecutar(ComandoVender {
+            lineas: vec![LineaPedida {
+                producto,
+                presentacion,
+                cantidad: "10".to_owned(),
+            }],
+            pagos: vec![
+                efectivo("200.00"),
+                PagoPedido {
+                    metodo: "EFECTIVO_USD".to_owned(),
+                    entregado: "2.00".to_owned(),
+                },
+            ],
+        })
+        .expect("cobrar");
+
+    let caja = ConsultarCaja::nuevo(&repositorio)
+        .ejecutar()
+        .expect("consultar")
+        .expect("hay caja");
+
+    // Entraron 200 pesos y salieron 240 de vuelto: la gaveta perdió 40.
+    // Fondo 500 − 40 = 460. Si el arqueo usara la venta diría 700.
+    assert_eq!(caja.efectivo_esperado, "460.00");
+    assert_eq!(caja.dolares_esperados, "2.00");
+    assert_eq!(caja.desglose.total_consolidado, "800.00");
+}
+
+#[test]
+fn las_entradas_y_salidas_mueven_el_efectivo_esperado() {
+    let repositorio = repositorio_en_memoria();
+    abrir_caja(&repositorio);
+
+    MoverEfectivo::nuevo(&repositorio)
+        .ejecutar(ComandoMoverEfectivo {
+            tipo: "SALIDA".to_owned(),
+            importe: "200.00".to_owned(),
+            motivo: "pago de la luz".to_owned(),
+        })
+        .expect("salida");
+
+    MoverEfectivo::nuevo(&repositorio)
+        .ejecutar(ComandoMoverEfectivo {
+            tipo: "ENTRADA".to_owned(),
+            importe: "50.00".to_owned(),
+            motivo: "ingreso de cambio".to_owned(),
+        })
+        .expect("entrada");
+
+    let caja = ConsultarCaja::nuevo(&repositorio)
+        .ejecutar()
+        .expect("consultar")
+        .expect("hay caja");
+
+    // 500 − 200 + 50 = 350
+    assert_eq!(caja.efectivo_esperado, "350.00");
+    assert_eq!(caja.movimientos.len(), 2);
+    assert_eq!(caja.movimientos[0].motivo, "ingreso de cambio");
+}
+
+#[test]
+fn un_movimiento_de_efectivo_sin_motivo_no_pasa() {
+    let repositorio = repositorio_en_memoria();
+    abrir_caja(&repositorio);
+
+    let error = MoverEfectivo::nuevo(&repositorio)
+        .ejecutar(ComandoMoverEfectivo {
+            tipo: "SALIDA".to_owned(),
+            importe: "200.00".to_owned(),
+            motivo: "   ".to_owned(),
+        })
+        .expect_err("sin motivo");
+
+    assert_eq!(error.codigo(), "MOTIVO_OBLIGATORIO");
+}
+
+#[test]
+fn el_cierre_marca_el_faltante_y_el_sobrante() {
+    let repositorio = repositorio_en_memoria();
+    let (producto, presentacion) = producto_en_vitrina(&repositorio);
+    venta_de(&repositorio, producto, presentacion, "10", "800.00");
+
+    // Esperado: 500 de fondo + 800 en billetes = 1 300. Se cuentan 1 250.
+    let cierre = cerrar(&repositorio, "1250.00", "0.00");
+
+    assert_eq!(cierre.arqueo_cup.esperado, "1300.00");
+    assert_eq!(cierre.arqueo_cup.contado, "1250.00");
+    assert_eq!(cierre.arqueo_cup.diferencia, "-50.00");
+    assert!(!cierre.arqueo_cup.sobra);
+    assert!(!cierre.cuadra);
+}
+
+#[test]
+fn el_cierre_trae_el_resumen_economico() {
+    let repositorio = repositorio_en_memoria();
+    let (producto, presentacion) = producto_en_vitrina(&repositorio);
+    // Precio 80, costo 41.67: 10 unidades dejan 383.30 de ganancia.
+    venta_de(&repositorio, producto, presentacion, "10", "800.00");
+
+    repositorio
+        .guardar_configuracion("comision_operador", "5")
+        .expect("fijar la comisión");
+
+    let cierre = cerrar(&repositorio, "1300.00", "0.00");
+
+    assert_eq!(cierre.economico.venta_total, "800.00");
+    assert_eq!(cierre.economico.costo_vendido, "416.70");
+    assert_eq!(cierre.economico.ganancia_bruta, "383.30");
+    // La comisión sale de la VENTA, no de la ganancia: 5 % de 800 = 40.
+    assert_eq!(cierre.economico.comision, "40.00");
+    assert_eq!(cierre.economico.ganancia_neta, "343.30");
+}
+
+#[test]
+fn una_caja_cerrada_es_inmutable() {
+    let repositorio = repositorio_en_memoria();
+    let (producto, presentacion) = producto_en_vitrina(&repositorio);
+    venta_de(&repositorio, producto, presentacion, "10", "800.00");
+
+    repositorio
+        .guardar_configuracion("comision_operador", "5")
+        .expect("comisión al 5 %");
+    let cierre = cerrar(&repositorio, "1300.00", "0.00");
+    let sesion = cierre.sesion;
+
+    // El dueño sube la comisión al 20 % después de cerrar.
+    repositorio
+        .guardar_configuracion("comision_operador", "20")
+        .expect("comisión al 20 %");
+
+    let guardado = HistorialCajas::nuevo(&repositorio)
+        .cierre(sesion)
+        .expect("leer el cierre");
+
+    // RF-CAJ-08 y D-6: lo liquidado es lo liquidado.
+    assert_eq!(guardado.economico.comision, "40.00");
+    assert_eq!(guardado.economico.venta_total, "800.00");
+    assert_eq!(guardado.arqueo_cup.esperado, "1300.00");
+}
+
+#[test]
+fn no_se_cierra_dos_veces_la_misma_caja() {
+    let repositorio = repositorio_en_memoria();
+    abrir_caja(&repositorio);
+    cerrar(&repositorio, "500.00", "0.00");
+
+    let error = CerrarCaja::nuevo(&repositorio)
+        .ejecutar(ComandoCerrarCaja {
+            contado_cup: "500.00".to_owned(),
+            contado_usd: "0.00".to_owned(),
+            modo: "SEPARADO".to_owned(),
+        })
+        .expect_err("ya está cerrada");
+
+    assert_eq!(error.codigo(), "SIN_SESION_ABIERTA");
+}
+
+#[test]
+fn anular_devuelve_la_mercancia_a_la_vitrina() {
+    let repositorio = repositorio_en_memoria();
+    let (producto, presentacion) = producto_en_vitrina(&repositorio);
+    venta_de(&repositorio, producto, presentacion, "10", "800.00");
+
+    assert_eq!(unico(&repositorio).en_vitrina, "10");
+    let valor_antes = unico(&repositorio).costo.clone();
+
+    AnularVenta::nuevo(&repositorio)
+        .ejecutar(ComandoAnularVenta {
+            venta: 1,
+            motivo: "el cliente se arrepintió".to_owned(),
+        })
+        .expect("anular");
+
+    // Vuelven las 10 unidades y el costo promedio no se mueve: entraron al
+    // mismo costo con que salieron.
+    assert_eq!(unico(&repositorio).en_vitrina, "20");
+    assert_eq!(unico(&repositorio).costo, valor_antes);
+
+    // Y queda su asiento en el kárdex, con el motivo.
+    let historial = kardex(&repositorio, producto);
+    assert_eq!(historial[0].tipo, "DEVOLUCION");
+    assert_eq!(
+        historial[0].motivo.as_deref(),
+        Some("el cliente se arrepintió")
+    );
+}
+
+#[test]
+fn una_venta_anulada_no_cuenta_para_el_arqueo() {
+    let repositorio = repositorio_en_memoria();
+    let (producto, presentacion) = producto_en_vitrina(&repositorio);
+    venta_de(&repositorio, producto, presentacion, "10", "800.00");
+
+    AnularVenta::nuevo(&repositorio)
+        .ejecutar(ComandoAnularVenta {
+            venta: 1,
+            motivo: "error de cobro".to_owned(),
+        })
+        .expect("anular");
+
+    let caja = ConsultarCaja::nuevo(&repositorio)
+        .ejecutar()
+        .expect("consultar")
+        .expect("hay caja");
+
+    // La venta desaparece de las cuentas y el efectivo vuelve al fondo.
+    assert_eq!(caja.cuantas_ventas, 0);
+    assert_eq!(caja.desglose.total_en_pesos, "0.00");
+    assert_eq!(caja.efectivo_esperado, "500.00");
+}
+
+#[test]
+fn no_se_anula_dos_veces() {
+    let repositorio = repositorio_en_memoria();
+    let (producto, presentacion) = producto_en_vitrina(&repositorio);
+    venta_de(&repositorio, producto, presentacion, "1", "80.00");
+
+    let anular = || {
+        AnularVenta::nuevo(&repositorio).ejecutar(ComandoAnularVenta {
+            venta: 1,
+            motivo: "error".to_owned(),
+        })
+    };
+
+    anular().expect("la primera sí");
+    assert_eq!(
+        anular().expect_err("la segunda no").codigo(),
+        "VENTA_YA_ANULADA"
+    );
+}
+
+#[test]
+fn no_se_anula_una_venta_de_una_caja_ya_cerrada() {
+    let repositorio = repositorio_en_memoria();
+    let (producto, presentacion) = producto_en_vitrina(&repositorio);
+    venta_de(&repositorio, producto, presentacion, "1", "80.00");
+
+    cerrar(&repositorio, "580.00", "0.00");
+    abrir_caja(&repositorio);
+
+    let error = AnularVenta::nuevo(&repositorio)
+        .ejecutar(ComandoAnularVenta {
+            venta: 1,
+            motivo: "tarde".to_owned(),
+        })
+        .expect_err("la caja de esa venta ya se arqueó");
+
+    // D-5: el arqueo de una sesión cerrada es intocable.
+    assert_eq!(error.codigo(), "SESION_CERRADA");
+    assert_eq!(unico(&repositorio).en_vitrina, "19");
+}
+
+#[test]
+fn la_venta_total_del_cierre_suma_las_tres_formas_de_cobro() {
+    let repositorio = repositorio_en_memoria();
+    let (producto, presentacion) = producto_en_vitrina(&repositorio);
+    repositorio
+        .guardar_configuracion(CLAVE_TASA, "420.00")
+        .expect("fijar la tasa");
+
+    // Venta de 800 pagada con 200 en efectivo, 100 por transferencia y
+    // 2 USD (840). Entregó 1 140; el vuelto son 340.
+    Vender::nuevo(&repositorio)
+        .ejecutar(ComandoVender {
+            lineas: vec![LineaPedida {
+                producto,
+                presentacion,
+                cantidad: "10".to_owned(),
+            }],
+            pagos: vec![
+                efectivo("200.00"),
+                PagoPedido {
+                    metodo: "TRANSFERENCIA".to_owned(),
+                    entregado: "100.00".to_owned(),
+                },
+                PagoPedido {
+                    metodo: "EFECTIVO_USD".to_owned(),
+                    entregado: "2.00".to_owned(),
+                },
+            ],
+        })
+        .expect("cobrar");
+
+    // Sin indicar modo: el cierre va consolidado.
+    let cierre = CerrarCaja::nuevo(&repositorio)
+        .ejecutar(ComandoCerrarCaja {
+            contado_cup: "0.00".to_owned(),
+            contado_usd: "2.00".to_owned(),
+            modo: String::new(),
+        })
+        .expect("cerrar");
+
+    assert_eq!(cierre.modo, "CONSOLIDADO");
+
+    // La venta total es la suma de las tres, con los dólares en pesos.
+    let d = &cierre.desglose;
+    assert_eq!(d.transferencia, "100.00");
+    assert_eq!(d.efectivo_usd_en_cup, "840.00");
+    // 800 − 100 − 840 = −140 imputados a efectivo: el cliente pagó de más
+    // en divisa y se le devolvió en pesos.
+    assert_eq!(d.efectivo_cup, "-140.00");
+    assert_eq!(cierre.economico.venta_total, "800.00");
+
+    // Y los dólares se siguen arqueando aparte, en su moneda.
+    assert_eq!(cierre.arqueo_usd.esperado, "2.00");
+    assert!(cierre.arqueo_usd.cuadra);
+}
+
+#[test]
+fn el_cierre_explica_de_donde_sale_lo_esperado() {
+    let repositorio = repositorio_en_memoria();
+    let (producto, presentacion) = producto_en_vitrina(&repositorio);
+
+    // Fondo 500 (lo pone abrir_caja), una venta de 800 en efectivo justo,
+    // una salida de 200 y una entrada de 50.
+    venta_de(&repositorio, producto, presentacion, "10", "800.00");
+
+    MoverEfectivo::nuevo(&repositorio)
+        .ejecutar(ComandoMoverEfectivo {
+            tipo: "SALIDA".to_owned(),
+            importe: "200.00".to_owned(),
+            motivo: "pago de la luz".to_owned(),
+        })
+        .expect("salida");
+    MoverEfectivo::nuevo(&repositorio)
+        .ejecutar(ComandoMoverEfectivo {
+            tipo: "ENTRADA".to_owned(),
+            importe: "50.00".to_owned(),
+            motivo: "ingreso de cambio".to_owned(),
+        })
+        .expect("entrada");
+
+    let cierre = CerrarCaja::nuevo(&repositorio)
+        .previsualizar(&ComandoCerrarCaja {
+            contado_cup: "0.00".to_owned(),
+            contado_usd: "0.00".to_owned(),
+            modo: String::new(),
+        })
+        .expect("previsualizar");
+
+    // Las cuatro piezas tienen que sumar exactamente lo esperado, o el
+    // desglose sería un adorno que no explica nada.
+    assert_eq!(cierre.fondo_inicial, "500.00");
+    assert_eq!(cierre.ventas_efectivo, "800.00");
+    assert_eq!(cierre.entradas, "50.00");
+    assert_eq!(cierre.salidas, "200.00");
+    // 500 + 800 + 50 − 200 = 1 150
+    assert_eq!(cierre.arqueo_cup.esperado, "1150.00");
 }
