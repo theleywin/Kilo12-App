@@ -17,6 +17,7 @@
 //! dibuja barras sin dividir importes: la geometría es suya, la aritmética
 //! de dinero no.
 
+use std::cmp::Reverse;
 use std::collections::BTreeMap;
 
 use domain::{Cantidad, Dinero, Porcentaje};
@@ -395,9 +396,11 @@ fn ranking(
         ));
     }
 
+    // De mayor a menor: `Reverse` sobre la clave en vez de invertir los
+    // argumentos del comparador, que es lo mismo pero se lee al revés.
     match criterio {
-        Criterio::Cantidad => filas.sort_by(|a, b| b.0.unidades.cmp(&a.0.unidades)),
-        Criterio::Ganancia => filas.sort_by(|a, b| b.1.cmp(&a.1)),
+        Criterio::Cantidad => filas.sort_by_key(|fila| Reverse(fila.0.unidades)),
+        Criterio::Ganancia => filas.sort_by_key(|fila| Reverse(fila.1)),
     }
     filas.truncate(CUANTOS_EN_RANKING);
 
