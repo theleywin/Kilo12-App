@@ -1,0 +1,425 @@
+/* Informes: qué pasó y qué conviene hacer con eso.
+   ---------------------------------------------------------------------
+   Las gráficas son SVG escrito a mano. No es purismo: la aplicación es
+   offline y no hay de dónde bajar una librería, pero además así los
+   colores salen de los mismos tokens que el resto y el modo oscuro
+   funciona solo. */
+
+:host {
+  display: block;
+}
+
+.informes {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e4);
+  padding: var(--e4) var(--e5) var(--e5);
+}
+
+.barra {
+  display: flex;
+  align-items: center;
+  gap: var(--e3);
+  flex-wrap: wrap;
+}
+
+.barra .nota {
+  flex: 1;
+  font-family: var(--letra-cifra);
+}
+
+.explicacion {
+  margin: 0;
+  font-size: var(--texto-s);
+  color: var(--apagado);
+}
+
+.vacio-grande {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e2);
+  align-items: center;
+  padding: var(--e7) var(--e4);
+  text-align: center;
+}
+
+/* ============================================ los tres niveles
+   Venta → ganancia bruta → ganancia neta. Puestos en fila se lee como lo
+   que es: una cascada donde el dinero va menguando. */
+
+.niveles {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--e3);
+}
+
+.nivel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e1);
+  padding: var(--e4);
+  border: 1px solid var(--linea);
+  border-radius: var(--radio-m);
+  background: var(--fondo);
+}
+
+.nivel__titulo {
+  font-size: var(--texto-s);
+  font-weight: var(--peso-fuerte);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--apagado);
+}
+
+.nivel__cifra {
+  font-family: var(--letra-cifra);
+  font-size: var(--texto-2xl);
+  font-weight: var(--peso-fuerte);
+}
+
+.nivel__pie {
+  font-size: var(--texto-xs);
+  color: var(--apagado);
+}
+
+.nivel--venta {
+  border-color: var(--destaque);
+  background: var(--destaque-suave);
+}
+
+.nivel--venta .nivel__cifra {
+  color: var(--destaque-texto);
+}
+
+.nivel--bruta .nivel__cifra {
+  color: var(--tinta);
+}
+
+/* La neta es la que de verdad se queda el dueño: va destacada. */
+.nivel--neta {
+  border-color: var(--acento);
+  background: var(--acento-suave);
+}
+
+.nivel--neta .nivel__cifra {
+  color: var(--acento);
+}
+
+.nivel--perdida {
+  border-color: var(--rojo);
+  background: var(--rojo-suave);
+}
+
+.nivel--perdida .nivel__cifra {
+  color: var(--rojo);
+}
+
+/* ================================================ la gráfica diaria */
+
+.grafica {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e1);
+}
+
+.grafica__lienzo {
+  width: 100%;
+  height: 200px;
+  overflow: visible;
+}
+
+.barra--venta {
+  fill: var(--destaque);
+  opacity: 0.75;
+}
+
+.barra--venta:hover {
+  opacity: 1;
+}
+
+/* La línea no se escala con el lienzo: `preserveAspectRatio: none` la
+   deformaría, y `vector-effect` la mantiene del mismo grosor siempre. */
+.linea-ganancia {
+  fill: none;
+  stroke: var(--acento);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.eje {
+  display: flex;
+  justify-content: space-between;
+  gap: 2px;
+}
+
+.eje__marca {
+  flex: 1;
+  font-family: var(--letra-cifra);
+  font-size: var(--texto-xs);
+  color: var(--apagado);
+  text-align: center;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.leyenda {
+  display: flex;
+  align-items: center;
+  gap: var(--e1);
+  font-size: var(--texto-xs);
+  color: var(--apagado);
+}
+
+.marca {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
+.marca--venta {
+  background: var(--destaque);
+}
+
+.marca--ganancia {
+  background: var(--acento);
+}
+
+/* ==================================================== las horas */
+
+.columnas {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--e4);
+  align-items: start;
+}
+
+.horas {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 120px;
+}
+
+.hora {
+  flex: 1;
+  display: flex;
+  align-items: flex-end;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--superficie);
+}
+
+.hora__barra {
+  width: 100%;
+  min-height: 2px;
+  border-radius: 2px;
+  background: var(--linea);
+}
+
+/* Una hora sin ventas se queda en gris: el hueco es información. */
+.hora--viva .hora__barra {
+  background: var(--acento);
+}
+
+.horas__eje {
+  display: flex;
+  justify-content: space-between;
+  margin-top: var(--e1);
+  font-family: var(--letra-cifra);
+  font-size: var(--texto-xs);
+  color: var(--apagado);
+}
+
+/* ================================================== el anillo */
+
+.reparto {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  align-items: center;
+  gap: var(--e4);
+}
+
+.anillo {
+  width: 100%;
+  transform: rotate(-90deg);
+}
+
+.anillo__fondo {
+  fill: none;
+  stroke: var(--superficie-fuerte);
+  stroke-width: 5;
+}
+
+.anillo__arco {
+  fill: none;
+  stroke-width: 5;
+}
+
+.reparto__lista {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.reparto__linea {
+  display: grid;
+  grid-template-columns: 10px 1fr auto;
+  align-items: baseline;
+  gap: var(--e2);
+  font-size: var(--texto-s);
+}
+
+.reparto__linea .nota {
+  grid-column: 2 / -1;
+  font-size: var(--texto-xs);
+}
+
+.punto {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.reparto__nombre {
+  font-weight: var(--peso-medio);
+}
+
+/* ================================================ los escalafones */
+
+.escalafon {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e2);
+}
+
+.fila-barra {
+  display: grid;
+  grid-template-columns: minmax(120px, 1.4fr) 2fr auto auto;
+  align-items: center;
+  gap: var(--e3);
+  font-size: var(--texto-s);
+}
+
+.fila-barra__nombre {
+  font-weight: var(--peso-medio);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fila-barra__pista {
+  height: 10px;
+  border-radius: var(--radio-pildora);
+  background: var(--superficie-fuerte);
+  overflow: hidden;
+}
+
+.fila-barra__relleno {
+  height: 100%;
+  border-radius: var(--radio-pildora);
+  background: var(--acento);
+}
+
+.fila-barra__dato {
+  font-weight: var(--peso-fuerte);
+  text-align: right;
+}
+
+.fila-barra__extra {
+  min-width: 70px;
+  font-size: var(--texto-xs);
+  text-align: right;
+}
+
+/* Un producto que se acaba en días se ve rojo: es lo único de esta
+   pantalla que exige actuar hoy. */
+.fila--critica td {
+  background: var(--rojo-suave);
+}
+
+.fila--critica .cifra {
+  color: var(--rojo);
+}
+
+.nota {
+  display: block;
+  font-size: var(--texto-xs);
+}
+
+@media (max-width: 1100px) {
+  .columnas {
+    grid-template-columns: 1fr;
+  }
+
+  .niveles {
+    grid-template-columns: 1fr;
+  }
+
+  .reparto {
+    grid-template-columns: 110px 1fr;
+  }
+}
+
+/* ============================================ el último día
+   La pregunta que más se hace un dueño por la mañana: ¿ayer fue mejor o
+   peor? Va pegada a la gráfica que la contesta, no suelta en una tarjeta. */
+
+.comparativa {
+  display: flex;
+  align-items: center;
+  gap: var(--e3);
+  margin-bottom: var(--e3);
+  padding: var(--e3);
+  border-radius: var(--radio-s);
+  border-left: 3px solid var(--acento);
+  background: var(--acento-suave);
+}
+
+.comparativa__flecha {
+  font-size: var(--texto-xl);
+  line-height: 1;
+  color: var(--acento);
+}
+
+.comparativa__cuerpo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e1);
+  min-width: 0;
+}
+
+.comparativa__cifra {
+  font-family: var(--letra-cifra);
+  font-size: var(--texto-xl);
+  font-weight: var(--peso-fuerte);
+  color: var(--acento);
+}
+
+.comparativa__porcentaje {
+  margin-left: var(--e2);
+  font-size: var(--texto-s);
+  opacity: 0.8;
+}
+
+.comparativa__detalle {
+  font-size: var(--texto-s);
+  color: var(--apagado);
+}
+
+/* Vender menos que el día anterior no es un error, pero tampoco es
+   neutro: se ve distinto para que no pase desapercibido. */
+.comparativa--baja {
+  border-left-color: var(--rojo);
+  background: var(--rojo-suave);
+}
+
+.comparativa--baja .comparativa__flecha,
+.comparativa--baja .comparativa__cifra {
+  color: var(--rojo);
+}

@@ -1,0 +1,382 @@
+<section class="informes">
+  @if (error(); as fallo) {
+    <div
+      class="aviso"
+      [class.aviso--error]="!fallo.delUsuario"
+      [class.aviso--atencion]="fallo.delUsuario"
+      role="alert"
+    >
+      <strong>{{ fallo.mensaje }}</strong>
+      <span class="codigo">{{ fallo.codigo }}</span>
+    </div>
+  }
+
+  <!-- ==================================================== el periodo -->
+  <div class="barra">
+    <div class="segmento">
+      @for (opcion of periodos; track opcion.valor) {
+        <button
+          type="button"
+          [attr.aria-pressed]="periodo() === opcion.valor"
+          (click)="elegirPeriodo(opcion.valor)"
+        >
+          {{ opcion.nombre }}
+        </button>
+      }
+    </div>
+
+    @if (informe(); as datos) {
+      <span class="apagado nota">{{ datos.desde }} → {{ datos.hasta }}</span>
+    }
+
+    <button type="button" class="boton boton--discreto" (click)="recargar()" [disabled]="cargando()">
+      {{ cargando() ? 'Cargando…' : 'Actualizar' }}
+    </button>
+  </div>
+
+  @if (informe(); as datos) {
+    @if (datos.sinDatos) {
+      <div class="panel vacio-grande">
+        <span class="vacio__titulo">No hubo ventas en este periodo</span>
+        <span class="vacio__texto">
+          Prueba con un rango más amplio, o cobra algo en Vender <kbd class="tecla">F1</kbd>.
+        </span>
+      </div>
+    } @else {
+      <!-- ============================================ los tres niveles
+           Van juntos y en este orden a propósito: confundir la venta con
+           la ganancia es la forma más común de creerse rico (RF-EST-13). -->
+      <div class="niveles">
+        <div class="nivel nivel--venta">
+          <span class="nivel__titulo">Vendido</span>
+          <span class="cifra nivel__cifra">{{ datos.resumen.venta }}</span>
+          <span class="nivel__pie">
+            {{ datos.resumen.cuantasVentas }}
+            {{ datos.resumen.cuantasVentas === 1 ? 'venta' : 'ventas' }} · ticket
+            {{ datos.resumen.ticketPromedio }}
+          </span>
+        </div>
+
+        <div class="nivel nivel--bruta" [class.nivel--perdida]="datos.resumen.enPerdida">
+          <span class="nivel__titulo">Ganancia bruta</span>
+          <span class="cifra nivel__cifra">{{ datos.resumen.gananciaBruta }}</span>
+          <span class="nivel__pie">Margen {{ datos.resumen.margen }} % · ya sin el costo</span>
+        </div>
+
+        <div class="nivel nivel--neta">
+          <span class="nivel__titulo">Ganancia neta</span>
+          <span class="cifra nivel__cifra">{{ datos.resumen.gananciaNeta }}</span>
+          <span class="nivel__pie">
+            Tras la comisión del {{ datos.resumen.comisionPorcentaje }} %
+          </span>
+        </div>
+      </div>
+
+      <!-- ============================================= cómo va el tiempo -->
+      <div class="panel">
+        <div class="panel__cabecera">
+          <span class="panel__titulo">Cómo fue cada día</span>
+          <span class="leyenda">
+            <span class="marca marca--venta"></span> Vendido
+            <span class="marca marca--ganancia"></span> Ganancia
+          </span>
+        </div>
+
+        <div class="panel__cuerpo">
+          <!-- El último día contra el anterior. Se enseñan las dos fechas
+               porque no siempre son consecutivas: si la tienda cerró un
+               día, se compara contra el último en que sí vendió. -->
+          @if (datos.comparativa; as ayer) {
+            <div class="comparativa" [class.comparativa--baja]="!ayer.subio">
+              <span class="comparativa__flecha" aria-hidden="true">
+                {{ ayer.subio ? '▲' : '▼' }}
+              </span>
+              <div class="comparativa__cuerpo">
+                <span class="comparativa__cifra cifra">
+                  {{ ayer.diferencia }}
+                  @if (ayer.porcentaje; as variacion) {
+                    <span class="comparativa__porcentaje">{{ variacion }} %</span>
+                  }
+                </span>
+                <span class="comparativa__detalle">
+                  El {{ ayer.etiquetaUltimo }} se vendió
+                  <strong>{{ ayer.ventaUltimo }}</strong>, frente a
+                  <strong>{{ ayer.ventaAnterior }}</strong> del {{ ayer.etiquetaAnterior }}
+                </span>
+              </div>
+            </div>
+          }
+
+          @if (datos.porDia.length) {
+            <div class="grafica">
+              <svg
+                class="grafica__lienzo"
+                viewBox="0 0 100 100"
+                preserveAspectRatio="none"
+                role="img"
+                aria-label="Venta y ganancia por día"
+              >
+                <!-- Barras de venta. El ancho sale del número de días para
+                     que la gráfica llene el espacio con 3 días o con 90. -->
+                @for (dia of datos.porDia; track dia.fecha; let i = $index) {
+                  <rect
+                    class="barra barra--venta"
+                    [attr.x]="(i * 100) / datos.porDia.length + 100 / datos.porDia.length / 6"
+                    [attr.y]="alto - altura(dia.peso)"
+                    [attr.width]="(100 / datos.porDia.length) * 0.66"
+                    [attr.height]="altura(dia.peso)"
+                  >
+                    <title>{{ dia.etiqueta }} · {{ dia.venta }} en {{ dia.cuantas }} ventas</title>
+                  </rect>
+                }
+
+                <!-- La ganancia va como línea sobre las barras y en la MISMA
+                     escala: en su propia escala, un día malo parecería bueno. -->
+                @if (lineaGanancia()) {
+                  <polyline class="linea-ganancia" [attr.points]="lineaGanancia()" />
+                }
+              </svg>
+
+              <div class="eje">
+                @for (dia of datos.porDia; track dia.fecha) {
+                  <span class="eje__marca">{{ dia.etiqueta }}</span>
+                }
+              </div>
+            </div>
+          } @else {
+            <p class="explicacion">Sin ventas en el rango elegido.</p>
+          }
+        </div>
+      </div>
+
+      <div class="columnas">
+        <!-- ======================================= a qué hora se vende -->
+        <div class="panel">
+          <div class="panel__cabecera">
+            <span class="panel__titulo">A qué hora se vende</span>
+            @if (horaPunta(); as punta) {
+              <span class="apagado nota">La mejor: {{ punta.etiqueta }}</span>
+            }
+          </div>
+
+          <div class="panel__cuerpo">
+            <!-- Las 24 horas, incluidas las vacías: un hueco a media tarde
+                 dice tanto como un pico a media mañana. -->
+            <div class="horas">
+              @for (hora of datos.porHora; track hora.hora) {
+                <div
+                  class="hora"
+                  [class.hora--viva]="hora.cuantas > 0"
+                  [title]="hora.etiqueta + ' · ' + hora.venta"
+                >
+                  <div class="hora__barra" [style.height.%]="hora.peso / 10"></div>
+                </div>
+              }
+            </div>
+            <div class="horas__eje">
+              <span>00</span><span>06</span><span>12</span><span>18</span><span>23</span>
+            </div>
+            <span class="pista">
+              Se vendió en {{ horasActivas() }} de las 24 horas del día.
+            </span>
+          </div>
+        </div>
+
+        <!-- ========================================= cómo paga la gente -->
+        <div class="panel">
+          <div class="panel__cabecera">
+            <span class="panel__titulo">Cómo paga la gente</span>
+          </div>
+
+          <div class="panel__cuerpo reparto">
+            @if (anillo().length) {
+              <svg class="anillo" viewBox="0 0 42 42" role="img" aria-label="Reparto por forma de pago">
+                <circle class="anillo__fondo" cx="21" cy="21" r="15.915" />
+                @for (arco of anillo(); track arco.porcion.metodo) {
+                  <circle
+                    class="anillo__arco"
+                    cx="21"
+                    cy="21"
+                    r="15.915"
+                    [attr.stroke]="arco.color"
+                    [attr.stroke-dasharray]="arco.trazo + ' ' + (100 - arco.trazo)"
+                    [attr.stroke-dashoffset]="arco.desfase + 25"
+                  >
+                    <title>{{ arco.porcion.nombre }} · {{ arco.porcion.porcentaje }} %</title>
+                  </circle>
+                }
+              </svg>
+
+              <ul class="reparto__lista">
+                @for (arco of anillo(); track arco.porcion.metodo) {
+                  <li class="reparto__linea">
+                    <span class="punto" [style.background]="arco.color"></span>
+                    <span class="reparto__nombre">{{ arco.porcion.nombre }}</span>
+                    <span class="cifra">{{ arco.porcion.importe }}</span>
+                    <span class="apagado nota">
+                      {{ arco.porcion.porcentaje }} %
+                      @if (arco.porcion.moneda !== '$') {
+                        · {{ arco.porcion.entregado }} {{ arco.porcion.moneda }}
+                      }
+                    </span>
+                  </li>
+                }
+              </ul>
+            } @else {
+              <p class="explicacion">Nadie ha pagado todavía en este periodo.</p>
+            }
+          </div>
+        </div>
+      </div>
+
+      <!-- ====================================== qué sostiene el negocio -->
+      <div class="panel">
+        <div class="panel__cabecera">
+          <span class="panel__titulo">Qué sostiene el negocio</span>
+          <div class="segmento">
+            <button
+              type="button"
+              [attr.aria-pressed]="escalafon() === 'vendidos'"
+              (click)="escalafon.set('vendidos')"
+            >
+              Más vendidos
+            </button>
+            <button
+              type="button"
+              [attr.aria-pressed]="escalafon() === 'rentables'"
+              (click)="escalafon.set('rentables')"
+            >
+              Más rentables
+            </button>
+          </div>
+        </div>
+
+        <div class="panel__cuerpo">
+          <!-- Lo más vendido no siempre es lo más rentable, y por eso se
+               pueden alternar sin cambiar de pantalla (RF-EST-03/04). -->
+          <div class="escalafon">
+            @for (producto of ranking(); track producto.producto) {
+              <div class="fila-barra">
+                <span class="fila-barra__nombre">{{ producto.nombre }}</span>
+                <div class="fila-barra__pista">
+                  <div class="fila-barra__relleno" [style.width.%]="producto.peso / 10"></div>
+                </div>
+                <span class="fila-barra__dato cifra">
+                  @if (escalafon() === 'vendidos') {
+                    {{ producto.cantidad }} {{ producto.unidad }}
+                  } @else {
+                    {{ producto.ganancia }}
+                  }
+                </span>
+                <span class="fila-barra__extra apagado">
+                  @if (escalafon() === 'vendidos') {
+                    {{ producto.importe }}
+                  } @else {
+                    {{ producto.margen }} %
+                  }
+                </span>
+              </div>
+            } @empty {
+              <p class="explicacion">Nada vendido en este periodo.</p>
+            }
+          </div>
+        </div>
+      </div>
+
+      <div class="columnas">
+        <!-- ========================================= lo que se acaba -->
+        <div class="panel">
+          <div class="panel__cabecera">
+            <span class="panel__titulo">Se está acabando</span>
+            <span class="apagado nota">Al ritmo de este periodo</span>
+          </div>
+
+          <div class="tabla-envoltorio">
+            <table class="tabla">
+              <thead>
+                <tr>
+                  <th>Producto</th>
+                  <th class="derecha">Queda</th>
+                  <th class="derecha">Al día</th>
+                  <th class="derecha">Aguanta</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (producto of datos.porAgotarse; track producto.producto) {
+                  <tr [class.fila--critica]="producto.critico">
+                    <td>{{ producto.nombre }}</td>
+                    <td class="derecha cifra">{{ producto.existencia }}</td>
+                    <td class="derecha cifra apagado">{{ producto.ventaDiaria }}</td>
+                    <td class="derecha">
+                      <strong class="cifra">{{ producto.diasCobertura }}</strong>
+                      <span class="apagado nota">
+                        {{ producto.diasCobertura === 1 ? 'día' : 'días' }}
+                      </span>
+                    </td>
+                  </tr>
+                } @empty {
+                  <tr>
+                    <td colspan="4">
+                      <div class="vacio">
+                        <span class="vacio__texto">
+                          Nada en riesgo: no hay producto que se agote al ritmo actual.
+                        </span>
+                      </div>
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ======================================== lo que no se mueve -->
+        <div class="panel">
+          <div class="panel__cabecera">
+            <span class="panel__titulo">Dinero parado</span>
+            <strong class="cifra">{{ datos.capitalParado }}</strong>
+          </div>
+
+          <div class="tabla-envoltorio">
+            <table class="tabla">
+              <thead>
+                <tr>
+                  <th>Producto</th>
+                  <th class="derecha">Existencia</th>
+                  <th class="derecha">Capital</th>
+                </tr>
+              </thead>
+              <tbody>
+                @for (producto of datos.sinMovimiento; track producto.producto) {
+                  <tr>
+                    <td>{{ producto.nombre }}</td>
+                    <td class="derecha cifra apagado">
+                      {{ producto.existencia }} {{ producto.unidad }}
+                    </td>
+                    <td class="derecha cifra">{{ producto.capital }}</td>
+                  </tr>
+                } @empty {
+                  <tr>
+                    <td colspan="3">
+                      <div class="vacio">
+                        <span class="vacio__texto">Todo se movió en este periodo.</span>
+                      </div>
+                    </td>
+                  </tr>
+                }
+              </tbody>
+            </table>
+          </div>
+
+          <div class="panel__cuerpo">
+            <span class="pista">
+              Mercancía comprada que nadie pidió en {{ datos.dias }}
+              {{ datos.dias === 1 ? 'día' : 'días' }}. Es dinero que ya gastaste y sigue en el
+              estante.
+            </span>
+          </div>
+        </div>
+      </div>
+    }
+  }
+</section>
