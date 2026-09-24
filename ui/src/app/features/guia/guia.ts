@@ -1,4 +1,7 @@
-import { ChangeDetectionStrategy, Component, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+
+import { ErrorDto } from '../../core/api.types';
+import { comoError, Kilo12Api } from '../../core/kilo12-api';
 
 /**
  * Catálogo visual de Kilo12.
@@ -14,6 +17,53 @@ import { ChangeDetectionStrategy, Component, signal } from '@angular/core';
   styleUrl: './guia.css',
 })
 export class Guia {
+  private readonly api = inject(Kilo12Api);
+
+  // ------------------------------------------- vaciar la aplicación
+
+  /**
+   * El borrado está detrás de dos puertas: abrir la zona y teclear la
+   * clave. No es paranoia — es la única acción de toda la aplicación que
+   * no se puede deshacer, y vive aquí, en la pantalla que menos se abre,
+   * precisamente para que nadie tropiece con ella.
+   */
+  protected readonly zonaAbierta = signal(false);
+  protected readonly clave = signal('');
+  protected readonly borrando = signal(false);
+  protected readonly borrado = signal(false);
+  protected readonly errorBorrado = signal<ErrorDto | null>(null);
+
+  protected abrirZona(): void {
+    this.zonaAbierta.set(true);
+    this.clave.set('');
+    this.errorBorrado.set(null);
+  }
+
+  protected cerrarZona(): void {
+    this.zonaAbierta.set(false);
+    this.clave.set('');
+    this.errorBorrado.set(null);
+  }
+
+  protected async borrarTodo(): Promise<void> {
+    if (!this.clave().trim() || this.borrando()) {
+      return;
+    }
+
+    this.borrando.set(true);
+    try {
+      await this.api.borrarTodosLosDatos(this.clave().trim());
+      this.borrado.set(true);
+      this.zonaAbierta.set(false);
+      this.clave.set('');
+      this.errorBorrado.set(null);
+    } catch (fallo) {
+      this.errorBorrado.set(comoError(fallo));
+    } finally {
+      this.borrando.set(false);
+    }
+  }
+
   protected readonly marca = [
     { nombre: 'Verde oliva', valor: '#687501', uso: 'Acción y navegación. La bolsa del logo.' },
     { nombre: 'Naranja', valor: '#EB8401', uso: 'Lo que exige atención. El círculo del 12.' },
