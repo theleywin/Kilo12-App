@@ -508,3 +508,135 @@ export interface ConteoCalculadoDto {
   readonly total: string;
   readonly cuantosBilletes: number;
 }
+
+// ==================================================== informes (RF-EST)
+
+/**
+ * Las cifras que resumen un periodo.
+ *
+ * Los tres niveles van separados a propósito y nunca se mezclan: **venta**
+ * es el dinero que entró, **ganancia bruta** descuenta el costo de lo
+ * vendido y **ganancia neta** descuenta además la comisión.
+ */
+export interface ResumenPeriodoDto {
+  readonly cuantasVentas: number;
+  readonly venta: string;
+  readonly costo: string;
+  readonly gananciaBruta: string;
+  readonly comisionPorcentaje: string;
+  readonly comision: string;
+  readonly gananciaNeta: string;
+  readonly ticketPromedio: string;
+  readonly margen: string;
+  readonly enPerdida: boolean;
+}
+
+/** Un día de la serie. `peso` es la altura de la barra, de 0 a 1000. */
+export interface PuntoDiarioDto {
+  readonly fecha: string;
+  readonly etiqueta: string;
+  readonly venta: string;
+  readonly ganancia: string;
+  readonly cuantas: number;
+  readonly peso: number;
+  readonly pesoGanancia: number;
+}
+
+/** Una hora del día. */
+export interface PuntoHorarioDto {
+  readonly hora: number;
+  readonly etiqueta: string;
+  readonly venta: string;
+  readonly cuantas: number;
+  readonly peso: number;
+}
+
+/** Lo cobrado por una forma de pago. */
+export interface PorcionMetodoDto {
+  readonly metodo: string;
+  readonly nombre: string;
+  readonly entregado: string;
+  readonly moneda: string;
+  readonly importe: string;
+  readonly porcentaje: string;
+  readonly peso: number;
+}
+
+/** Un producto en un escalafón. */
+export interface ProductoEnInformeDto {
+  readonly producto: number;
+  readonly nombre: string;
+  readonly cantidad: string;
+  readonly unidad: string;
+  readonly importe: string;
+  readonly ganancia: string;
+  readonly margen: string;
+  readonly peso: number;
+}
+
+/** Un producto que no se vendió en el periodo. */
+export interface ProductoParadoDto {
+  readonly producto: number;
+  readonly nombre: string;
+  readonly existencia: string;
+  readonly unidad: string;
+  /** Dinero detenido en ese producto. */
+  readonly capital: string;
+}
+
+/** Un producto a punto de acabarse. */
+export interface ProductoPorAgotarseDto {
+  readonly producto: number;
+  readonly nombre: string;
+  readonly existencia: string;
+  readonly unidad: string;
+  readonly ventaDiaria: string;
+  /** Días que aguanta al ritmo actual. */
+  readonly diasCobertura: number | null;
+  readonly critico: boolean;
+}
+
+/**
+ * Cómo fue el último día frente al anterior.
+ *
+ * Compara los dos últimos días **con ventas**, no las dos últimas fechas:
+ * si la tienda cerró ayer, compararse contra un cero no dice nada. Por eso
+ * vienen las dos etiquetas.
+ */
+export interface ComparativaDiariaDto {
+  readonly etiquetaUltimo: string;
+  readonly etiquetaAnterior: string;
+  readonly ventaUltimo: string;
+  readonly ventaAnterior: string;
+  /** Diferencia con signo: negativa si se vendió menos. */
+  readonly diferencia: string;
+  /** Variación porcentual. Nula si el día anterior fue cero. */
+  readonly porcentaje: string | null;
+  readonly subio: boolean;
+}
+
+/** El informe completo de un periodo. */
+export interface InformeDto {
+  readonly desde: string;
+  readonly hasta: string;
+  readonly dias: number;
+  readonly resumen: ResumenPeriodoDto;
+  readonly porDia: readonly PuntoDiarioDto[];
+  readonly porHora: readonly PuntoHorarioDto[];
+  readonly porMetodo: readonly PorcionMetodoDto[];
+  readonly masVendidos: readonly ProductoEnInformeDto[];
+  readonly masRentables: readonly ProductoEnInformeDto[];
+  readonly sinMovimiento: readonly ProductoParadoDto[];
+  readonly porAgotarse: readonly ProductoPorAgotarseDto[];
+  readonly comparativa: ComparativaDiariaDto | null;
+  readonly capitalParado: string;
+  readonly sinDatos: boolean;
+}
+
+/** Periodos que ofrece la pantalla de informes. */
+export const PERIODOS: ReadonlyArray<{ valor: string; nombre: string; dias: number }> = [
+  { valor: 'hoy', nombre: 'Hoy', dias: 1 },
+  { valor: 'semana', nombre: '7 días', dias: 7 },
+  { valor: 'mes', nombre: '30 días', dias: 30 },
+  { valor: 'trimestre', nombre: '90 días', dias: 90 },
+];
