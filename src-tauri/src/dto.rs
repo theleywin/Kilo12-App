@@ -11,7 +11,8 @@
 
 use application::casos::{
     ArqueoListado, CierreCalculado, ComandoAbrirCaja, ComandoAnularVenta, ComandoCerrarCaja,
-    ComandoMoverEfectivo, ConteoCalculado, DesgloseVenta, EstadoCaja, SesionListada,
+    ComandoMoverEfectivo, ConteoCalculado, DesgloseVenta, EstadoCaja, Informe, ProductoEnInforme,
+    SesionListada,
 };
 use application::casos::{
     CambioDePrecioListado, ComandoAgregarPresentacion, ComandoCambiarPrecio, ComandoEditarProducto,
@@ -1282,6 +1283,251 @@ impl From<ConteoCalculado> for ConteoCalculadoDto {
                     denominacion: l.denominacion,
                     cuantos: l.cuantos,
                     importe: l.importe,
+                })
+                .collect(),
+        }
+    }
+}
+
+// ==================================================== informes (RF-EST)
+
+/// Las cifras que resumen un periodo.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResumenPeriodoDto {
+    pub cuantas_ventas: i64,
+    pub venta: String,
+    pub costo: String,
+    pub ganancia_bruta: String,
+    pub comision_porcentaje: String,
+    pub comision: String,
+    pub ganancia_neta: String,
+    pub ticket_promedio: String,
+    pub margen: String,
+    pub en_perdida: bool,
+}
+
+/// Un día de la serie.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PuntoDiarioDto {
+    pub fecha: String,
+    pub etiqueta: String,
+    pub venta: String,
+    pub ganancia: String,
+    pub cuantas: i64,
+    pub peso: i64,
+    pub peso_ganancia: i64,
+}
+
+/// Una hora del día.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PuntoHorarioDto {
+    pub hora: i64,
+    pub etiqueta: String,
+    pub venta: String,
+    pub cuantas: i64,
+    pub peso: i64,
+}
+
+/// Lo cobrado por una forma de pago.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PorcionMetodoDto {
+    pub metodo: String,
+    pub nombre: String,
+    pub entregado: String,
+    pub moneda: String,
+    pub importe: String,
+    pub porcentaje: String,
+    pub peso: i64,
+}
+
+/// Un producto en un escalafón.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProductoEnInformeDto {
+    pub producto: i64,
+    pub nombre: String,
+    pub cantidad: String,
+    pub unidad: String,
+    pub importe: String,
+    pub ganancia: String,
+    pub margen: String,
+    pub peso: i64,
+}
+
+/// Un producto sin ventas en el periodo.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProductoParadoDto {
+    pub producto: i64,
+    pub nombre: String,
+    pub existencia: String,
+    pub unidad: String,
+    pub capital: String,
+}
+
+/// Un producto a punto de acabarse.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProductoPorAgotarseDto {
+    pub producto: i64,
+    pub nombre: String,
+    pub existencia: String,
+    pub unidad: String,
+    pub venta_diaria: String,
+    pub dias_cobertura: Option<i64>,
+    pub critico: bool,
+}
+
+/// El último día frente al anterior.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComparativaDiariaDto {
+    pub etiqueta_ultimo: String,
+    pub etiqueta_anterior: String,
+    pub venta_ultimo: String,
+    pub venta_anterior: String,
+    pub diferencia: String,
+    pub porcentaje: Option<String>,
+    pub subio: bool,
+}
+
+/// El informe completo de un periodo.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InformeDto {
+    pub desde: String,
+    pub hasta: String,
+    pub dias: i64,
+    pub resumen: ResumenPeriodoDto,
+    pub por_dia: Vec<PuntoDiarioDto>,
+    pub por_hora: Vec<PuntoHorarioDto>,
+    pub por_metodo: Vec<PorcionMetodoDto>,
+    pub mas_vendidos: Vec<ProductoEnInformeDto>,
+    pub mas_rentables: Vec<ProductoEnInformeDto>,
+    pub sin_movimiento: Vec<ProductoParadoDto>,
+    pub por_agotarse: Vec<ProductoPorAgotarseDto>,
+    pub comparativa: Option<ComparativaDiariaDto>,
+    pub capital_parado: String,
+    pub sin_datos: bool,
+}
+
+impl From<ProductoEnInforme> for ProductoEnInformeDto {
+    fn from(p: ProductoEnInforme) -> Self {
+        Self {
+            producto: p.producto,
+            nombre: p.nombre,
+            cantidad: p.cantidad,
+            unidad: p.unidad,
+            importe: p.importe,
+            ganancia: p.ganancia,
+            margen: p.margen,
+            peso: p.peso,
+        }
+    }
+}
+
+impl From<Informe> for InformeDto {
+    fn from(informe: Informe) -> Self {
+        Self {
+            desde: informe.desde,
+            hasta: informe.hasta,
+            dias: informe.dias,
+            capital_parado: informe.capital_parado,
+            sin_datos: informe.sin_datos,
+            comparativa: informe.comparativa.map(|c| ComparativaDiariaDto {
+                etiqueta_ultimo: c.etiqueta_ultimo,
+                etiqueta_anterior: c.etiqueta_anterior,
+                venta_ultimo: c.venta_ultimo,
+                venta_anterior: c.venta_anterior,
+                diferencia: c.diferencia,
+                porcentaje: c.porcentaje,
+                subio: c.subio,
+            }),
+            resumen: ResumenPeriodoDto {
+                cuantas_ventas: informe.resumen.cuantas_ventas,
+                venta: informe.resumen.venta,
+                costo: informe.resumen.costo,
+                ganancia_bruta: informe.resumen.ganancia_bruta,
+                comision_porcentaje: informe.resumen.comision_porcentaje,
+                comision: informe.resumen.comision,
+                ganancia_neta: informe.resumen.ganancia_neta,
+                ticket_promedio: informe.resumen.ticket_promedio,
+                margen: informe.resumen.margen,
+                en_perdida: informe.resumen.en_perdida,
+            },
+            por_dia: informe
+                .por_dia
+                .into_iter()
+                .map(|d| PuntoDiarioDto {
+                    fecha: d.fecha,
+                    etiqueta: d.etiqueta,
+                    venta: d.venta,
+                    ganancia: d.ganancia,
+                    cuantas: d.cuantas,
+                    peso: d.peso,
+                    peso_ganancia: d.peso_ganancia,
+                })
+                .collect(),
+            por_hora: informe
+                .por_hora
+                .into_iter()
+                .map(|h| PuntoHorarioDto {
+                    hora: h.hora,
+                    etiqueta: h.etiqueta,
+                    venta: h.venta,
+                    cuantas: h.cuantas,
+                    peso: h.peso,
+                })
+                .collect(),
+            por_metodo: informe
+                .por_metodo
+                .into_iter()
+                .map(|m| PorcionMetodoDto {
+                    metodo: m.metodo,
+                    nombre: m.nombre,
+                    entregado: m.entregado,
+                    moneda: m.moneda,
+                    importe: m.importe,
+                    porcentaje: m.porcentaje,
+                    peso: m.peso,
+                })
+                .collect(),
+            mas_vendidos: informe
+                .mas_vendidos
+                .into_iter()
+                .map(ProductoEnInformeDto::from)
+                .collect(),
+            mas_rentables: informe
+                .mas_rentables
+                .into_iter()
+                .map(ProductoEnInformeDto::from)
+                .collect(),
+            sin_movimiento: informe
+                .sin_movimiento
+                .into_iter()
+                .map(|p| ProductoParadoDto {
+                    producto: p.producto,
+                    nombre: p.nombre,
+                    existencia: p.existencia,
+                    unidad: p.unidad,
+                    capital: p.capital,
+                })
+                .collect(),
+            por_agotarse: informe
+                .por_agotarse
+                .into_iter()
+                .map(|p| ProductoPorAgotarseDto {
+                    producto: p.producto,
+                    nombre: p.nombre,
+                    existencia: p.existencia,
+                    unidad: p.unidad,
+                    venta_diaria: p.venta_diaria,
+                    dias_cobertura: p.dias_cobertura,
+                    critico: p.critico,
                 })
                 .collect(),
         }
