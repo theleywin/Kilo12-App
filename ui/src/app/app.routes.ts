@@ -2,6 +2,7 @@ import { Routes } from '@angular/router';
 
 import { Almacen } from './features/almacen/almacen';
 import { Caja } from './features/caja/caja';
+import { Informes } from './features/informes/informes';
 import { Vender } from './features/vender/vender';
 import { Entrada } from './features/entrada/entrada';
 import { Ventas } from './features/ventas/ventas';
@@ -13,7 +14,7 @@ import { Productos } from './features/productos/productos';
 import { GUIA, SECCIONES } from './layout/navegacion';
 
 /** Secciones que ya tienen pantalla propia. */
-const CONSTRUIDAS = ['productos', 'almacen', 'vitrina', 'entrada', 'vender', 'ventas', 'caja'];
+const CONSTRUIDAS = ['productos', 'almacen', 'vitrina', 'entrada', 'vender', 'ventas', 'caja', 'informes'];
 
 /**
  * Las rutas salen de la tabla de secciones, no de una lista paralela.
@@ -33,6 +34,7 @@ export const routes: Routes = [
   { path: 'vitrina', component: Vitrina, title: 'Vitrina · Kilo12' },
   { path: 'ventas', component: Ventas, title: 'Ventas · Kilo12' },
   { path: 'caja', component: Caja, title: 'Caja · Kilo12' },
+  { path: 'informes', component: Informes, title: 'Informes · Kilo12' },
 
   { path: GUIA.ruta, component: Guia, title: `${GUIA.titulo} · Kilo12` },
 
