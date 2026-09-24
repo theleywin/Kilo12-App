@@ -8,9 +8,10 @@ use std::sync::Arc;
 use application::error::Resultado;
 use application::puertos::{
     AcumuladoSesion, AnulacionConfirmada, Asiento, CambioDePrecio, CambioRegistrado,
-    CierreConfirmado, DetalleVenta, LineaRegistrada, MovimientoEfectivoRegistrado,
+    CierreConfirmado, DetalleVenta, LineaDelPeriodo, LineaRegistrada, MovimientoEfectivoRegistrado,
     MovimientoRegistrado, PagoRegistrado, ProductoConInventario, RepositorioProducto, ResumenDia,
-    SesionRegistrada, VentaConfirmada, VentaRegistrada,
+    SesionRegistrada, TotalesPeriodo, VentaConfirmada, VentaDiaria, VentaHoraria, VentaPorMetodo,
+    VentaRegistrada,
 };
 use domain::{
     ArqueoMoneda, Cantidad, Comision, Dinero, ErrorDominio, EstadoSesion, Existencias,
@@ -948,6 +949,186 @@ impl RepositorioProducto for RepositorioProductoSqlite {
         })?;
 
         Ok(cierre)
+    }
+
+    // ---------------------------------------------- informes
+
+    fn resumen_periodo(&self, desde: &str, hasta: &str) -> Resultado<TotalesPeriodo> {
+        let totales = self.base.con(|conexion| {
+            let (cuantas, venta, costo): (i64, i64, i64) = conexion.query_row(
+                "SELECT COUNT(*), COALESCE(SUM(total), 0), COALESCE(SUM(costo_total), 0)
+                   FROM venta
+                  WHERE date(ocurrido_en) BETWEEN ?1 AND ?2
+                    AND anulada_en IS NULL",
+                params![desde, hasta],
+                |fila| Ok((fila.get(0)?, fila.get(1)?, fila.get(2)?)),
+            )?;
+
+            Ok(TotalesPeriodo {
+                cuantas,
+                venta: Dinero::desde_millonesimas(venta),
+                costo: Dinero::desde_millonesimas(costo),
+            })
+        })?;
+
+        Ok(totales)
+    }
+
+    fn ventas_por_dia(&self, desde: &str, hasta: &str) -> Resultado<Vec<VentaDiaria>> {
+        let dias = self.base.con(|conexion| {
+            let mut consulta = conexion.prepare(
+                "SELECT date(ocurrido_en), COALESCE(SUM(total), 0),
+                        COALESCE(SUM(costo_total), 0), COUNT(*)
+                   FROM venta
+                  WHERE date(ocurrido_en) BETWEEN ?1 AND ?2
+                    AND anulada_en IS NULL
+                  GROUP BY date(ocurrido_en)
+                  ORDER BY date(ocurrido_en)",
+            )?;
+
+            let mut filas = consulta.query(params![desde, hasta])?;
+            let mut dias = Vec::new();
+
+            while let Some(fila) = filas.next()? {
+                dias.push(VentaDiaria {
+                    fecha: fila.get(0)?,
+                    venta: Dinero::desde_millonesimas(fila.get(1)?),
+                    costo: Dinero::desde_millonesimas(fila.get(2)?),
+                    cuantas: fila.get(3)?,
+                });
+            }
+
+            Ok(dias)
+        })?;
+
+        Ok(dias)
+    }
+
+    fn ventas_por_hora(&self, desde: &str, hasta: &str) -> Resultado<Vec<VentaHoraria>> {
+        let horas = self.base.con(|conexion| {
+            let mut consulta = conexion.prepare(
+                "SELECT CAST(strftime('%H', ocurrido_en) AS INTEGER),
+                        COALESCE(SUM(total), 0), COUNT(*)
+                   FROM venta
+                  WHERE date(ocurrido_en) BETWEEN ?1 AND ?2
+                    AND anulada_en IS NULL
+                  GROUP BY 1
+                  ORDER BY 1",
+            )?;
+
+            let mut filas = consulta.query(params![desde, hasta])?;
+            let mut horas = Vec::new();
+
+            while let Some(fila) = filas.next()? {
+                horas.push(VentaHoraria {
+                    hora: fila.get(0)?,
+                    venta: Dinero::desde_millonesimas(fila.get(1)?),
+                    cuantas: fila.get(2)?,
+                });
+            }
+
+            Ok(horas)
+        })?;
+
+        Ok(horas)
+    }
+
+    fn ventas_por_metodo(&self, desde: &str, hasta: &str) -> Resultado<Vec<VentaPorMetodo>> {
+        let metodos = self.base.con(|conexion| {
+            let mut consulta = conexion.prepare(
+                "SELECT p.metodo, COALESCE(SUM(p.entregado), 0),
+                        COALESCE(SUM(p.equivalente_cup), 0)
+                   FROM venta_pago p
+                   JOIN venta v ON v.id = p.venta_id
+                  WHERE date(v.ocurrido_en) BETWEEN ?1 AND ?2
+                    AND v.anulada_en IS NULL
+                  GROUP BY p.metodo",
+            )?;
+
+            let mut filas = consulta.query(params![desde, hasta])?;
+            let mut metodos = Vec::new();
+
+            while let Some(fila) = filas.next()? {
+                let metodo: String = fila.get(0)?;
+                let metodo = metodo.parse::<MetodoPago>().map_err(|_| {
+                    ErrorInfra::DatoCorrupto(format!("método de pago desconocido: {metodo}"))
+                })?;
+
+                metodos.push(VentaPorMetodo {
+                    metodo,
+                    entregado: Dinero::desde_millonesimas(fila.get(1)?),
+                    equivalente: Dinero::desde_millonesimas(fila.get(2)?),
+                });
+            }
+
+            Ok(metodos)
+        })?;
+
+        Ok(metodos)
+    }
+
+    fn lineas_del_periodo(&self, desde: &str, hasta: &str) -> Resultado<Vec<LineaDelPeriodo>> {
+        let lineas = self.base.con(|conexion| {
+            let mut consulta = conexion.prepare(
+                "SELECT l.producto_id, l.nombre_producto, l.nombre_presentacion,
+                        l.cantidad, l.factor, l.precio, l.costo_unitario
+                   FROM venta_linea l
+                   JOIN venta v ON v.id = l.venta_id
+                  WHERE date(v.ocurrido_en) BETWEEN ?1 AND ?2
+                    AND v.anulada_en IS NULL",
+            )?;
+
+            let mut filas = consulta.query(params![desde, hasta])?;
+            let mut lineas = Vec::new();
+
+            while let Some(fila) = filas.next()? {
+                lineas.push(LineaDelPeriodo {
+                    producto: IdProducto(fila.get(0)?),
+                    nombre_producto: fila.get(1)?,
+                    nombre_presentacion: fila.get(2)?,
+                    cantidad: Cantidad::desde_milesimas(fila.get(3)?),
+                    factor: Cantidad::desde_milesimas(fila.get(4)?),
+                    precio: Dinero::desde_millonesimas(fila.get(5)?),
+                    costo_unitario: Dinero::desde_millonesimas(fila.get(6)?),
+                });
+            }
+
+            Ok(lineas)
+        })?;
+
+        Ok(lineas)
+    }
+
+    fn borrar_todos_los_datos(&self) -> Resultado<()> {
+        self.base.en_transaccion(|tx| {
+            // De dentro hacia fuera: cada tabla antes que aquella a la que
+            // apunta. Si el orden se rompe, la clave foránea lo impide, que
+            // es justo lo que debe hacer.
+            //
+            // El esquema NO se toca: se vacían las filas y `user_version`
+            // se queda donde está, así que al abrir de nuevo no se intenta
+            // migrar nada.
+            for tabla in [
+                "venta_pago",
+                "venta_linea",
+                "venta",
+                "movimiento_efectivo",
+                "sesion_caja",
+                "movimiento",
+                "historial_precio",
+                "existencia",
+                "presentacion",
+                "producto",
+                "categoria",
+                "configuracion",
+            ] {
+                tx.execute(&format!("DELETE FROM {tabla}"), [])?;
+            }
+
+            Ok(())
+        })?;
+
+        Ok(())
     }
 
     fn configuracion(&self, clave: &str) -> Resultado<Option<String>> {
