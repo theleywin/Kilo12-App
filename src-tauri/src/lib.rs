@@ -62,6 +62,8 @@ pub fn ejecutar() {
             comandos::fijar_comision,
             comandos::denominaciones_efectivo,
             comandos::contar_efectivo,
+            comandos::consultar_informe,
+            comandos::borrar_todos_los_datos,
         ])
         .run(tauri::generate_context!())
         .expect("no se pudo iniciar Kilo12");

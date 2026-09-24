@@ -12,7 +12,9 @@ pub mod consultar_ventas;
 pub mod consultar_vitrina;
 pub mod editar_producto;
 pub mod fijar_objetivo_vitrina;
+pub mod informes;
 pub mod listar_productos;
+pub mod mantenimiento;
 pub mod previsualizar_venta;
 pub mod registrar_entrada;
 pub mod registrar_merma;
@@ -46,7 +48,12 @@ pub use editar_producto::{
     MarcarPredeterminada,
 };
 pub use fijar_objetivo_vitrina::{ComandoFijarObjetivo, FijarObjetivoVitrina};
+pub use informes::{
+    ComparativaDiaria, ConsultarInforme, Informe, PorcionMetodo, ProductoEnInforme, ProductoParado,
+    ProductoPorAgotarse, PuntoDiario, PuntoHorario, ResumenPeriodo,
+};
 pub use listar_productos::{ListarProductos, OrdenCatalogo, ProductoListado};
+pub use mantenimiento::{BorrarTodo, CLAVE_MANTENIMIENTO};
 pub use previsualizar_venta::{LineaPrevista, PrevisualizarVenta, VentaPrevista};
 pub use registrar_entrada::{ComandoRegistrarEntrada, RegistrarEntrada};
 pub use registrar_merma::{ComandoRegistrarMerma, RegistrarMerma};

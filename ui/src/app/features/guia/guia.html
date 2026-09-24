@@ -332,4 +332,80 @@
       </div>
     </div>
   </div>
+
+  <!-- ==================================== vaciar la aplicación
+       La única acción irreversible de todo Kilo12. Va al final de la
+       pantalla que menos se abre, detrás de dos puertas y en rojo: quien
+       llegue aquí tiene que haber querido llegar. -->
+  <div class="panel peligro">
+    <div class="panel__cabecera">
+      <span class="panel__titulo">Empezar de cero</span>
+    </div>
+
+    <div class="panel__cuerpo pila">
+      @if (borrado()) {
+        <div class="aviso aviso--atencion" role="status">
+          <strong>La aplicación quedó vacía</strong>
+          <span>
+            Se borró todo: catálogo, existencias, historial, ventas, cajas y ajustes. Cierra y
+            vuelve a abrir Kilo12 para empezar limpio.
+          </span>
+        </div>
+      } @else if (!zonaAbierta()) {
+        <p class="explicacion">
+          Borra <strong>todos los datos</strong> del negocio y deja la aplicación como recién
+          instalada. Sirve para cuando terminas de probar y vas a empezar a operar de verdad.
+        </p>
+        <button type="button" class="boton boton--discreto" (click)="abrirZona()">
+          Quiero vaciar la aplicación
+        </button>
+      } @else {
+        <div class="aviso aviso--error" role="alert">
+          <strong>Esto no se puede deshacer</strong>
+          <span>
+            Se van el catálogo, las existencias, el kárdex, todas las ventas, el historial de
+            cajas y los ajustes —incluidas la tasa del dólar y la comisión—. No hay papelera ni
+            copia de seguridad.
+          </span>
+        </div>
+
+        @if (errorBorrado(); as fallo) {
+          <div class="aviso aviso--error" role="alert">
+            <strong>{{ fallo.mensaje }}</strong>
+            <span class="codigo">{{ fallo.codigo }}</span>
+          </div>
+        }
+
+        <div class="fila">
+          <div class="campo">
+            <label for="clave-borrado">Escribe la clave para confirmar</label>
+            <input
+              id="clave-borrado"
+              class="control"
+              type="password"
+              autocomplete="off"
+              inputmode="numeric"
+              placeholder="······"
+              [value]="clave()"
+              (input)="clave.set($any($event.target).value)"
+              (keydown.enter)="borrarTodo()"
+            />
+          </div>
+
+          <button
+            type="button"
+            class="boton boton--peligro"
+            [disabled]="!clave().trim() || borrando()"
+            (click)="borrarTodo()"
+          >
+            {{ borrando() ? 'Borrando…' : 'Borrar todo' }}
+          </button>
+
+          <button type="button" class="boton boton--discreto" (click)="cerrarZona()">
+            Cancelar
+          </button>
+        </div>
+      }
+    </div>
+  </div>
 </section>

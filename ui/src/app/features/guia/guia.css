@@ -63,3 +63,23 @@
   font-size: var(--texto-s);
   color: var(--apagado);
 }
+
+/* ======================================== vaciar la aplicación
+   Marcado en rojo y al final del todo. Es la única acción irreversible
+   de Kilo12, y tiene que parecerlo antes de pulsarla, no después. */
+
+.peligro {
+  border-color: var(--rojo);
+}
+
+.peligro .panel__titulo {
+  color: var(--rojo);
+}
+
+.peligro .explicacion {
+  margin: 0;
+  max-width: 62ch;
+  font-size: var(--texto-s);
+  color: var(--apagado);
+  line-height: 1.5;
+}

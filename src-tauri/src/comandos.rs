@@ -12,8 +12,8 @@ use application::casos::caja::{CLAVE_COMISION, LIMITE_POR_DEFECTO as LIMITE_CAJA
 use application::casos::consultar_kardex::LIMITE_POR_DEFECTO;
 use application::casos::consultar_ventas::LIMITE_POR_DEFECTO as LIMITE_VENTAS;
 use application::casos::{
-    AbrirCaja, AnularVenta, CerrarCaja, ConsultarCaja, ContarEfectivo, HistorialCajas,
-    MoverEfectivo,
+    AbrirCaja, AnularVenta, BorrarTodo, CerrarCaja, ConsultarCaja, ConsultarInforme,
+    ContarEfectivo, HistorialCajas, MoverEfectivo,
 };
 use application::casos::{
     AgregarPresentacion, CambiarPrecio, ConsultarAlmacen, ConsultarHistorialPrecios,
@@ -38,7 +38,7 @@ use crate::dto::{
 };
 use crate::dto::{
     AnulacionDto, AperturaCajaDto, CierreCajaDto, CierreCalculadoDto, ConteoCalculadoDto,
-    EstadoCajaDto, MovimientoEfectivoDto, SesionListadaDto,
+    EstadoCajaDto, InformeDto, MovimientoEfectivoDto, SesionListadaDto,
 };
 use crate::dto::{
     CobroCalculadoDto, HistorialVentasDto, NuevaVentaDto, PagoDto, ProductoVendibleDto,
@@ -516,4 +516,33 @@ pub fn contar_efectivo(cuantos: Vec<i64>) -> Result<ConteoCalculadoDto, ErrorDto
     ContarEfectivo::ejecutar(&cuantos)
         .map(ConteoCalculadoDto::from)
         .map_err(ErrorDto::from)
+}
+
+/// Devuelve el informe de un periodo (RF-EST).
+///
+/// `desde` y `hasta` son fechas locales `YYYY-MM-DD`, ambas incluidas, y
+/// las calcula la pantalla: una fecha no es dinero y el reloj del navegador
+/// es el mismo de la máquina donde está la tienda.
+#[tauri::command]
+pub fn consultar_informe(
+    estado: State<'_, Estado>,
+    desde: String,
+    hasta: String,
+    dias: i64,
+) -> Result<InformeDto, ErrorDto> {
+    let caso = ConsultarInforme::nuevo(estado.repositorio_producto());
+    caso.ejecutar(desde.trim(), hasta.trim(), dias)
+        .map(InformeDto::from)
+        .map_err(ErrorDto::from)
+}
+
+/// Borra todos los datos de la aplicación.
+///
+/// La clave se comprueba **aquí**, no en la pantalla: el comando queda
+/// expuesto a la interfaz, y una validación que solo viva en JavaScript se
+/// salta abriendo las herramientas de desarrollo.
+#[tauri::command]
+pub fn borrar_todos_los_datos(estado: State<'_, Estado>, clave: String) -> Result<(), ErrorDto> {
+    let caso = BorrarTodo::nuevo(estado.repositorio_producto());
+    caso.ejecutar(&clave).map_err(ErrorDto::from)
 }
