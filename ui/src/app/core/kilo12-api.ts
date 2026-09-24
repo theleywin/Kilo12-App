@@ -10,6 +10,7 @@ import {
   ConteoCalculadoDto,
   EstadoCajaDto,
   HistorialVentasDto,
+  InformeDto,
   ErrorDto,
   FichaProductoDto,
   MargenDto,
@@ -165,6 +166,27 @@ export class Kilo12Api {
    */
   anularVenta(anulacion: { venta: number; motivo: string }): Promise<void> {
     return invoke<void>('anular_venta', { anulacion });
+  }
+
+  /**
+   * El informe de un periodo (RF-EST).
+   *
+   * Todo llega en una sola llamada: los informes se miran juntos y
+   * partirlos en siete consultas solo conseguiría que la pantalla enseñara
+   * un rato cifras que no se corresponden entre sí.
+   */
+  consultarInforme(desde: string, hasta: string, dias: number): Promise<InformeDto> {
+    return invoke<InformeDto>('consultar_informe', { desde, hasta, dias });
+  }
+
+  /**
+   * Borra todos los datos de la aplicación. **No tiene vuelta atrás.**
+   *
+   * La clave la comprueba Rust, no esta pantalla: validar solo aquí sería
+   * un cerrojo que se abre con las herramientas de desarrollo.
+   */
+  borrarTodosLosDatos(clave: string): Promise<void> {
+    return invoke<void>('borrar_todos_los_datos', { clave });
   }
 
   /** Denominaciones con que se cuenta la caja, de menor a mayor. */
