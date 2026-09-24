@@ -235,6 +235,63 @@ pub struct AnulacionConfirmada<'a> {
     pub reversas: &'a [DescuentoVenta],
 }
 
+/// Totales de un periodo, sumados por la base.
+///
+/// Solo suma columnas ya guardadas: `total` y `costo_total` son enteros
+/// exactos y sumarlos no pierde nada. En cuanto haga falta multiplicar
+/// —precio por cantidad— la cuenta sube a Rust, donde están los tipos que
+/// saben de escalas.
+#[derive(Debug, Clone, Default)]
+pub struct TotalesPeriodo {
+    pub cuantas: i64,
+    pub venta: Dinero,
+    pub costo: Dinero,
+}
+
+/// Lo vendido en un día.
+#[derive(Debug, Clone)]
+pub struct VentaDiaria {
+    /// `YYYY-MM-DD`.
+    pub fecha: String,
+    pub venta: Dinero,
+    pub costo: Dinero,
+    pub cuantas: i64,
+}
+
+/// Lo vendido en una hora del día, acumulado en todo el periodo.
+#[derive(Debug, Clone)]
+pub struct VentaHoraria {
+    /// Hora en formato 24 h, de 0 a 23.
+    pub hora: i64,
+    pub venta: Dinero,
+    pub cuantas: i64,
+}
+
+/// Lo cobrado por una forma de pago.
+#[derive(Debug, Clone)]
+pub struct VentaPorMetodo {
+    pub metodo: MetodoPago,
+    /// Lo entregado en la moneda del método.
+    pub entregado: Dinero,
+    /// Su equivalente en pesos.
+    pub equivalente: Dinero,
+}
+
+/// Un renglón vendido, sin agregar.
+///
+/// Se devuelven en crudo a propósito: agrupar por producto exige
+/// multiplicar precio por cantidad, y esa cuenta no se hace en SQL.
+#[derive(Debug, Clone)]
+pub struct LineaDelPeriodo {
+    pub producto: IdProducto,
+    pub nombre_producto: String,
+    pub nombre_presentacion: String,
+    pub cantidad: Cantidad,
+    pub factor: Cantidad,
+    pub precio: Dinero,
+    pub costo_unitario: Dinero,
+}
+
 /// Acceso al catálogo de productos y a su inventario.
 pub trait RepositorioProducto {
     /// Guarda un producto nuevo con su existencia de apertura y devuelve el
@@ -354,6 +411,33 @@ pub trait RepositorioProducto {
 
     /// Devuelve el cierre congelado de una sesión ya cerrada.
     fn cierre_de_sesion(&self, id: IdSesion) -> Resultado<Option<CierreConfirmado>>;
+
+    // -------------------------------------------- informes (RF-EST)
+
+    /// Totales de las ventas de un periodo, ambos extremos incluidos.
+    ///
+    /// Las fechas llegan como `YYYY-MM-DD` y se comparan contra la fecha
+    /// local de la venta. Las anuladas nunca cuentan.
+    fn resumen_periodo(&self, desde: &str, hasta: &str) -> Resultado<TotalesPeriodo>;
+
+    /// Venta y costo agrupados por día.
+    fn ventas_por_dia(&self, desde: &str, hasta: &str) -> Resultado<Vec<VentaDiaria>>;
+
+    /// Venta agrupada por hora del día, acumulando todo el periodo.
+    fn ventas_por_hora(&self, desde: &str, hasta: &str) -> Resultado<Vec<VentaHoraria>>;
+
+    /// Lo cobrado por cada forma de pago en el periodo.
+    fn ventas_por_metodo(&self, desde: &str, hasta: &str) -> Resultado<Vec<VentaPorMetodo>>;
+
+    /// Renglones vendidos en el periodo, sin agrupar.
+    fn lineas_del_periodo(&self, desde: &str, hasta: &str) -> Resultado<Vec<LineaDelPeriodo>>;
+
+    /// Vacía todas las tablas de datos y deja el esquema en pie.
+    ///
+    /// Es un borrón completo: catálogo, existencias, kárdex, ventas, cajas
+    /// y ajustes. No hay vuelta atrás y no la debe haber: una papelera
+    /// daría la sensación de que esto se puede deshacer.
+    fn borrar_todos_los_datos(&self) -> Resultado<()>;
 
     /// Lee un ajuste del negocio, como la tasa de cambio vigente.
     fn configuracion(&self, clave: &str) -> Resultado<Option<String>>;
