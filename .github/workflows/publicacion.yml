@@ -1,0 +1,151 @@
+# Publicación de Kilo12.
+#
+# Compila los instaladores en la máquina de cada sistema, que es la única
+# forma de hacerlo: enlazar un binario de Windows exige el toolchain MSVC, y
+# empaquetar un MSI o un NSIS exige Windows ejecutándose. No es una
+# limitación de Tauri, es de la cadena de compilación de Microsoft. Lo mismo
+# al revés: un `.dmg` solo se arma en macOS.
+#
+# De ahí que exista este archivo. Sin él haría falta tener las dos máquinas
+# encima de la mesa.
+#
+# **Solo corre sobre `main`.** Compilar instaladores tarda minutos y gasta
+# ejecutores; `dev` recibe trabajo a medio terminar y no tiene sentido
+# empaquetar cada avance. Cuando un cambio llega a `main` ya pasó por
+# revisión y es candidato a instalarse en la tienda.
+#
+# Dos formas de dispararlo:
+#
+# - **Empujar a `main`** (o mergear un PR hacia `main`): compila los
+#   instaladores y los deja como artefactos descargables.
+# - **Publicar una etiqueta `v*`** —`git tag v0.2.0 && git push --tags`—:
+#   además crea la publicación en GitHub con los archivos adjuntos.
+#
+# También se puede lanzar a mano desde la pestaña Actions, para probarlo sin
+# comprometerse a una versión.
+
+name: Publicación
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  # Permite lanzarlo a mano desde la interfaz de GitHub.
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  instaladores:
+    name: ${{ matrix.nombre }}
+    runs-on: ${{ matrix.ejecutor }}
+
+    strategy:
+      # Si Windows falla, interesa que macOS termine igual: se publica lo
+      # que haya salido bien en vez de quedarse sin nada.
+      fail-fast: false
+      matrix:
+        include:
+          - nombre: Windows — .msi y .exe
+            ejecutor: windows-latest
+            objetivo: ''
+            artefacto: kilo12-windows
+
+          # Los Mac con Apple Silicon y los Intel necesitan binarios
+          # distintos. `universal` los mete en el mismo `.dmg`, así que hay
+          # un solo archivo que sirve en cualquier Mac.
+          - nombre: macOS — .dmg universal
+            ejecutor: macos-latest
+            objetivo: universal-apple-darwin
+            artefacto: kilo12-macos
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      # La interfaz se compila antes que nada: `tauri build` la invoca por su
+      # cuenta, pero las dependencias tienen que estar puestas.
+      - name: Instalar las dependencias de la interfaz
+        working-directory: ui
+        run: npm ci
+
+      - name: Preparar Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          # En macOS hacen falta las dos arquitecturas para el binario
+          # universal; en Windows basta la que trae el ejecutor.
+          targets: ${{ matrix.ejecutor == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Recuperar la caché de cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: publicacion-${{ matrix.ejecutor }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: publicacion-${{ matrix.ejecutor }}-
+
+      - name: Instalar la CLI de Tauri
+        run: cargo install tauri-cli --version "^2" --locked
+
+      - name: Compilar los instaladores
+        working-directory: src-tauri
+        run: cargo tauri build ${{ matrix.objetivo && format('--target {0}', matrix.objetivo) || '' }}
+
+      # Se sube todo el árbol de `bundle` y no rutas concretas: los nombres
+      # llevan la versión dentro y cambiarían en cada etiqueta.
+      - name: Guardar los instaladores
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artefacto }}
+          if-no-files-found: error
+          path: |
+            target/release/bundle/msi/*.msi
+            target/release/bundle/nsis/*.exe
+            target/**/release/bundle/dmg/*.dmg
+
+  publicar:
+    name: Publicar la versión
+    needs: instaladores
+    runs-on: ubuntu-latest
+    # Solo cuando hay etiqueta: lanzado a mano, los instaladores se quedan
+    # como artefactos y no se crea una publicación a medias.
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    permissions:
+      contents: write
+
+    steps:
+      - name: Recoger los instaladores
+        uses: actions/download-artifact@v4
+        with:
+          path: instaladores
+          merge-multiple: true
+
+      - name: Crear la publicación
+        uses: softprops/action-gh-release@v2
+        with:
+          files: instaladores/*
+          generate_release_notes: true
+          body: |
+            ## Instalación
+
+            - **Windows**: descarga el `.exe` y ejecútalo. El instalador trae
+              el motor web dentro, así que no hace falta nada más.
+            - **macOS**: descarga el `.dmg` y arrastra Kilo12 a Aplicaciones.
+              La primera vez ábrelo con clic derecho → Abrir: la aplicación no
+              está firmada y el sistema pide confirmación.
+
+            Kilo12 funciona **sin conexión**. Los datos se guardan en el
+            equipo y no salen de él.
