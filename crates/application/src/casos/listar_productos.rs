@@ -1,0 +1,227 @@
+//! Caso de uso: consultar el catálogo.
+
+use core::str::FromStr;
+
+use domain::{Cantidad, Dinero, ErrorDominio, Porcentaje, Ubicacion};
+
+use crate::casos::formatear_cantidad;
+use crate::error::Resultado;
+use crate::margen;
+use crate::puertos::{ProductoConInventario, RepositorioProducto};
+
+/// Lo que se muestra cuando un producto todavía no tiene costo.
+///
+/// El costo se deriva del valor invertido entre la existencia (RF-COS-02):
+/// sin mercancía no hay costo, y poner «0.00» sería afirmar que la
+/// mercancía es gratis.
+const SIN_DATO: &str = "—";
+
+/// Producto tal como se muestra en una lista.
+///
+/// Es un objeto de transferencia, no la entidad: la interfaz recibe texto ya
+/// formateado y no necesita —ni debe— hacer aritmética con dinero (DT-7).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProductoListado {
+    pub id: i64,
+    pub sku: String,
+    pub nombre: String,
+    /// Símbolo de la unidad base: `u`, `lb`, `kg`…
+    pub unidad_base: String,
+    /// Nombre legible de la unidad: «Libra», «Unidad»…
+    pub unidad_nombre: String,
+    /// Se vende en fracciones. Se deduce de la unidad, no es un dato aparte.
+    pub es_granel: bool,
+    pub activo: bool,
+    /// Precio de la presentación predeterminada, con dos decimales.
+    pub precio: String,
+    /// Costo promedio ponderado vigente, o `—` si no hay existencia.
+    pub costo: String,
+    /// Ganancia por unidad base, o `—` si todavía no hay costo.
+    pub ganancia: String,
+    /// Margen bruto, ya formateado con su signo y su símbolo.
+    pub margen: String,
+    /// El costo se comió el precio (RF-COM-05).
+    pub en_riesgo: bool,
+    pub en_almacen: String,
+    pub en_vitrina: String,
+    pub existencia_total: String,
+    /// La existencia total está por debajo del mínimo configurado.
+    pub bajo_minimo: bool,
+    /// No queda nada, ni en almacén ni en vitrina.
+    pub agotado: bool,
+    /// Nombre de la presentación predeterminada.
+    pub presentacion: String,
+    pub total_presentaciones: usize,
+}
+
+impl ProductoListado {
+    pub(crate) fn desde(fila: &ProductoConInventario) -> Self {
+        let ProductoConInventario {
+            producto,
+            inventario,
+        } = fila;
+
+        let predeterminada = producto.presentacion_predeterminada();
+        let precio = predeterminada.map(|p| p.precio());
+        let existencias = inventario.existencias();
+        let total = existencias.total().unwrap_or(Cantidad::CERO);
+        let costo = inventario.costo_unitario().ok();
+
+        // El margen solo existe si hay costo y hay precio con que compararlo.
+        let calculo = match (costo, precio) {
+            (Some(costo), Some(precio)) => margen::calcular(costo, precio).ok(),
+            _ => None,
+        };
+
+        Self {
+            id: producto.id().map_or(0, |id| id.0),
+            sku: producto.sku().to_string(),
+            nombre: producto.nombre().to_string(),
+            unidad_base: producto.unidad_base().simbolo().to_string(),
+            unidad_nombre: producto
+                .unidad_base()
+                .nombre_presentacion_unitaria()
+                .to_string(),
+            es_granel: producto.es_granel(),
+            activo: producto.esta_activo(),
+            precio: precio.map_or_else(|| SIN_DATO.to_owned(), |p| p.formatear(2)),
+            costo: costo.map_or_else(|| SIN_DATO.to_owned(), |c| c.formatear(2)),
+            ganancia: calculo.map_or_else(|| SIN_DATO.to_owned(), |m| m.ganancia.formatear(2)),
+            margen: calculo.map_or_else(
+                || SIN_DATO.to_owned(),
+                |m| format!("{} %", m.porcentaje.formatear(1)),
+            ),
+            en_riesgo: calculo.is_some_and(|m| m.en_riesgo),
+            en_almacen: formatear_cantidad(existencias.en(Ubicacion::Bodega), producto),
+            en_vitrina: formatear_cantidad(existencias.en(Ubicacion::Vitrina), producto),
+            existencia_total: formatear_cantidad(total, producto),
+            bajo_minimo: producto.esta_bajo_minimo(total),
+            agotado: total.es_cero(),
+            presentacion: predeterminada
+                .map(|p| p.nombre().to_string())
+                .unwrap_or_default(),
+            total_presentaciones: producto.presentaciones().len(),
+        }
+    }
+}
+
+/// Por qué columna se ordena el catálogo.
+///
+/// Ordenar por margen es comparar dinero, así que se hace aquí y no en la
+/// pantalla: los importes son enteros escalados y su orden es exacto.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum OrdenCatalogo {
+    /// El orden con el que llega de la base de datos: alfabético.
+    #[default]
+    Nombre,
+    /// Lo que cuesta cada unidad base, a costo promedio ponderado.
+    Costo,
+    Margen,
+    Precio,
+    Existencia,
+}
+
+impl FromStr for OrdenCatalogo {
+    type Err = ErrorDominio;
+
+    fn from_str(texto: &str) -> Result<Self, Self::Err> {
+        match texto {
+            "nombre" => Ok(Self::Nombre),
+            "costo" => Ok(Self::Costo),
+            "margen" => Ok(Self::Margen),
+            "precio" => Ok(Self::Precio),
+            "existencia" => Ok(Self::Existencia),
+            _ => Err(ErrorDominio::TextoObligatorio("orden del catálogo")),
+        }
+    }
+}
+
+/// Lista los productos del catálogo.
+#[derive(Debug)]
+pub struct ListarProductos<'a, R: RepositorioProducto> {
+    repositorio: &'a R,
+}
+
+impl<'a, R: RepositorioProducto> ListarProductos<'a, R> {
+    pub const fn nuevo(repositorio: &'a R) -> Self {
+        Self { repositorio }
+    }
+
+    pub fn ejecutar(&self, incluir_inactivos: bool) -> Resultado<Vec<ProductoListado>> {
+        let productos = self.repositorio.listar(incluir_inactivos)?;
+        Ok(productos.iter().map(ProductoListado::desde).collect())
+    }
+
+    /// Lista el catálogo ordenado por la columna pedida.
+    ///
+    /// Lo que no tiene el dato —un producto sin costo no tiene margen—
+    /// queda siempre al final, se ordene como se ordene: colocarlo entre
+    /// los peores o entre los mejores sería inventarse una posición.
+    pub fn ordenado(
+        &self,
+        incluir_inactivos: bool,
+        orden: OrdenCatalogo,
+        descendente: bool,
+    ) -> Resultado<Vec<ProductoListado>> {
+        let mut filas = self.repositorio.listar(incluir_inactivos)?;
+
+        match orden {
+            // El repositorio ya los devuelve por nombre.
+            OrdenCatalogo::Nombre => {
+                if descendente {
+                    filas.reverse();
+                }
+            }
+            OrdenCatalogo::Costo => ordenar_por(&mut filas, descendente, costo_de),
+            OrdenCatalogo::Margen => ordenar_por(&mut filas, descendente, margen_de),
+            OrdenCatalogo::Precio => ordenar_por(&mut filas, descendente, precio_de),
+            OrdenCatalogo::Existencia => ordenar_por(&mut filas, descendente, existencia_de),
+        }
+
+        Ok(filas.iter().map(ProductoListado::desde).collect())
+    }
+}
+
+/// Ordena dejando al final lo que no tiene el dato.
+fn ordenar_por<T: Ord>(
+    filas: &mut [ProductoConInventario],
+    descendente: bool,
+    clave: impl Fn(&ProductoConInventario) -> Option<T>,
+) {
+    filas.sort_by(|a, b| match (clave(a), clave(b)) {
+        (Some(a), Some(b)) => {
+            if descendente {
+                b.cmp(&a)
+            } else {
+                a.cmp(&b)
+            }
+        }
+        (Some(_), None) => core::cmp::Ordering::Less,
+        (None, Some(_)) => core::cmp::Ordering::Greater,
+        (None, None) => core::cmp::Ordering::Equal,
+    });
+}
+
+/// Costo promedio ponderado de la unidad base.
+///
+/// Un producto sin existencia no tiene costo, y por eso devuelve nada en
+/// lugar de cero: cero significaría que la mercancía es gratis.
+fn costo_de(fila: &ProductoConInventario) -> Option<Dinero> {
+    fila.inventario.costo_unitario().ok()
+}
+
+fn margen_de(fila: &ProductoConInventario) -> Option<Porcentaje> {
+    let costo = fila.inventario.costo_unitario().ok()?;
+    let precio = fila.producto.presentacion_predeterminada()?.precio();
+    margen::calcular(costo, precio).ok().map(|m| m.porcentaje)
+}
+
+fn precio_de(fila: &ProductoConInventario) -> Option<Dinero> {
+    fila.producto
+        .presentacion_predeterminada()
+        .map(|p| p.precio())
+}
+
+fn existencia_de(fila: &ProductoConInventario) -> Option<Cantidad> {
+    fila.inventario.existencias().total().ok()
+}

@@ -1,0 +1,627 @@
+<section class="caja">
+  @if (error(); as fallo) {
+    <div
+      class="aviso"
+      [class.aviso--error]="!fallo.delUsuario"
+      [class.aviso--atencion]="fallo.delUsuario"
+      role="alert"
+    >
+      <strong>{{ fallo.mensaje }}</strong>
+      <span class="codigo">{{ fallo.codigo }}</span>
+    </div>
+  }
+
+  <!-- ==================================== el cierre recién hecho -->
+  @if (cerrada(); as hecha) {
+    <div class="panel panel--cerrada">
+      <div class="panel__cabecera">
+        <span class="panel__titulo">Caja cerrada · {{ hecha.operador }}</span>
+        <span class="apagado nota">{{ hecha.cerradaEn }}</span>
+      </div>
+      <div class="panel__cuerpo">
+        <div class="arqueos">
+          <div class="arqueo" [class.arqueo--descuadre]="!hecha.arqueoCup.cuadra">
+            <span class="arqueo__titulo">Pesos</span>
+            <span class="cifra cifra--grande">{{ hecha.arqueoCup.diferencia }}</span>
+            <span class="apagado nota">
+              Esperado {{ hecha.arqueoCup.esperado }} · Contado {{ hecha.arqueoCup.contado }}
+            </span>
+          </div>
+          <div class="arqueo" [class.arqueo--descuadre]="!hecha.arqueoUsd.cuadra">
+            <span class="arqueo__titulo">Dólares</span>
+            <span class="cifra cifra--grande">{{ hecha.arqueoUsd.diferencia }}</span>
+            <span class="apagado nota">
+              Esperado {{ hecha.arqueoUsd.esperado }} · Contado {{ hecha.arqueoUsd.contado }}
+            </span>
+          </div>
+        </div>
+        <span class="pista">
+          Este arqueo ya no se puede cambiar. Una corrección se registra en la caja de hoy.
+        </span>
+      </div>
+    </div>
+  }
+
+  <!-- ==================================== no hay caja abierta -->
+  @if (!caja()) {
+    <div class="panel panel--apertura">
+      <div class="panel__cabecera">
+        <span class="panel__titulo">Abrir la caja</span>
+      </div>
+      <div class="panel__cuerpo pila">
+        <p class="explicacion">
+          Mientras la caja esté cerrada <strong>no se puede cobrar</strong>. Una venta sin sesión
+          no aparecería en ningún arqueo, y ese descuadre ya no tendría arreglo.
+        </p>
+
+        <div class="fila">
+          <div class="campo">
+            <label for="operador">Quién atiende</label>
+            <input
+              id="operador"
+              class="control"
+              autocomplete="off"
+              placeholder="Nombre"
+              [value]="operador()"
+              (input)="operador.set($any($event.target).value)"
+            />
+          </div>
+          <div class="campo">
+            <label for="fondo">Con cuánto empieza la gaveta</label>
+            <input
+              id="fondo"
+              class="control control--cifra"
+              inputmode="decimal"
+              placeholder="0.00"
+              [value]="fondoInicial()"
+              (input)="fondoInicial.set($any($event.target).value)"
+              (keydown.enter)="abrir()"
+            />
+          </div>
+          <button
+            type="button"
+            class="boton boton--destacado boton--grande"
+            [disabled]="!puedeAbrir() || ocupado()"
+            (click)="abrir()"
+          >
+            Abrir caja
+          </button>
+        </div>
+        <span class="pista">
+          Cuenta los billetes con los que arrancas. De ahí sale todo lo demás.
+        </span>
+      </div>
+    </div>
+  } @else {
+    <!-- ================================= la caja está abierta -->
+    @if (caja(); as abierta) {
+      <div class="cabecera">
+        <div class="tarjeta tarjeta--esperado">
+          <span class="tarjeta__titulo">Debería haber en pesos</span>
+          <span class="cifra cifra--grande">{{ abierta.efectivoEsperado }}</span>
+          <span class="tarjeta__pie">
+            Fondo {{ abierta.fondoInicial }} + ventas en efectivo + entradas − salidas
+          </span>
+        </div>
+        <div class="tarjeta tarjeta--dolares">
+          <span class="tarjeta__titulo">Debería haber en dólares</span>
+          <span class="cifra cifra--grande">{{ abierta.dolaresEsperados }}</span>
+          <span class="tarjeta__pie">Se cuentan aparte: son otro fajo</span>
+        </div>
+        <!-- La transferencia se arquea contra el banco, no contra la
+             gaveta: por eso está aquí arriba y no escondida en el
+             desglose (RF-CAJ-05c). -->
+        <div class="tarjeta tarjeta--transferencia">
+          <span class="tarjeta__titulo">Debería haber en transferencia</span>
+          <span class="cifra cifra--grande">{{ abierta.desglose.transferencia }}</span>
+          <span class="tarjeta__pie">Fue a la cuenta: no está en la gaveta</span>
+        </div>
+        <div class="tarjeta">
+          <span class="tarjeta__titulo">Vendido en el turno</span>
+          <span class="cifra cifra--grande">{{ abierta.desglose.totalConsolidado }}</span>
+          <span class="tarjeta__pie">
+            {{ abierta.cuantasVentas }}
+            {{ abierta.cuantasVentas === 1 ? 'venta' : 'ventas' }} · {{ abierta.operador }}
+          </span>
+        </div>
+      </div>
+
+      <div class="columnas">
+        <div class="columna">
+          <!-- --------------------------------- desglose de la venta -->
+          <div class="panel">
+            <div class="panel__cabecera">
+              <span class="panel__titulo">Cómo se cobró</span>
+            </div>
+            <div class="panel__cuerpo">
+              <div class="lineas">
+                <div class="linea">
+                  <span>Efectivo en pesos</span>
+                  <span class="cifra">{{ abierta.desglose.efectivoCup }}</span>
+                </div>
+                <!-- La transferencia se muestra siempre aparte y a la vez
+                     cuenta en el total (RF-CAJ-05c). -->
+                <div class="linea">
+                  <span>
+                    Transferencias
+                    <span class="apagado nota">No pasan por la gaveta</span>
+                  </span>
+                  <span class="cifra">{{ abierta.desglose.transferencia }}</span>
+                </div>
+                <div class="linea">
+                  <span>
+                    Dólares
+                    <span class="apagado nota">{{ abierta.desglose.efectivoUsd }} USD</span>
+                  </span>
+                  <span class="cifra">{{ abierta.desglose.efectivoUsdEnCup }}</span>
+                </div>
+                <div class="linea linea--total">
+                  <span>Total vendido</span>
+                  <span class="cifra">{{ abierta.desglose.totalConsolidado }}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ------------------------- entradas y salidas de efectivo -->
+          <div class="panel">
+            <div class="panel__cabecera">
+              <span class="panel__titulo">Movimientos de efectivo</span>
+              <span class="apagado nota">
+                Entró {{ abierta.entradas }} · Salió {{ abierta.salidas }}
+              </span>
+            </div>
+
+            <div class="panel__cuerpo pila">
+              <div class="segmento">
+                <button
+                  type="button"
+                  [attr.aria-pressed]="tipoMovimiento() === 'SALIDA'"
+                  (click)="tipoMovimiento.set('SALIDA')"
+                >
+                  Sacar
+                </button>
+                <button
+                  type="button"
+                  [attr.aria-pressed]="tipoMovimiento() === 'ENTRADA'"
+                  (click)="tipoMovimiento.set('ENTRADA')"
+                >
+                  Meter
+                </button>
+              </div>
+
+              <div class="fila">
+                <div class="campo">
+                  <label for="importe">Cuánto</label>
+                  <input
+                    id="importe"
+                    class="control control--cifra"
+                    inputmode="decimal"
+                    placeholder="0.00"
+                    [value]="importe()"
+                    (input)="importe.set($any($event.target).value)"
+                  />
+                </div>
+                <div class="campo campo--ancho">
+                  <label for="motivo">Por qué</label>
+                  <input
+                    id="motivo"
+                    class="control"
+                    autocomplete="off"
+                    placeholder="Pago de la luz, retiro, ingreso de cambio…"
+                    [value]="motivo()"
+                    (input)="motivo.set($any($event.target).value)"
+                    (keydown.enter)="mover()"
+                  />
+                </div>
+                <button
+                  type="button"
+                  class="boton"
+                  [disabled]="!puedeMover() || ocupado()"
+                  (click)="mover()"
+                >
+                  Registrar
+                </button>
+              </div>
+              <span class="pista">
+                El motivo es obligatorio: un retiro sin explicar es indistinguible de un faltante.
+              </span>
+
+              @if (abierta.movimientos.length) {
+                <div class="tabla-envoltorio">
+                  <table class="tabla">
+                    <thead>
+                      <tr>
+                        <th>Hora</th>
+                        <th>Motivo</th>
+                        <th class="derecha">Importe</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      @for (movimiento of abierta.movimientos; track movimiento.id) {
+                        <tr>
+                          <td class="mono">{{ movimiento.hora }}</td>
+                          <td>
+                            {{ movimiento.motivo }}
+                            <span class="apagado nota">{{ movimiento.tipoNombre }}</span>
+                          </td>
+                          <td class="derecha cifra" [class.negativo]="!movimiento.suma">
+                            {{ movimiento.suma ? '+' : '−' }}{{ movimiento.importe }}
+                          </td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                </div>
+              }
+            </div>
+          </div>
+        </div>
+
+        <!-- ------------------------------------------ el cierre -->
+        <aside class="columna columna--cierre">
+          <div class="panel panel--cierre">
+            <div class="panel__cabecera">
+              <span class="panel__titulo">Cerrar la caja</span>
+            </div>
+
+            <div class="panel__cuerpo pila">
+              <!-- El porcentaje del cajero se pone aquí porque es aquí donde
+                   se aplica, y se ve ANTES de cerrar para que quien cobra
+                   pueda comprobar su propio importe (RF-CMS-14). -->
+              @if (editandoComision()) {
+                <div class="comision comision--editando">
+                  <label for="comision">Se lleva</label>
+                  <input
+                    id="comision"
+                    class="control control--cifra"
+                    inputmode="decimal"
+                    placeholder="5"
+                    [value]="comisionNueva()"
+                    (input)="comisionNueva.set($any($event.target).value)"
+                    (keydown.enter)="guardarComision()"
+                    (keydown.escape)="cancelarComision()"
+                  />
+                  <span class="apagado">% de la venta</span>
+                  <button type="button" class="boton" (click)="guardarComision()">Guardar</button>
+                  <button type="button" class="boton boton--discreto" (click)="cancelarComision()">
+                    Cancelar
+                  </button>
+                </div>
+              } @else {
+                <div class="comision">
+                  <span class="apagado nota">
+                    @if (comision(); as valor) {
+                      El cajero se lleva el {{ valor }} % de la venta
+                    } @else {
+                      Sin comisión configurada: se cierra al 0 %
+                    }
+                  </span>
+                  <button type="button" class="boton boton--discreto" (click)="editarComision()">
+                    {{ comision() ? 'Cambiar' : 'Fijar' }}
+                  </button>
+                </div>
+              }
+              @if (!cerrando()) {
+                <p class="explicacion">
+                  Al cerrar se cuenta el dinero físico y se compara con lo esperado. El arqueo
+                  queda congelado y <strong>no se puede deshacer</strong>.
+                </p>
+                <button type="button" class="boton boton--ancho" (click)="empezarCierre()">
+                  Contar y cerrar
+                </button>
+              } @else {
+                <!-- El fondo con que se abrió: sin él, quien cuenta no
+                     sabe contra qué compara y se olvida de que esos
+                     billetes ya estaban en la gaveta al empezar. -->
+                <div class="fondo">
+                  <span class="apagado nota">La caja abrió con</span>
+                  <strong class="cifra">{{ caja()?.fondoInicial }}</strong>
+                </div>
+
+                <div class="campo campo--conteo">
+                  <label for="contadoCup">Pesos contados</label>
+                  <input
+                    id="contadoCup"
+                    class="control control--cifra grande"
+                    inputmode="decimal"
+                    [value]="contadoCup()"
+                    (input)="contadoCup.set($any($event.target).value); alCambiarConteo()"
+                  />
+                  <button type="button" class="boton boton--ancho" (click)="abrirConteo()">
+                    Contar billetes
+                  </button>
+                </div>
+
+                <div class="campo">
+                  <label for="contadoUsd">Dólares contados</label>
+                  <input
+                    id="contadoUsd"
+                    class="control control--cifra"
+                    inputmode="decimal"
+                    [value]="contadoUsd()"
+                    (input)="contadoUsd.set($any($event.target).value); alCambiarConteo()"
+                  />
+                </div>
+
+                @if (prevista(); as vista) {
+                  <div class="arqueos arqueos--previo">
+                    <div class="arqueo" [class.arqueo--descuadre]="!vista.arqueoCup.cuadra">
+                      <span class="arqueo__titulo">
+                        {{ vista.arqueoCup.cuadra ? 'Cuadra' : falta(vista.arqueoCup.diferencia) ? 'Falta' : 'Sobra' }}
+                      </span>
+                      <span class="cifra cifra--grande">{{ vista.arqueoCup.diferencia }}</span>
+                      <span class="apagado nota">Esperado {{ vista.arqueoCup.esperado }}</span>
+                    </div>
+                    @if (vista.arqueoUsd.esperado !== '0.00' || vista.arqueoUsd.contado !== '0.00') {
+                      <div class="arqueo" [class.arqueo--descuadre]="!vista.arqueoUsd.cuadra">
+                        <span class="arqueo__titulo">Dólares</span>
+                        <span class="cifra cifra--grande">{{ vista.arqueoUsd.diferencia }}</span>
+                        <span class="apagado nota">Esperado {{ vista.arqueoUsd.esperado }}</span>
+                      </div>
+                    }
+                  </div>
+
+                  <!-- De dónde sale lo esperado. Cuando la caja no cuadra,
+                       esto es lo que permite ver qué pieza falla. -->
+                  <div class="desglose-esperado">
+                    <div class="linea">
+                      <span class="apagado">Fondo con que abrió</span>
+                      <span class="cifra apagado">{{ vista.fondoInicial }}</span>
+                    </div>
+                    <div class="linea">
+                      <span class="apagado">Ventas en efectivo</span>
+                      <span class="cifra apagado">{{ vista.ventasEfectivo }}</span>
+                    </div>
+                    <div class="linea">
+                      <span class="apagado">Entradas de efectivo</span>
+                      <span class="cifra apagado">{{ vista.entradas }}</span>
+                    </div>
+                    <div class="linea">
+                      <span class="apagado">Salidas de efectivo</span>
+                      <span class="cifra apagado">−{{ vista.salidas }}</span>
+                    </div>
+                    <div class="linea linea--suma">
+                      <span>Debería haber</span>
+                      <span class="cifra">{{ vista.arqueoCup.esperado }}</span>
+                    </div>
+                  </div>
+
+                  <!-- RF-CAJ-10: el cierre no es solo contar billetes. -->
+                  <div class="economico">
+                    <span class="subtitulo">Cómo fue el turno</span>
+
+                    <!-- Las tres formas de cobro y su suma. Se enseñan
+                         desglosadas para que la venta total no sea una
+                         cifra que hay que creerse: los dólares van ya
+                         convertidos a pesos. -->
+                    <div class="linea">
+                      <span class="apagado">Efectivo en pesos</span>
+                      <span class="cifra apagado">{{ vista.desglose.efectivoCup }}</span>
+                    </div>
+                    <div class="linea">
+                      <span class="apagado">Transferencias</span>
+                      <span class="cifra apagado">{{ vista.desglose.transferencia }}</span>
+                    </div>
+                    <div class="linea">
+                      <span class="apagado">
+                        Dólares
+                        <span class="nota">{{ vista.desglose.efectivoUsd }} USD convertidos</span>
+                      </span>
+                      <span class="cifra apagado">{{ vista.desglose.efectivoUsdEnCup }}</span>
+                    </div>
+                    <div class="linea linea--suma">
+                      <span>Venta total</span>
+                      <span class="cifra">{{ vista.economico.ventaTotal }}</span>
+                    </div>
+                    <div class="linea">
+                      <span class="apagado">Costo de lo vendido</span>
+                      <span class="cifra apagado">{{ vista.economico.costoVendido }}</span>
+                    </div>
+                    <div class="linea">
+                      <span class="apagado">Mermas</span>
+                      <span class="cifra apagado">{{ vista.economico.merma }}</span>
+                    </div>
+                    <div class="linea">
+                      <span>Ganancia bruta</span>
+                      <span class="cifra">{{ vista.economico.gananciaBruta }}</span>
+                    </div>
+                    <div class="linea">
+                      <span class="apagado">
+                        Comisión
+                        <span class="nota">{{ vista.economico.comisionPorcentaje }} % de la venta</span>
+                      </span>
+                      <span class="cifra apagado">{{ vista.economico.comision }}</span>
+                    </div>
+                    <div class="linea linea--total">
+                      <span>Ganancia neta</span>
+                      <span class="cifra">{{ vista.economico.gananciaNeta }}</span>
+                    </div>
+                  </div>
+                }
+
+                <button
+                  type="button"
+                  class="boton boton--destacado boton--ancho"
+                  [disabled]="!puedeCerrar() || ocupado()"
+                  (click)="confirmarCierre()"
+                >
+                  {{ ocupado() ? 'Cerrando…' : 'Cerrar la caja' }}
+                </button>
+                <button type="button" class="boton boton--discreto" (click)="cancelarCierre()">
+                  Cancelar
+                </button>
+              }
+            </div>
+          </div>
+        </aside>
+      </div>
+    }
+  }
+
+  <!-- ==================================== historial de sesiones -->
+  <div class="panel">
+    <div class="panel__cabecera">
+      <span class="panel__titulo">Cajas anteriores</span>
+      <button type="button" class="boton boton--discreto" (click)="recargar()" [disabled]="cargando()">
+        {{ cargando() ? 'Cargando…' : 'Actualizar' }}
+      </button>
+    </div>
+
+    <div class="tabla-envoltorio">
+      <table class="tabla">
+        <thead>
+          <tr>
+            <th>Fecha</th>
+            <th>Operador</th>
+            <th>Abierta</th>
+            <th>Cerrada</th>
+          </tr>
+        </thead>
+        <tbody>
+          @for (sesion of historial(); track sesion.id) {
+            <tr
+              [class.fila--pulsable]="!sesion.abierta"
+              [class.fila--abierta]="detalle()?.sesion === sesion.id"
+              (click)="abrirSesion(sesion)"
+            >
+              <td class="mono">{{ sesion.fecha }}</td>
+              <td>{{ sesion.operador }}</td>
+              <td class="mono apagado">{{ sesion.abiertaEn }}</td>
+              <td>
+                @if (sesion.abierta) {
+                  <span class="etiqueta etiqueta--activa">En curso</span>
+                } @else {
+                  <span class="mono apagado">{{ sesion.cerradaEn }}</span>
+                }
+              </td>
+            </tr>
+          } @empty {
+            <tr>
+              <td colspan="4">
+                <div class="vacio">
+                  <span class="vacio__titulo">Todavía no has cerrado ninguna caja</span>
+                </div>
+              </td>
+            </tr>
+          }
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ==================================== el detalle de una sesión -->
+  @if (detalle(); as vista) {
+    <div class="panel panel--detalle">
+      <div class="panel__cabecera">
+        <span class="panel__titulo">Caja del {{ vista.abiertaEn }} · {{ vista.operador }}</span>
+        <button type="button" class="boton boton--discreto" (click)="cerrarDetalle()">Cerrar</button>
+      </div>
+
+      <div class="panel__cuerpo pila">
+        <div class="arqueos">
+          <div class="arqueo" [class.arqueo--descuadre]="!vista.arqueoCup.cuadra">
+            <span class="arqueo__titulo">Pesos</span>
+            <span class="cifra cifra--grande">{{ vista.arqueoCup.diferencia }}</span>
+            <span class="apagado nota">
+              Esperado {{ vista.arqueoCup.esperado }} · Contado {{ vista.arqueoCup.contado }}
+            </span>
+          </div>
+          <div class="arqueo" [class.arqueo--descuadre]="!vista.arqueoUsd.cuadra">
+            <span class="arqueo__titulo">Dólares</span>
+            <span class="cifra cifra--grande">{{ vista.arqueoUsd.diferencia }}</span>
+            <span class="apagado nota">
+              Esperado {{ vista.arqueoUsd.esperado }} · Contado {{ vista.arqueoUsd.contado }}
+            </span>
+          </div>
+        </div>
+
+        <div class="economico">
+          <div class="linea">
+            <span>Venta total</span>
+            <span class="cifra">{{ vista.economico.ventaTotal }}</span>
+          </div>
+          <div class="linea">
+            <span class="apagado">Comisión ({{ vista.economico.comisionPorcentaje }} %)</span>
+            <span class="cifra apagado">{{ vista.economico.comision }}</span>
+          </div>
+          <div class="linea linea--total">
+            <span>Ganancia neta</span>
+            <span class="cifra">{{ vista.economico.gananciaNeta }}</span>
+          </div>
+        </div>
+
+        <span class="pista">
+          Estas cifras se congelaron al cerrar. Cambiar hoy la tasa o la comisión no las mueve.
+        </span>
+      </div>
+    </div>
+  }
+
+  <!-- ==================================== contar los billetes
+       Se cuenta fajo a fajo, de menor a mayor, que es como está el dinero
+       sobre la mesa. El total lo suma Rust: es la cifra contra la que se
+       arquea la caja y no se calcula aquí. -->
+  @if (contando()) {
+    <div class="velo" (click)="cerrarConteo()"></div>
+
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="titulo-conteo">
+      <div class="modal__cabecera">
+        <span class="modal__titulo" id="titulo-conteo">Contar el efectivo en pesos</span>
+        <button type="button" class="boton boton--discreto" (click)="cerrarConteo()">Cerrar</button>
+      </div>
+
+      <div class="modal__cuerpo">
+        <div class="billetes">
+          @for (valor of denominaciones(); track valor; let i = $index) {
+            <div class="billete" [class.billete--lleno]="billetes()[i]">
+              <label [attr.for]="'billete-' + valor">{{ valor }}</label>
+              <input
+                [id]="'billete-' + valor"
+                class="control control--cifra"
+                inputmode="numeric"
+                autocomplete="off"
+                placeholder="0"
+                [value]="billetes()[i]"
+                (input)="alContarBilletes(i, $any($event.target).value)"
+              />
+              <span class="billete__importe cifra">
+                {{ conteo()?.lineas?.[i]?.importe ?? '0.00' }}
+              </span>
+            </div>
+          }
+        </div>
+
+        <!-- El total se queda a la vista mientras se teclea: es lo único
+             que la cajera necesita mirar de reojo. -->
+        <aside class="recuento">
+          <span class="recuento__titulo">Total contado</span>
+          <span class="cifra recuento__cifra">{{ conteo()?.total ?? '0.00' }}</span>
+          <span class="apagado nota">
+            {{ conteo()?.cuantosBilletes ?? 0 }}
+            {{ conteo()?.cuantosBilletes === 1 ? 'billete' : 'billetes' }}
+          </span>
+
+          @if (caja(); as abierta) {
+            <div class="recuento__cotejo">
+              <span class="apagado nota">Debería haber</span>
+              <span class="cifra">{{ abierta.efectivoEsperado }}</span>
+            </div>
+          }
+
+          <button
+            type="button"
+            class="boton boton--destacado boton--ancho"
+            [disabled]="!conteo()"
+            (click)="usarConteo()"
+          >
+            Usar este total
+          </button>
+          <span class="pista">
+            Se lleva a la casilla de pesos contados. Todavía no cierra nada.
+          </span>
+        </aside>
+      </div>
+    </div>
+  }
+</section>

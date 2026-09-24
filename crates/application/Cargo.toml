@@ -1,0 +1,14 @@
+[package]
+name = "application"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# Solo el dominio. Esta capa no conoce la base de datos ni el transporte:
+# declara puertos y espera que alguien los implemente (DT-5).
+[dependencies]
+domain = { path = "../domain" }
+
+[lints.rust]
+unsafe_code = "forbid"

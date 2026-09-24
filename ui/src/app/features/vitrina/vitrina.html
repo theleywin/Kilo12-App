@@ -1,0 +1,365 @@
+<section class="pagina pagina--ancha">
+  <header class="cabecera-pagina">
+    <h1>Vitrina</h1>
+    <p class="descripcion">
+      Lo que el cliente ve. Tener mercancía guardada y la vitrina vacía es venta perdida, así
+      que lo primero es lo que falta por bajar.
+    </p>
+  </header>
+
+  @if (error(); as fallo) {
+    <div
+      class="aviso"
+      [class.aviso--error]="!fallo.delUsuario"
+      [class.aviso--atencion]="fallo.delUsuario"
+      role="alert"
+    >
+      <strong>{{ fallo.mensaje }}</strong>
+      <span class="codigo">{{ fallo.codigo }}</span>
+    </div>
+  }
+
+  @if (vitrina(); as datos) {
+    <!-- ================================================ resumen -->
+    <div class="rejilla-tarjetas">
+      <div class="panel tarjeta">
+        <span class="tarjeta__titulo">Exhibidos</span>
+        <span class="cifra cifra--grande">{{ datos.exhibidos }}</span>
+        <span class="apagado nota">Productos que el cliente puede ver.</span>
+      </div>
+
+      <div class="panel tarjeta" [class.tarjeta--atencion]="datos.porReponer > 0">
+        <span class="tarjeta__titulo">Por reponer</span>
+        <span class="cifra cifra--grande">{{ datos.porReponer }}</span>
+        <span class="apagado nota">Por debajo de lo que quieres exhibir.</span>
+      </div>
+
+      <div class="panel tarjeta" [class.tarjeta--error]="datos.faltaComprar > 0">
+        <span class="tarjeta__titulo">Falta comprar</span>
+        <span class="cifra cifra--grande">{{ datos.faltaComprar }}</span>
+        <span class="apagado nota">No llegan al objetivo y no hay repuesto guardado.</span>
+      </div>
+
+      <div class="panel tarjeta" [class.tarjeta--error]="datos.sinExhibir > 0">
+        <span class="tarjeta__titulo">Guardados sin exhibir</span>
+        <span class="cifra cifra--grande">{{ datos.sinExhibir }}</span>
+        <span class="apagado nota">Los tienes, pero nadie los ve.</span>
+      </div>
+    </div>
+
+    <!-- ============================================ reposición -->
+    @if (sugerencias.length) {
+      <div class="panel panel--lista">
+        <div class="panel__cabecera">
+          <span class="panel__titulo">Hay que reponer</span>
+          <span class="apagado nota">Nunca se propone bajar más de lo que hay guardado</span>
+        </div>
+
+        <div class="tabla-envoltorio">
+          <table class="tabla">
+            <thead>
+              <tr>
+                <th>Producto</th>
+                <th class="derecha">En vitrina</th>
+                <th class="derecha">Quieres</th>
+                <th class="derecha">En almacén</th>
+                <th class="derecha">Bajar</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (producto of sugerencias; track producto.id) {
+                <tr>
+                  <td>
+                    {{ producto.nombre }}
+                    @if (!producto.estaExhibido) {
+                      <span class="etiqueta etiqueta--error">Vitrina vacía</span>
+                    }
+                  </td>
+                  <td class="derecha cifra">{{ producto.enVitrina }}</td>
+                  <td class="derecha cifra apagado">{{ producto.objetivo }}</td>
+                  <td class="derecha cifra apagado">{{ producto.enAlmacen }}</td>
+                  <td class="derecha">
+                    <input
+                      class="control control--cifra celda-cifra"
+                      inputmode="decimal"
+                      [value]="cantidadABajar(producto)"
+                      (input)="alCambiarCantidad(producto, $any($event.target).value)"
+                      [attr.aria-label]="'Cuánto bajar de ' + producto.nombre"
+                    />
+                    <span class="apagado unidad">{{ producto.unidadBase }}</span>
+                  </td>
+                  <td class="derecha">
+                    <button
+                      type="button"
+                      class="boton"
+                      [disabled]="ocupado()"
+                      (click)="reponer(producto)"
+                    >
+                      Bajar a vitrina
+                    </button>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </div>
+    }
+
+    <!-- ========================================== la vitrina -->
+    <div class="panel panel--lista">
+      <div class="panel__cabecera">
+        <span class="panel__titulo">En la vitrina</span>
+        <span class="apagado nota">Elige un producto para ver su historial</span>
+      </div>
+
+      <div class="tabla-envoltorio">
+        <table class="tabla">
+          <thead>
+            <tr>
+              <th>Producto</th>
+              <th>Código</th>
+              <th class="derecha">En vitrina</th>
+              <th class="derecha">Quiero tener</th>
+              <th class="derecha">En almacén</th>
+              <th>Estado</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (producto of datos.productos; track producto.id) {
+              <tr [attr.aria-selected]="seleccionado()?.id === producto.id">
+                <td class="pulsable" (click)="verHistorial(producto)">{{ producto.nombre }}</td>
+                <td class="mono pulsable" (click)="verHistorial(producto)">{{ producto.sku }}</td>
+                <td class="derecha cifra">{{ producto.enVitrina }}</td>
+                <td class="derecha">
+                  <!-- El objetivo se edita aquí, mirando la vitrina, que es
+                       cuando uno sabe cuánto quiere ver expuesto. -->
+                  <input
+                    class="control control--cifra celda-cifra"
+                    inputmode="decimal"
+                    [value]="producto.objetivo"
+                    (blur)="fijarObjetivo(producto, $any($event.target).value)"
+                    [attr.aria-label]="'Cuánto exhibir de ' + producto.nombre"
+                  />
+                </td>
+                <td class="derecha cifra apagado">{{ producto.enAlmacen }}</td>
+                <td class="pulsable" (click)="verHistorial(producto)">
+                  @if (producto.agotado) {
+                    <span class="etiqueta">Sin existencia</span>
+                  } @else if (producto.disponibleSinExhibir) {
+                    <span class="etiqueta etiqueta--error">Guardado, no exhibido</span>
+                  } @else if (producto.hayQueReponer) {
+                    <span class="etiqueta etiqueta--atencion">Falta reponer</span>
+                  } @else if (producto.faltaComprar) {
+                    <span class="etiqueta etiqueta--error">Falta comprar</span>
+                  } @else {
+                    <span class="etiqueta etiqueta--acento">En vitrina</span>
+                  }
+                </td>
+              </tr>
+            } @empty {
+              <tr>
+                <td colspan="6">
+                  <div class="vacio">
+                    @if (cargando()) {
+                      <span class="vacio__titulo">Cargando…</span>
+                    } @else {
+                      <span class="vacio__titulo">Todavía no hay productos</span>
+                      <span class="vacio__texto">
+                        Registra lo que llegó en Entrada <kbd class="tecla">F2</kbd> y después
+                        baja a la vitrina lo que quieras exhibir.
+                      </span>
+                    }
+                  </div>
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ======================================= producto elegido -->
+    @if (seleccionado(); as producto) {
+      <div class="panel panel--lista">
+        <div class="panel__cabecera">
+          <span class="panel__titulo">{{ producto.nombre }}</span>
+          <button type="button" class="boton boton--discreto" (click)="cerrarHistorial()">
+            Cerrar
+          </button>
+        </div>
+
+        <div class="panel__cuerpo pila">
+          <div class="fila envolver">
+            <span class="apagado">
+              Vitrina <strong class="cifra">{{ producto.enVitrina }}</strong> · Almacén
+              <strong class="cifra">{{ producto.enAlmacen }}</strong> {{ producto.unidadBase }}
+            </span>
+          </div>
+
+          <!-- Traer del almacén (RF-VIT-01). Va lo primero porque es lo
+               que más se hace, y porque un producto guardado que nadie ve
+               no se vende. -->
+          <div class="traer" [class.traer--urgente]="producto.disponibleSinExhibir">
+            <div class="campo">
+              <label for="traer-cantidad">
+                Traer del almacén
+                <span class="opcional">
+                  hay {{ producto.enAlmacen }} {{ producto.unidadBase }} guardados
+                </span>
+              </label>
+              <input
+                id="traer-cantidad"
+                class="control--cifra"
+                inputmode="decimal"
+                placeholder="0"
+                [value]="aTraer()"
+                (input)="aTraer.set($any($event.target).value)"
+                (keydown.enter)="traer(producto)"
+              />
+            </div>
+
+            <button
+              type="button"
+              class="boton boton--discreto"
+              [disabled]="ocupado()"
+              (click)="traerTodo(producto)"
+            >
+              Todo
+            </button>
+
+            <button
+              type="button"
+              class="boton boton--destacado"
+              [disabled]="ocupado() || !aTraer().trim()"
+              (click)="traer(producto)"
+            >
+              Traer a la vitrina
+            </button>
+
+            @if (producto.disponibleSinExhibir) {
+              <span class="nota nota--urgente">
+                Está guardado y no se exhibe: el cliente no puede comprarlo.
+              </span>
+            }
+          </div>
+
+          @if (producto.estaExhibido) {
+            <!-- Retirar de la exhibición y guardarlo (RF-VIT-02). La
+                 cantidad es suya: no tiene nada que ver con la de bajar. -->
+            <div class="devolver">
+              <div class="campo">
+                <label for="devolver-cantidad">
+                  Retirar de la vitrina
+                  <span class="opcional">y guardarlo, en {{ producto.unidadBase }}</span>
+                </label>
+                <input
+                  id="devolver-cantidad"
+                  class="control--cifra"
+                  inputmode="decimal"
+                  placeholder="0"
+                  [value]="aDevolver()"
+                  (input)="aDevolver.set($any($event.target).value)"
+                />
+              </div>
+
+              <button
+                type="button"
+                class="boton boton--secundario"
+                [disabled]="ocupado()"
+                (click)="devolver(producto)"
+              >
+                Devolver al almacén
+              </button>
+
+              <span class="apagado nota">
+                No se pierde nada: la mercancía cambia de sitio y el inventario total sigue igual.
+              </span>
+            </div>
+          }
+
+          <!-- La ubicación no se pregunta: estás mirando la vitrina. -->
+          <form class="merma" [formGroup]="formularioMerma" (ngSubmit)="mermar()">
+            <div class="campo">
+              <label for="merma-cantidad">
+                Se perdió <span class="opcional">de la vitrina, en {{ producto.unidadBase }}</span>
+              </label>
+              <input
+                id="merma-cantidad"
+                class="control--cifra"
+                formControlName="cantidad"
+                inputmode="decimal"
+                placeholder="0"
+              />
+            </div>
+
+            <div class="campo campo--ancho">
+              <label for="merma-motivo">¿Qué pasó?</label>
+              <input
+                id="merma-motivo"
+                formControlName="motivo"
+                autocomplete="off"
+                placeholder="Se echó a perder, se rompió…"
+              />
+            </div>
+
+            <button type="submit" class="boton boton--peligro" [disabled]="ocupado()">
+              Dar de baja
+            </button>
+          </form>
+        </div>
+
+        <div class="tabla-envoltorio">
+          <table class="tabla">
+            <thead>
+              <tr>
+                <th>Cuándo</th>
+                <th>Qué pasó</th>
+                <th class="derecha">Cantidad</th>
+                <th class="derecha">Almacén</th>
+                <th class="derecha">Vitrina</th>
+                <th>Motivo</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (linea of kardex(); track linea.id) {
+                <tr>
+                  <td class="mono">{{ linea.ocurridoEn }}</td>
+                  <td>
+                    <span
+                      class="etiqueta"
+                      [class.etiqueta--acento]="linea.esEntrada"
+                      [class.etiqueta--error]="!linea.esEntrada"
+                    >
+                      {{ linea.tipoNombre }}
+                    </span>
+                    @if (linea.origen && linea.destino) {
+                      <span class="apagado nota">{{ linea.origen }} → {{ linea.destino }}</span>
+                    }
+                  </td>
+                  <td class="derecha cifra">{{ linea.cantidad }}</td>
+                  <td class="derecha cifra apagado">{{ linea.bodegaResultante }}</td>
+                  <td class="derecha cifra">{{ linea.vitrinaResultante }}</td>
+                  <td class="apagado">{{ linea.motivo ?? '—' }}</td>
+                </tr>
+              } @empty {
+                <tr>
+                  <td colspan="6">
+                    <div class="vacio">
+                      @if (cargandoKardex()) {
+                        <span class="vacio__titulo">Cargando…</span>
+                      } @else {
+                        <span class="vacio__titulo">Sin movimientos</span>
+                      }
+                    </div>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      </div>
+    }
+  }
+</section>

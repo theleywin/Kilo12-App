@@ -1,0 +1,22 @@
+<section class="pagina">
+  <header class="cabecera-pagina">
+    <div class="fila">
+      <h1>{{ seccion.titulo }}</h1>
+      <span class="etiqueta etiqueta--atencion">Pendiente</span>
+    </div>
+    <p class="descripcion">{{ seccion.descripcion }}</p>
+  </header>
+
+  <div class="panel">
+    <div class="panel__cabecera">
+      <span class="panel__titulo">Lo que vivirá aquí</span>
+    </div>
+    <div class="panel__cuerpo">
+      <ul class="lista">
+        @for (punto of seccion.incluye; track punto) {
+          <li>{{ punto }}</li>
+        }
+      </ul>
+    </div>
+  </div>
+</section>

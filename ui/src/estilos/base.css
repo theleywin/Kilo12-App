@@ -1,0 +1,113 @@
+/* Comportamiento base de los elementos del documento.
+   Aquí no hay componentes: solo se dejan los elementos crudos en un estado
+   razonable para que ningún componente tenga que deshacer lo que trae el
+   navegador por omisión. */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--fondo);
+  color: var(--tinta);
+  font-family: var(--letra);
+  font-size: var(--texto-base);
+  line-height: 1.5;
+  /* Es una aplicación de escritorio, no una página: el texto de la
+     interfaz no se selecciona por accidente al hacer clic. */
+  user-select: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Lo que SÍ se selecciona: los datos. Un importe o un código tiene que
+   poder copiarse. */
+input,
+textarea,
+.seleccionable {
+  user-select: text;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  font-weight: var(--peso-fuerte);
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+}
+
+h1 {
+  font-size: var(--texto-2xl);
+}
+h2 {
+  font-size: var(--texto-xl);
+}
+h3 {
+  font-size: var(--texto-l);
+}
+
+p {
+  margin: 0;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+/* Foco visible en TODA la aplicación.
+   Kilo12 se opera con el teclado: si no se ve dónde está el foco, no se
+   puede usar. El anillo se dibuja hacia dentro para que no empuje nada. */
+:focus-visible {
+  outline: 2px solid var(--acento);
+  outline-offset: 2px;
+  border-radius: var(--radio-s);
+}
+
+/* El ratón no deja anillo: solo estorba. */
+:focus:not(:focus-visible) {
+  outline: none;
+}
+
+::selection {
+  background: var(--acento-halo);
+}
+
+/* Barras de desplazamiento discretas, del color de la interfaz. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: var(--radio-pildora);
+  background-clip: content-box;
+  background-color: var(--linea);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--apagado);
+}
+
+/* Quien pida menos movimiento, no lo tiene. */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+}

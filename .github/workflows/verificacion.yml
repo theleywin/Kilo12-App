@@ -1,0 +1,109 @@
+# Verificación automática de Kilo12.
+#
+# Ejecuta lo mismo que se ejecuta en local, ni más ni menos. Un gate que solo
+# corre cuando alguien se acuerda no es un gate: esto convierte «lo probé»
+# en un hecho comprobable en cada revisión.
+#
+# Rust se verifica en Windows y en Linux. Windows no está por capricho: es la
+# plataforma donde opera el mercadito (RNF-8), y los fallos de rutas, de
+# compilación de SQLite y de carpetas de datos del sistema solo aparecen ahí.
+
+name: Verificación
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+
+# Si llegan dos empujes seguidos, se cancela el primero: revisar un resultado
+# que ya quedó obsoleto no le sirve a nadie.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  rust:
+    name: Rust en ${{ matrix.sistema }}
+    runs-on: ${{ matrix.ejecutor }}
+
+    strategy:
+      # Si Windows falla, interesa saber si Linux también: dice si el fallo
+      # es del código o de la plataforma.
+      fail-fast: false
+      matrix:
+        include:
+          - sistema: Windows
+            ejecutor: windows-latest
+          - sistema: Linux
+            ejecutor: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Solo Linux: Tauri necesita el motor web del sistema para compilar.
+      # En Windows el motor ya viene con el sistema operativo.
+      - name: Instalar las dependencias de Tauri
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+
+      - name: Preparar rustfmt y clippy
+        run: rustup component add rustfmt clippy
+
+      - name: Recuperar la caché de cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: cargo-${{ matrix.ejecutor }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: cargo-${{ matrix.ejecutor }}-
+
+      # El formato no se discute en la revisión: o pasa rustfmt o no entra.
+      - name: Formato
+        run: cargo fmt --all --check
+
+      # Los avisos son errores. Un aviso tolerado se convierte en cien.
+      - name: Lints
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Pruebas
+        run: cargo test --workspace
+
+  interfaz:
+    name: Interfaz — tipos y compilación
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: ui
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      # `npm ci` y no `npm install`: instala exactamente lo que dice el
+      # candado y falla si se ha desincronizado del manifiesto.
+      - name: Instalar las dependencias
+        run: npm ci
+
+      - name: Tipos
+        run: npx tsc -p tsconfig.app.json --noEmit
+
+      - name: Compilación
+        run: npm run build

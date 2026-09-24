@@ -1,0 +1,85 @@
+/* La guía es la única pantalla que puede tener estilos propios: su trabajo
+   es presentar las piezas, no ser una pantalla del negocio. */
+
+.titulo-bloque {
+  margin: var(--e6) 0 var(--e3);
+  font-size: var(--texto-xl);
+}
+
+.titulo-bloque:first-of-type {
+  margin-top: 0;
+}
+
+.rejilla--dos {
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  align-items: start;
+}
+
+.muestra {
+  height: 88px;
+  border-radius: var(--radio-m) var(--radio-m) 0 0;
+}
+
+.punto {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border: 1px solid var(--linea);
+  border-radius: var(--radio-s);
+  vertical-align: middle;
+}
+
+.nota {
+  font-size: var(--texto-s);
+  max-width: 72ch;
+}
+
+.nota--suelta {
+  margin-bottom: var(--e3);
+}
+
+.regla {
+  margin-top: var(--e4);
+}
+
+.linea-escala {
+  padding-bottom: var(--e2);
+  border-bottom: 1px solid var(--linea-suave);
+}
+
+.envolver {
+  flex-wrap: wrap;
+}
+
+.total {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e3);
+  align-items: flex-start;
+}
+
+.atajo {
+  gap: var(--e2);
+  font-size: var(--texto-s);
+  color: var(--apagado);
+}
+
+/* ======================================== vaciar la aplicación
+   Marcado en rojo y al final del todo. Es la única acción irreversible
+   de Kilo12, y tiene que parecerlo antes de pulsarla, no después. */
+
+.peligro {
+  border-color: var(--rojo);
+}
+
+.peligro .panel__titulo {
+  color: var(--rojo);
+}
+
+.peligro .explicacion {
+  margin: 0;
+  max-width: 62ch;
+  font-size: var(--texto-s);
+  color: var(--apagado);
+  line-height: 1.5;
+}

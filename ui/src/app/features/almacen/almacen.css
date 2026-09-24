@@ -1,0 +1,80 @@
+/* Casi todo viene del sistema (estilos/). Aquí solo la disposición propia
+   de esta pantalla. */
+
+.rejilla-tarjetas {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--e4);
+  margin-bottom: var(--e5);
+}
+
+.tarjeta {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e1);
+  padding: var(--e4);
+}
+
+.tarjeta__titulo {
+  font-size: var(--texto-s);
+  font-weight: var(--peso-fuerte);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--apagado);
+}
+
+/* Una cifra que exige atención se marca con el color de la marca que
+   justamente sirve para eso. */
+.tarjeta--atencion {
+  border-color: var(--destaque);
+}
+
+.tarjeta--atencion .cifra {
+  color: var(--destaque-texto);
+}
+
+.tarjeta--error .cifra {
+  color: var(--rojo);
+}
+
+.nota {
+  font-size: var(--texto-xs);
+}
+
+.panel--operacion,
+.panel--lista {
+  margin-bottom: var(--e5);
+}
+
+.campo--ancho {
+  grid-column: span 2;
+}
+
+.pista--fuerte {
+  color: var(--destaque-texto);
+}
+
+/* Las filas de existencias abren el historial, así que se comportan como
+   lo que son: algo en lo que se puede pulsar. */
+.fila-clicable {
+  cursor: pointer;
+}
+
+/* La baja por merma: no pregunta de dónde sale porque estás mirando el
+   almacén. Un campo menos que rellenar y un error menos que cometer. */
+.merma {
+  display: grid;
+  grid-template-columns: 160px 1fr auto;
+  gap: var(--e3);
+  align-items: end;
+}
+
+.merma .campo--ancho {
+  min-width: 0;
+}
+
+@media (max-width: 720px) {
+  .merma {
+    grid-template-columns: 1fr;
+  }
+}

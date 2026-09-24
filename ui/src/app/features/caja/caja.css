@@ -1,0 +1,485 @@
+/* Caja: el turno y su arqueo.
+   ---------------------------------------------------------------------
+   Arriba manda una sola cifra: cuánto debería haber en la gaveta. Todo lo
+   demás existe para explicarla o para modificarla. */
+
+:host {
+  display: block;
+}
+
+.caja {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e4);
+  padding: var(--e4) var(--e5) var(--e5);
+}
+
+.explicacion {
+  margin: 0;
+  max-width: 60ch;
+  font-size: var(--texto-s);
+  color: var(--apagado);
+  line-height: 1.5;
+}
+
+/* ============================================= las cuatro cifras */
+
+.cabecera {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--e3);
+}
+
+.tarjeta {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e1);
+  padding: var(--e4);
+  border: 1px solid var(--linea);
+  border-radius: var(--radio-m);
+  background: var(--fondo);
+}
+
+.tarjeta__titulo {
+  font-size: var(--texto-s);
+  font-weight: var(--peso-fuerte);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--apagado);
+}
+
+.tarjeta__pie {
+  font-size: var(--texto-xs);
+  color: var(--apagado);
+}
+
+/* El efectivo esperado es la cifra contra la que se cuenta el dinero:
+   manda sobre todo lo demás de la pantalla. */
+.tarjeta--esperado {
+  border-color: var(--acento);
+  background: var(--acento-suave);
+}
+
+.tarjeta--esperado .cifra {
+  color: var(--acento);
+}
+
+.tarjeta--dolares {
+  border-color: var(--destaque);
+  background: var(--destaque-suave);
+}
+
+.tarjeta--dolares .cifra {
+  color: var(--destaque-texto);
+}
+
+/* La transferencia va en gris a propósito: verde y naranja son los dos
+   fajos que se cuentan a mano, y esta no se cuenta —se comprueba contra
+   el banco—. El color dice de un vistazo cuál de las tres no se toca. */
+.tarjeta--transferencia {
+  border-color: var(--linea);
+  background: var(--superficie-fuerte);
+}
+
+.tarjeta--transferencia .cifra {
+  color: var(--tinta);
+}
+
+.cifra--grande {
+  font-family: var(--letra-cifra);
+  font-size: var(--texto-2xl);
+  font-weight: var(--peso-fuerte);
+}
+
+/* ==================================================== el reparto */
+
+.columnas {
+  display: grid;
+  grid-template-columns: 1fr 380px;
+  gap: var(--e4);
+  align-items: start;
+}
+
+.columna {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e3);
+  min-width: 0;
+}
+
+.columna--cierre {
+  position: sticky;
+  top: var(--e4);
+}
+
+.campo--ancho {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ================================================== los desgloses */
+
+.lineas,
+.economico {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e2);
+}
+
+.linea {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--e3);
+  font-size: var(--texto-s);
+}
+
+.linea--total {
+  padding-top: var(--e2);
+  border-top: 1px solid var(--linea);
+  font-size: var(--texto-l);
+  font-weight: var(--peso-fuerte);
+}
+
+.nota {
+  display: block;
+  font-size: var(--texto-xs);
+}
+
+.subtitulo {
+  font-size: var(--texto-s);
+  font-weight: var(--peso-fuerte);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--apagado);
+}
+
+.negativo {
+  color: var(--rojo);
+}
+
+/* ====================================================== el arqueo */
+
+.arqueos {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--e3);
+}
+
+.arqueos--previo {
+  grid-template-columns: 1fr;
+}
+
+/* Cuadrar se ve verde y no cuadrar se ve rojo. Es la única pregunta
+   que importa al cerrar, y tiene que contestarse sin leer. */
+.arqueo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e1);
+  padding: var(--e3);
+  border-radius: var(--radio-s);
+  border-left: 3px solid var(--acento);
+  background: var(--acento-suave);
+}
+
+.arqueo .cifra {
+  color: var(--acento);
+}
+
+.arqueo--descuadre {
+  border-left-color: var(--rojo);
+  background: var(--rojo-suave);
+}
+
+.arqueo--descuadre .cifra {
+  color: var(--rojo);
+}
+
+.arqueo__titulo {
+  font-size: var(--texto-s);
+  font-weight: var(--peso-fuerte);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--apagado);
+}
+
+.panel--cierre {
+  border-color: var(--destaque);
+}
+
+.panel--cerrada {
+  border-color: var(--acento);
+}
+
+.panel--apertura {
+  border-color: var(--acento);
+}
+
+.campo input.grande {
+  height: calc(var(--alto-control) + 10px);
+  font-size: var(--texto-xl);
+}
+
+/* =================================================== el historial */
+
+.fila--pulsable {
+  cursor: pointer;
+}
+
+.fila--pulsable:hover td {
+  background: var(--superficie);
+}
+
+.fila--abierta td {
+  background: var(--acento-suave);
+  box-shadow: inset 3px 0 0 var(--acento);
+}
+
+.etiqueta--activa {
+  background: var(--acento-suave);
+  color: var(--acento);
+}
+
+@media (max-width: 1100px) {
+  .columnas {
+    grid-template-columns: 1fr;
+  }
+
+  .columna--cierre {
+    position: static;
+  }
+
+  .cabecera {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 700px) {
+  .cabecera {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ============================================= la comisión
+   Vive en el panel del cierre porque es donde se aplica, y se ve antes de
+   contar el dinero: quien cobra tiene que poder comprobar su importe con
+   solo saber cuánto se vendió. */
+
+.comision {
+  display: flex;
+  align-items: center;
+  gap: var(--e2);
+  flex-wrap: wrap;
+  padding-bottom: var(--e2);
+  border-bottom: 1px solid var(--linea-suave);
+}
+
+.comision .nota {
+  flex: 1;
+  min-width: 0;
+}
+
+.comision--editando input {
+  width: 80px;
+}
+
+.comision label {
+  font-size: var(--texto-s);
+  color: var(--apagado);
+}
+
+/* La suma de las tres formas de cobro: se separa del desglose con una
+   línea para que se lea como lo que es, un total. */
+.linea--suma {
+  padding-top: var(--e2);
+  border-top: 1px solid var(--linea);
+  font-weight: var(--peso-fuerte);
+}
+
+/* ======================================= contar los billetes
+   El recuento tapa la aplicación a propósito: mientras se cuenta dinero
+   físico no hay nada más que hacer, y el desenfoque de atrás lo dice sin
+   necesidad de un cartel. */
+
+.velo {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(28, 33, 20, 0.45);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.modal {
+  position: fixed;
+  z-index: 41;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  width: min(760px, calc(100vw - var(--e5) * 2));
+  max-height: calc(100vh - var(--e5) * 2);
+  border: 1px solid var(--linea);
+  border-radius: var(--radio-l);
+  background: var(--fondo);
+  box-shadow: var(--sombra-2);
+  overflow: hidden;
+}
+
+.modal__cabecera {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--e3);
+  padding: var(--e3) var(--e4);
+  border-bottom: 1px solid var(--linea);
+}
+
+.modal__titulo {
+  font-size: var(--texto-l);
+  font-weight: var(--peso-fuerte);
+}
+
+.modal__cuerpo {
+  display: grid;
+  grid-template-columns: 1fr 220px;
+  gap: var(--e4);
+  padding: var(--e4);
+  overflow-y: auto;
+}
+
+/* Los billetes van de menor a mayor y en rejilla: así se parece a los
+   fajos puestos sobre la mesa. */
+.billetes {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: var(--e2);
+  align-content: start;
+}
+
+.billete {
+  display: grid;
+  grid-template-columns: 58px 1fr;
+  align-items: center;
+  gap: var(--e2);
+  padding: var(--e2);
+  border: 1px solid var(--linea);
+  border-radius: var(--radio-s);
+}
+
+/* Una denominación con billetes contados se destaca: de un vistazo se ve
+   por dónde va el recuento sin releer cifra por cifra. */
+.billete--lleno {
+  border-color: var(--acento);
+  background: var(--acento-suave);
+}
+
+.billete label {
+  font-family: var(--letra-cifra);
+  font-size: var(--texto-l);
+  font-weight: var(--peso-fuerte);
+  text-align: right;
+}
+
+.billete input {
+  width: 100%;
+}
+
+.billete__importe {
+  grid-column: 2;
+  font-size: var(--texto-xs);
+  color: var(--apagado);
+  text-align: right;
+}
+
+/* ----------------------------------------------- el total */
+
+.recuento {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--e2);
+  padding: var(--e3);
+  border-radius: var(--radio-m);
+  border: 1px solid var(--acento);
+  background: var(--acento-suave);
+  align-self: start;
+}
+
+.recuento__titulo {
+  font-size: var(--texto-s);
+  font-weight: var(--peso-fuerte);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--apagado);
+}
+
+.recuento__cifra {
+  font-family: var(--letra-cifra);
+  font-size: var(--texto-2xl);
+  font-weight: var(--peso-fuerte);
+  color: var(--acento);
+}
+
+.recuento__cotejo {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--e2);
+  padding-top: var(--e2);
+  border-top: 1px solid var(--linea);
+}
+
+@media (max-width: 760px) {
+  .modal__cuerpo {
+    grid-template-columns: 1fr;
+  }
+
+  .recuento {
+    position: static;
+  }
+}
+
+/* El botón de contar va debajo de la casilla, no al lado: la columna del
+   cierre son 380 px y en horizontal el botón se salía del panel. */
+.campo--conteo {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e2);
+}
+
+.campo--conteo input {
+  width: 100%;
+}
+
+/* ==================================== el fondo y el esperado
+   Con cuánto abrió la caja va a la vista mientras se cuenta: esos billetes
+   ya estaban en la gaveta antes de vender nada, y olvidarlo es la causa
+   más común de creer que sobra dinero. */
+
+.fondo {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--e2);
+  padding: var(--e2) var(--e3);
+  border-radius: var(--radio-s);
+  border-left: 3px solid var(--acento);
+  background: var(--acento-suave);
+}
+
+.fondo .cifra {
+  font-size: var(--texto-l);
+  color: var(--acento);
+}
+
+.desglose-esperado {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e1);
+  padding: var(--e3);
+  border-radius: var(--radio-s);
+  background: var(--superficie);
+}

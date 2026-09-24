@@ -1,0 +1,1535 @@
+//! Objetos de transferencia entre Rust y la interfaz.
+//!
+//! Viven aquí, y no en la capa de aplicación, porque `serde` es un detalle
+//! del transporte: la aplicación no tiene por qué saber en qué formato
+//! viajan sus datos (DT-5).
+//!
+//! **Los importes y las cantidades son cadenas de texto, nunca números.**
+//! Un `number` de JSON es un `f64`: serializar `41.67` y deserializarlo
+//! puede no devolver `41.67`, y ahí se pierde la exactitud que todo el
+//! dominio se toma el trabajo de garantizar (DT-7).
+
+use application::casos::{
+    ArqueoListado, CierreCalculado, ComandoAbrirCaja, ComandoAnularVenta, ComandoCerrarCaja,
+    ComandoMoverEfectivo, ConteoCalculado, DesgloseVenta, EstadoCaja, Informe, ProductoEnInforme,
+    SesionListada,
+};
+use application::casos::{
+    CambioDePrecioListado, ComandoAgregarPresentacion, ComandoCambiarPrecio, ComandoEditarProducto,
+    ComandoFijarObjetivo, ComandoPresentacion, ComandoRegistrarEntrada, ComandoRegistrarMerma,
+    ComandoRegistrarProducto, ComandoSimular, ComandoTraspasar, FichaProducto, LineaKardex,
+    LineaVitrina, PresentacionDetallada, ProductoListado, ResumenAlmacen, ResumenVitrina,
+    Simulacion,
+};
+use application::casos::{
+    CobroCalculado, ComandoVender, HistorialVentas, LineaPedida, LineaVendida, PagoHecho,
+    PagoPedido, ProductoVendible, VentaDetallada, VentaHecha, VentaListada, VentaPrevista,
+};
+use application::{ErrorAplicacion, Margen};
+use serde::{Deserialize, Serialize};
+
+/// Datos para dar de alta un producto.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NuevoProductoDto {
+    /// Vacío significa «derívalo del nombre» (RF-CAT-02).
+    #[serde(default)]
+    pub sku: String,
+    pub nombre: String,
+    /// `unidad`, `kg`, `lb`, `g`, `L` o `ml`. Todo lo que no sea `unidad`
+    /// se vende en fracciones: no hay una casilla aparte para eso.
+    pub unidad_base: String,
+    /// Precio de venta de una unidad base, como texto. Ejemplo: `"180.00"`.
+    pub precio_unitario: String,
+    /// Lo que cuesta una unidad base al dueño.
+    #[serde(default)]
+    pub costo_unitario: Option<String>,
+    /// Cuánto entra al almacén al dar de alta el producto.
+    #[serde(default)]
+    pub cantidad_almacen: Option<String>,
+    /// Cuánto se pone en la vitrina al dar de alta el producto.
+    #[serde(default)]
+    pub cantidad_vitrina: Option<String>,
+    #[serde(default)]
+    pub stock_minimo: Option<String>,
+    #[serde(default)]
+    pub objetivo_vitrina: Option<String>,
+}
+
+impl From<NuevoProductoDto> for ComandoRegistrarProducto {
+    fn from(dto: NuevoProductoDto) -> Self {
+        Self {
+            sku: dto.sku,
+            nombre: dto.nombre,
+            unidad_base: dto.unidad_base,
+            precio_unitario: dto.precio_unitario,
+            costo_unitario: dto.costo_unitario,
+            cantidad_almacen: dto.cantidad_almacen,
+            cantidad_vitrina: dto.cantidad_vitrina,
+            stock_minimo: dto.stock_minimo,
+            objetivo_vitrina: dto.objetivo_vitrina,
+        }
+    }
+}
+
+/// Producto tal como lo muestra la lista del catálogo.
+///
+/// Todo llega formateado: la pantalla muestra lo que recibe y no hace ni
+/// una cuenta con dinero.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProductoDto {
+    pub id: i64,
+    pub sku: String,
+    pub nombre: String,
+    pub unidad_base: String,
+    pub unidad_nombre: String,
+    pub es_granel: bool,
+    pub activo: bool,
+    pub precio: String,
+    pub costo: String,
+    pub ganancia: String,
+    pub margen: String,
+    pub en_riesgo: bool,
+    pub en_almacen: String,
+    pub en_vitrina: String,
+    pub existencia_total: String,
+    pub bajo_minimo: bool,
+    pub agotado: bool,
+    pub presentacion: String,
+    pub total_presentaciones: usize,
+}
+
+impl From<ProductoListado> for ProductoDto {
+    fn from(listado: ProductoListado) -> Self {
+        Self {
+            id: listado.id,
+            sku: listado.sku,
+            nombre: listado.nombre,
+            unidad_base: listado.unidad_base,
+            unidad_nombre: listado.unidad_nombre,
+            es_granel: listado.es_granel,
+            activo: listado.activo,
+            precio: listado.precio,
+            costo: listado.costo,
+            ganancia: listado.ganancia,
+            margen: listado.margen,
+            en_riesgo: listado.en_riesgo,
+            en_almacen: listado.en_almacen,
+            en_vitrina: listado.en_vitrina,
+            existencia_total: listado.existencia_total,
+            bajo_minimo: listado.bajo_minimo,
+            agotado: listado.agotado,
+            presentacion: listado.presentacion,
+            total_presentaciones: listado.total_presentaciones,
+        }
+    }
+}
+
+/// Datos de una entrada de mercancía.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NuevaEntradaDto {
+    pub producto: i64,
+    pub cantidad: String,
+    pub costo_unitario: String,
+    /// `BODEGA` o `VITRINA`.
+    pub destino: String,
+}
+
+impl From<NuevaEntradaDto> for ComandoRegistrarEntrada {
+    fn from(dto: NuevaEntradaDto) -> Self {
+        Self {
+            producto: dto.producto,
+            cantidad: dto.cantidad,
+            costo_unitario: dto.costo_unitario,
+            destino: dto.destino,
+        }
+    }
+}
+
+/// Datos de una baja por merma.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NuevaMermaDto {
+    pub producto: i64,
+    pub cantidad: String,
+    /// `BODEGA` o `VITRINA`.
+    pub origen: String,
+    pub motivo: String,
+}
+
+impl From<NuevaMermaDto> for ComandoRegistrarMerma {
+    fn from(dto: NuevaMermaDto) -> Self {
+        Self {
+            producto: dto.producto,
+            cantidad: dto.cantidad,
+            origen: dto.origen,
+            motivo: dto.motivo,
+        }
+    }
+}
+
+/// Datos de un traspaso entre almacén y vitrina.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NuevoTraspasoDto {
+    pub producto: i64,
+    pub cantidad: String,
+    /// De dónde sale. El destino es la otra ubicación.
+    pub origen: String,
+}
+
+impl From<NuevoTraspasoDto> for ComandoTraspasar {
+    fn from(dto: NuevoTraspasoDto) -> Self {
+        Self {
+            producto: dto.producto,
+            cantidad: dto.cantidad,
+            origen: dto.origen,
+        }
+    }
+}
+
+/// Movimiento que se está planteando, para la vista previa.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConsultaSimulacionDto {
+    pub producto: i64,
+    /// `ENTRADA`, `TRASPASO` o `MERMA`.
+    pub tipo: String,
+    pub cantidad: String,
+    pub ubicacion: String,
+}
+
+impl From<ConsultaSimulacionDto> for ComandoSimular {
+    fn from(dto: ConsultaSimulacionDto) -> Self {
+        Self {
+            producto: dto.producto,
+            tipo: dto.tipo,
+            cantidad: dto.cantidad,
+            ubicacion: dto.ubicacion,
+        }
+    }
+}
+
+/// Cómo quedaría la existencia si el movimiento se hiciera.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SimulacionDto {
+    pub posible: bool,
+    pub problema: Option<String>,
+    pub disponible: String,
+    pub bodega_resultante: String,
+    pub vitrina_resultante: String,
+}
+
+impl From<Simulacion> for SimulacionDto {
+    fn from(simulacion: Simulacion) -> Self {
+        Self {
+            posible: simulacion.posible,
+            problema: simulacion.problema,
+            disponible: simulacion.disponible,
+            bodega_resultante: simulacion.bodega_resultante,
+            vitrina_resultante: simulacion.vitrina_resultante,
+        }
+    }
+}
+
+/// Estado del almacén tal como lo muestra la pantalla.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AlmacenDto {
+    pub productos: Vec<ProductoDto>,
+    pub valor_total: String,
+    pub con_existencia: usize,
+    pub bajo_minimo: usize,
+    pub agotados: usize,
+}
+
+impl From<ResumenAlmacen> for AlmacenDto {
+    fn from(resumen: ResumenAlmacen) -> Self {
+        Self {
+            productos: resumen
+                .productos
+                .into_iter()
+                .map(ProductoDto::from)
+                .collect(),
+            valor_total: resumen.valor_total,
+            con_existencia: resumen.con_existencia,
+            bajo_minimo: resumen.bajo_minimo,
+            agotados: resumen.agotados,
+        }
+    }
+}
+
+/// Un producto visto desde la vitrina.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LineaVitrinaDto {
+    pub id: i64,
+    pub sku: String,
+    pub nombre: String,
+    pub unidad_base: String,
+    pub unidad_nombre: String,
+    pub en_vitrina: String,
+    pub objetivo: String,
+    pub en_almacen: String,
+    pub sugerido: String,
+    pub hay_que_reponer: bool,
+    pub esta_exhibido: bool,
+    pub falta_comprar: bool,
+    pub disponible_sin_exhibir: bool,
+    pub agotado: bool,
+}
+
+impl From<LineaVitrina> for LineaVitrinaDto {
+    fn from(linea: LineaVitrina) -> Self {
+        Self {
+            id: linea.id,
+            sku: linea.sku,
+            nombre: linea.nombre,
+            unidad_base: linea.unidad_base,
+            unidad_nombre: linea.unidad_nombre,
+            en_vitrina: linea.en_vitrina,
+            objetivo: linea.objetivo,
+            en_almacen: linea.en_almacen,
+            sugerido: linea.sugerido,
+            hay_que_reponer: linea.hay_que_reponer,
+            esta_exhibido: linea.esta_exhibido,
+            falta_comprar: linea.falta_comprar,
+            disponible_sin_exhibir: linea.disponible_sin_exhibir,
+            agotado: linea.agotado,
+        }
+    }
+}
+
+/// Estado de la vitrina tal como lo muestra la pantalla.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VitrinaDto {
+    pub productos: Vec<LineaVitrinaDto>,
+    pub exhibidos: usize,
+    pub por_reponer: usize,
+    pub sin_exhibir: usize,
+    pub falta_comprar: usize,
+}
+
+impl From<ResumenVitrina> for VitrinaDto {
+    fn from(resumen: ResumenVitrina) -> Self {
+        Self {
+            productos: resumen
+                .productos
+                .into_iter()
+                .map(LineaVitrinaDto::from)
+                .collect(),
+            exhibidos: resumen.exhibidos,
+            por_reponer: resumen.por_reponer,
+            sin_exhibir: resumen.sin_exhibir,
+            falta_comprar: resumen.falta_comprar,
+        }
+    }
+}
+
+/// Cuánto se quiere mantener exhibido de un producto.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ObjetivoVitrinaDto {
+    pub producto: i64,
+    pub objetivo: String,
+}
+
+impl From<ObjetivoVitrinaDto> for ComandoFijarObjetivo {
+    fn from(dto: ObjetivoVitrinaDto) -> Self {
+        Self {
+            producto: dto.producto,
+            objetivo: dto.objetivo,
+        }
+    }
+}
+
+/// Una línea del historial de un producto (RF-INV-05).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MovimientoDto {
+    pub id: i64,
+    pub tipo: String,
+    pub tipo_nombre: String,
+    pub es_entrada: bool,
+    pub cantidad: String,
+    pub costo_unitario: String,
+    pub importe: String,
+    pub origen: Option<String>,
+    pub destino: Option<String>,
+    pub bodega_resultante: String,
+    pub vitrina_resultante: String,
+    pub motivo: Option<String>,
+    pub ocurrido_en: String,
+}
+
+impl From<LineaKardex> for MovimientoDto {
+    fn from(linea: LineaKardex) -> Self {
+        Self {
+            id: linea.id,
+            tipo: linea.tipo,
+            tipo_nombre: linea.tipo_nombre,
+            es_entrada: linea.es_entrada,
+            cantidad: linea.cantidad,
+            costo_unitario: linea.costo_unitario,
+            importe: linea.importe,
+            origen: linea.origen,
+            destino: linea.destino,
+            bodega_resultante: linea.bodega_resultante,
+            vitrina_resultante: linea.vitrina_resultante,
+            motivo: linea.motivo,
+            ocurrido_en: linea.ocurrido_en,
+        }
+    }
+}
+
+/// Una forma de vender el producto, con su economía (RF-PRS-11).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PresentacionDto {
+    pub id: i64,
+    pub nombre: String,
+    pub factor: String,
+    pub precio: String,
+    pub costo: String,
+    pub ganancia: String,
+    pub margen: String,
+    pub precio_por_unidad_base: String,
+    pub en_riesgo: bool,
+    pub precio_anomalo: bool,
+    pub es_predeterminada: bool,
+    pub activa: bool,
+    pub codigo_barras: Option<String>,
+}
+
+impl From<PresentacionDetallada> for PresentacionDto {
+    fn from(p: PresentacionDetallada) -> Self {
+        Self {
+            id: p.id,
+            nombre: p.nombre,
+            factor: p.factor,
+            precio: p.precio,
+            costo: p.costo,
+            ganancia: p.ganancia,
+            margen: p.margen,
+            precio_por_unidad_base: p.precio_por_unidad_base,
+            en_riesgo: p.en_riesgo,
+            precio_anomalo: p.precio_anomalo,
+            es_predeterminada: p.es_predeterminada,
+            activa: p.activa,
+            codigo_barras: p.codigo_barras,
+        }
+    }
+}
+
+/// La ficha comercial completa de un producto.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FichaProductoDto {
+    pub id: i64,
+    pub sku: String,
+    pub nombre: String,
+    pub unidad_base: String,
+    pub unidad_nombre: String,
+    pub es_granel: bool,
+    pub activo: bool,
+    pub costo: String,
+    pub stock_minimo: String,
+    pub objetivo_vitrina: String,
+    pub existencia_total: String,
+    pub presentaciones: Vec<PresentacionDto>,
+}
+
+impl From<FichaProducto> for FichaProductoDto {
+    fn from(ficha: FichaProducto) -> Self {
+        Self {
+            id: ficha.id,
+            sku: ficha.sku,
+            nombre: ficha.nombre,
+            unidad_base: ficha.unidad_base,
+            unidad_nombre: ficha.unidad_nombre,
+            es_granel: ficha.es_granel,
+            activo: ficha.activo,
+            costo: ficha.costo,
+            stock_minimo: ficha.stock_minimo,
+            objetivo_vitrina: ficha.objetivo_vitrina,
+            existencia_total: ficha.existencia_total,
+            presentaciones: ficha
+                .presentaciones
+                .into_iter()
+                .map(PresentacionDto::from)
+                .collect(),
+        }
+    }
+}
+
+/// Datos editables de un producto.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EdicionProductoDto {
+    pub producto: i64,
+    pub nombre: String,
+    #[serde(default)]
+    pub stock_minimo: Option<String>,
+    pub activo: bool,
+}
+
+impl From<EdicionProductoDto> for ComandoEditarProducto {
+    fn from(dto: EdicionProductoDto) -> Self {
+        Self {
+            producto: dto.producto,
+            nombre: dto.nombre,
+            stock_minimo: dto.stock_minimo,
+            activo: dto.activo,
+        }
+    }
+}
+
+/// Una presentación nueva.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NuevaPresentacionDto {
+    pub producto: i64,
+    pub nombre: String,
+    pub factor: String,
+    pub precio: String,
+    #[serde(default)]
+    pub codigo_barras: Option<String>,
+}
+
+impl From<NuevaPresentacionDto> for ComandoAgregarPresentacion {
+    fn from(dto: NuevaPresentacionDto) -> Self {
+        Self {
+            producto: dto.producto,
+            nombre: dto.nombre,
+            factor: dto.factor,
+            precio: dto.precio,
+            codigo_barras: dto.codigo_barras,
+        }
+    }
+}
+
+/// Un precio nuevo para una presentación.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CambioPrecioDto {
+    pub producto: i64,
+    pub presentacion: i64,
+    pub precio: String,
+}
+
+impl From<CambioPrecioDto> for ComandoCambiarPrecio {
+    fn from(dto: CambioPrecioDto) -> Self {
+        Self {
+            producto: dto.producto,
+            presentacion: dto.presentacion,
+            precio: dto.precio,
+        }
+    }
+}
+
+/// Qué presentación se retira o se marca como predeterminada.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ReferenciaPresentacionDto {
+    pub producto: i64,
+    pub presentacion: i64,
+}
+
+impl From<ReferenciaPresentacionDto> for ComandoPresentacion {
+    fn from(dto: ReferenciaPresentacionDto) -> Self {
+        Self {
+            producto: dto.producto,
+            presentacion: dto.presentacion,
+        }
+    }
+}
+
+/// Un cambio de precio ya ocurrido (RF-PRE-04).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CambioPrecioListadoDto {
+    pub id: i64,
+    pub presentacion: String,
+    pub anterior: String,
+    pub nuevo: String,
+    pub subio: bool,
+    pub cambiado_en: String,
+}
+
+impl From<CambioDePrecioListado> for CambioPrecioListadoDto {
+    fn from(cambio: CambioDePrecioListado) -> Self {
+        Self {
+            id: cambio.id,
+            presentacion: cambio.presentacion,
+            anterior: cambio.anterior,
+            nuevo: cambio.nuevo,
+            subio: cambio.subio,
+            cambiado_en: cambio.cambiado_en,
+        }
+    }
+}
+
+/// Una forma de vender un producto, tal como la ve el mostrador.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PresentacionVendibleDto {
+    pub id: i64,
+    pub nombre: String,
+    pub precio: String,
+    pub factor: String,
+    pub es_predeterminada: bool,
+}
+
+/// Un producto disponible para vender.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProductoVendibleDto {
+    pub id: i64,
+    pub sku: String,
+    pub nombre: String,
+    pub unidad_base: String,
+    pub es_granel: bool,
+    pub en_vitrina: String,
+    pub agotado: bool,
+    pub presentaciones: Vec<PresentacionVendibleDto>,
+}
+
+impl From<ProductoVendible> for ProductoVendibleDto {
+    fn from(p: ProductoVendible) -> Self {
+        Self {
+            id: p.id,
+            sku: p.sku,
+            nombre: p.nombre,
+            unidad_base: p.unidad_base,
+            es_granel: p.es_granel,
+            en_vitrina: p.en_vitrina,
+            agotado: p.agotado,
+            presentaciones: p
+                .presentaciones
+                .into_iter()
+                .map(|v| PresentacionVendibleDto {
+                    id: v.id,
+                    nombre: v.nombre,
+                    precio: v.precio,
+                    factor: v.factor,
+                    es_predeterminada: v.es_predeterminada,
+                })
+                .collect(),
+        }
+    }
+}
+
+/// Un renglón de lo que el cliente se lleva.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LineaVentaDto {
+    pub producto: i64,
+    pub presentacion: i64,
+    pub cantidad: String,
+}
+
+/// Una parte del pago. Pueden venir varias: el cobro puede ser mixto.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PagoDto {
+    pub metodo: String,
+    pub entregado: String,
+}
+
+/// La venta que se quiere cobrar.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NuevaVentaDto {
+    pub lineas: Vec<LineaVentaDto>,
+    pub pagos: Vec<PagoDto>,
+}
+
+impl From<NuevaVentaDto> for ComandoVender {
+    fn from(dto: NuevaVentaDto) -> Self {
+        Self {
+            lineas: dto
+                .lineas
+                .into_iter()
+                .map(|l| LineaPedida {
+                    producto: l.producto,
+                    presentacion: l.presentacion,
+                    cantidad: l.cantidad,
+                })
+                .collect(),
+            pagos: dto
+                .pagos
+                .into_iter()
+                .map(|p| PagoPedido {
+                    metodo: p.metodo,
+                    entregado: p.entregado,
+                })
+                .collect(),
+        }
+    }
+}
+
+/// El resultado de cobrar.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VentaHechaDto {
+    pub folio: i64,
+    pub total: String,
+    pub entregado: String,
+    pub vuelto: String,
+}
+
+impl From<VentaHecha> for VentaHechaDto {
+    fn from(hecha: VentaHecha) -> Self {
+        Self {
+            folio: hecha.folio,
+            total: hecha.total,
+            entregado: hecha.entregado,
+            vuelto: hecha.vuelto,
+        }
+    }
+}
+
+/// La venta en curso, ya calculada por el núcleo.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VentaPrevistaDto {
+    pub lineas: Vec<LineaPrevistaDto>,
+    pub total: String,
+    pub hay_faltantes: bool,
+}
+
+/// Una línea de la venta en curso.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LineaPrevistaDto {
+    pub producto: i64,
+    pub presentacion: i64,
+    pub nombre_producto: String,
+    pub nombre_presentacion: String,
+    pub cantidad: String,
+    pub precio: String,
+    pub importe: String,
+    pub unidades_base: String,
+    pub sin_existencia: bool,
+}
+
+impl From<VentaPrevista> for VentaPrevistaDto {
+    fn from(prevista: VentaPrevista) -> Self {
+        Self {
+            total: prevista.total,
+            hay_faltantes: prevista.hay_faltantes,
+            lineas: prevista
+                .lineas
+                .into_iter()
+                .map(|l| LineaPrevistaDto {
+                    producto: l.producto,
+                    presentacion: l.presentacion,
+                    nombre_producto: l.nombre_producto,
+                    nombre_presentacion: l.nombre_presentacion,
+                    cantidad: l.cantidad,
+                    precio: l.precio,
+                    importe: l.importe,
+                    unidades_base: l.unidades_base,
+                    sin_existencia: l.sin_existencia,
+                })
+                .collect(),
+        }
+    }
+}
+
+/// Lo que el cliente pone frente a lo que debe, mientras se teclea.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CobroCalculadoDto {
+    pub entregado: String,
+    pub falta: String,
+    pub vuelto: String,
+    pub alcanza: bool,
+}
+
+impl From<CobroCalculado> for CobroCalculadoDto {
+    fn from(calculado: CobroCalculado) -> Self {
+        Self {
+            entregado: calculado.entregado,
+            falta: calculado.falta,
+            vuelto: calculado.vuelto,
+            alcanza: calculado.alcanza,
+        }
+    }
+}
+
+/// El historial de ventas con el corte del día.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HistorialVentasDto {
+    pub hoy: ResumenDelDiaDto,
+    pub ventas: Vec<VentaListadaDto>,
+}
+
+/// Lo vendido hoy.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResumenDelDiaDto {
+    pub cuantas: i64,
+    pub total: String,
+    pub ganancia: String,
+}
+
+/// Una venta en la lista.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VentaListadaDto {
+    pub id: i64,
+    pub folio: i64,
+    pub anulada: bool,
+    pub total: String,
+    pub ganancia: String,
+    pub ocurrido_en: String,
+    pub fecha: String,
+    pub hora: String,
+}
+
+impl From<HistorialVentas> for HistorialVentasDto {
+    fn from(historial: HistorialVentas) -> Self {
+        Self {
+            hoy: ResumenDelDiaDto {
+                cuantas: historial.hoy.cuantas,
+                total: historial.hoy.total,
+                ganancia: historial.hoy.ganancia,
+            },
+            ventas: historial
+                .ventas
+                .into_iter()
+                .map(VentaListadaDto::from)
+                .collect(),
+        }
+    }
+}
+
+impl From<VentaListada> for VentaListadaDto {
+    fn from(venta: VentaListada) -> Self {
+        Self {
+            id: venta.id,
+            folio: venta.folio,
+            anulada: venta.anulada,
+            total: venta.total,
+            ganancia: venta.ganancia,
+            ocurrido_en: venta.ocurrido_en,
+            fecha: venta.fecha,
+            hora: venta.hora,
+        }
+    }
+}
+
+/// Una venta con todo su detalle.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VentaDetalladaDto {
+    pub id: i64,
+    pub folio: i64,
+    pub anulada: bool,
+    pub motivo_anulacion: Option<String>,
+    pub total: String,
+    pub costo_total: String,
+    pub ganancia: String,
+    pub vuelto: String,
+    pub entregado: String,
+    pub ocurrido_en: String,
+    pub fecha: String,
+    pub hora: String,
+    pub lineas: Vec<LineaVendidaDto>,
+    pub pagos: Vec<PagoHechoDto>,
+}
+
+/// Una línea de una venta ya cobrada.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LineaVendidaDto {
+    pub producto: i64,
+    pub nombre_producto: String,
+    pub nombre_presentacion: String,
+    pub cantidad: String,
+    pub precio: String,
+    pub importe: String,
+    pub costo: String,
+    pub ganancia: String,
+}
+
+/// Una de las formas en que se pagó.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PagoHechoDto {
+    pub metodo: String,
+    pub metodo_nombre: String,
+    pub entregado: String,
+    pub moneda: String,
+    pub tasa: Option<String>,
+    pub equivalente: String,
+}
+
+impl From<VentaDetallada> for VentaDetalladaDto {
+    fn from(venta: VentaDetallada) -> Self {
+        Self {
+            id: venta.id,
+            folio: venta.folio,
+            anulada: venta.anulada,
+            motivo_anulacion: venta.motivo_anulacion,
+            total: venta.total,
+            costo_total: venta.costo_total,
+            ganancia: venta.ganancia,
+            vuelto: venta.vuelto,
+            entregado: venta.entregado,
+            ocurrido_en: venta.ocurrido_en,
+            fecha: venta.fecha,
+            hora: venta.hora,
+            lineas: venta
+                .lineas
+                .into_iter()
+                .map(LineaVendidaDto::from)
+                .collect(),
+            pagos: venta.pagos.into_iter().map(PagoHechoDto::from).collect(),
+        }
+    }
+}
+
+impl From<LineaVendida> for LineaVendidaDto {
+    fn from(linea: LineaVendida) -> Self {
+        Self {
+            producto: linea.producto,
+            nombre_producto: linea.nombre_producto,
+            nombre_presentacion: linea.nombre_presentacion,
+            cantidad: linea.cantidad,
+            precio: linea.precio,
+            importe: linea.importe,
+            costo: linea.costo,
+            ganancia: linea.ganancia,
+        }
+    }
+}
+
+impl From<PagoHecho> for PagoHechoDto {
+    fn from(pago: PagoHecho) -> Self {
+        Self {
+            metodo: pago.metodo,
+            metodo_nombre: pago.metodo_nombre,
+            entregado: pago.entregado,
+            moneda: pago.moneda,
+            tasa: pago.tasa,
+            equivalente: pago.equivalente,
+        }
+    }
+}
+
+/// Ganancia y margen de un precio frente a su costo (RF-PRE-01).
+///
+/// La pantalla lo pide mientras el usuario escribe, para que vea lo que
+/// gana antes de guardar. La cuenta la hace Rust: JavaScript no tiene
+/// aritmética decimal exacta.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MargenDto {
+    /// Precio menos costo, con dos decimales. Puede venir en negativo.
+    pub ganancia: String,
+    /// Margen bruto ya formateado, sin el símbolo de porcentaje.
+    pub porcentaje: String,
+    /// El costo se comió el precio (RF-COM-05).
+    pub en_riesgo: bool,
+}
+
+impl From<Margen> for MargenDto {
+    fn from(margen: Margen) -> Self {
+        Self {
+            ganancia: margen.ganancia.formatear(2),
+            porcentaje: margen.porcentaje.formatear(1),
+            en_riesgo: margen.en_riesgo,
+        }
+    }
+}
+
+/// Error tal como lo recibe la interfaz.
+///
+/// Lleva un código estable para que la pantalla pueda distinguir «SKU
+/// duplicado» de «falló la base de datos» y reaccionar distinto, en lugar de
+/// mostrar un texto suelto y encogerse de hombros.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ErrorDto {
+    pub codigo: String,
+    pub mensaje: String,
+    /// Si es `true`, el usuario puede corregirlo; si no, es un fallo técnico.
+    pub del_usuario: bool,
+}
+
+impl From<ErrorAplicacion> for ErrorDto {
+    fn from(error: ErrorAplicacion) -> Self {
+        Self {
+            codigo: error.codigo().to_string(),
+            mensaje: error.to_string(),
+            del_usuario: error.es_del_usuario(),
+        }
+    }
+}
+
+impl From<domain::ErrorDominio> for ErrorDto {
+    fn from(error: domain::ErrorDominio) -> Self {
+        Self::from(ErrorAplicacion::Dominio(error))
+    }
+}
+
+// ==================================================== caja (RF-CAJ)
+
+/// Datos para abrir la caja.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AperturaCajaDto {
+    pub operador: String,
+    pub fondo_inicial: String,
+}
+
+impl From<AperturaCajaDto> for ComandoAbrirCaja {
+    fn from(dto: AperturaCajaDto) -> Self {
+        Self {
+            operador: dto.operador,
+            fondo_inicial: dto.fondo_inicial,
+        }
+    }
+}
+
+/// Datos de una entrada o salida de efectivo.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MovimientoEfectivoDto {
+    /// `ENTRADA` o `SALIDA`.
+    pub tipo: String,
+    pub importe: String,
+    pub motivo: String,
+}
+
+impl From<MovimientoEfectivoDto> for ComandoMoverEfectivo {
+    fn from(dto: MovimientoEfectivoDto) -> Self {
+        Self {
+            tipo: dto.tipo,
+            importe: dto.importe,
+            motivo: dto.motivo,
+        }
+    }
+}
+
+/// Datos del cierre de caja.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CierreCajaDto {
+    pub contado_cup: String,
+    pub contado_usd: String,
+    /// `SEPARADO` o `CONSOLIDADO`.
+    pub modo: String,
+}
+
+impl From<CierreCajaDto> for ComandoCerrarCaja {
+    fn from(dto: CierreCajaDto) -> Self {
+        Self {
+            contado_cup: dto.contado_cup,
+            contado_usd: dto.contado_usd,
+            modo: dto.modo,
+        }
+    }
+}
+
+/// Datos para anular una venta.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnulacionDto {
+    pub venta: i64,
+    pub motivo: String,
+}
+
+impl From<AnulacionDto> for ComandoAnularVenta {
+    fn from(dto: AnulacionDto) -> Self {
+        Self {
+            venta: dto.venta,
+            motivo: dto.motivo,
+        }
+    }
+}
+
+/// Desglose de la venta por forma de pago.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DesgloseVentaDto {
+    pub efectivo_cup: String,
+    pub transferencia: String,
+    pub efectivo_usd: String,
+    pub efectivo_usd_en_cup: String,
+    pub total_en_pesos: String,
+    pub total_consolidado: String,
+}
+
+impl From<DesgloseVenta> for DesgloseVentaDto {
+    fn from(desglose: DesgloseVenta) -> Self {
+        Self {
+            efectivo_cup: desglose.efectivo_cup,
+            transferencia: desglose.transferencia,
+            efectivo_usd: desglose.efectivo_usd,
+            efectivo_usd_en_cup: desglose.efectivo_usd_en_cup,
+            total_en_pesos: desglose.total_en_pesos,
+            total_consolidado: desglose.total_consolidado,
+        }
+    }
+}
+
+/// Un movimiento de efectivo ya registrado.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MovimientoEfectivoListadoDto {
+    pub id: i64,
+    pub tipo: String,
+    pub tipo_nombre: String,
+    pub suma: bool,
+    pub importe: String,
+    pub motivo: String,
+    pub ocurrido_en: String,
+    pub hora: String,
+}
+
+/// La caja tal como está ahora mismo.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EstadoCajaDto {
+    pub id: i64,
+    pub operador: String,
+    pub abierta_en: String,
+    pub fondo_inicial: String,
+    pub cuantas_ventas: i64,
+    pub desglose: DesgloseVentaDto,
+    pub entradas: String,
+    pub salidas: String,
+    pub efectivo_esperado: String,
+    pub dolares_esperados: String,
+    pub movimientos: Vec<MovimientoEfectivoListadoDto>,
+}
+
+impl From<EstadoCaja> for EstadoCajaDto {
+    fn from(caja: EstadoCaja) -> Self {
+        Self {
+            id: caja.id,
+            operador: caja.operador,
+            abierta_en: caja.abierta_en,
+            fondo_inicial: caja.fondo_inicial,
+            cuantas_ventas: caja.cuantas_ventas,
+            desglose: caja.desglose.into(),
+            entradas: caja.entradas,
+            salidas: caja.salidas,
+            efectivo_esperado: caja.efectivo_esperado,
+            dolares_esperados: caja.dolares_esperados,
+            movimientos: caja
+                .movimientos
+                .into_iter()
+                .map(|m| MovimientoEfectivoListadoDto {
+                    id: m.id,
+                    tipo: m.tipo,
+                    tipo_nombre: m.tipo_nombre,
+                    suma: m.suma,
+                    importe: m.importe,
+                    motivo: m.motivo,
+                    ocurrido_en: m.ocurrido_en,
+                    hora: m.hora,
+                })
+                .collect(),
+        }
+    }
+}
+
+/// El arqueo de una moneda.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArqueoDto {
+    pub esperado: String,
+    pub contado: String,
+    pub diferencia: String,
+    pub cuadra: bool,
+    pub sobra: bool,
+}
+
+impl From<ArqueoListado> for ArqueoDto {
+    fn from(arqueo: ArqueoListado) -> Self {
+        Self {
+            esperado: arqueo.esperado,
+            contado: arqueo.contado,
+            diferencia: arqueo.diferencia,
+            cuadra: arqueo.cuadra,
+            sobra: arqueo.sobra,
+        }
+    }
+}
+
+/// El resumen económico de la sesión.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResumenEconomicoDto {
+    pub venta_total: String,
+    pub costo_vendido: String,
+    pub merma: String,
+    pub ganancia_bruta: String,
+    pub comision_porcentaje: String,
+    pub comision: String,
+    pub ganancia_neta: String,
+}
+
+/// El cierre de caja, calculado o guardado.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CierreCalculadoDto {
+    pub sesion: i64,
+    pub operador: String,
+    pub abierta_en: String,
+    pub cerrada_en: Option<String>,
+    pub modo: String,
+    pub fondo_inicial: String,
+    pub ventas_efectivo: String,
+    pub desglose: DesgloseVentaDto,
+    pub entradas: String,
+    pub salidas: String,
+    pub arqueo_cup: ArqueoDto,
+    pub arqueo_usd: ArqueoDto,
+    pub cuadra: bool,
+    pub economico: ResumenEconomicoDto,
+}
+
+impl From<CierreCalculado> for CierreCalculadoDto {
+    fn from(cierre: CierreCalculado) -> Self {
+        Self {
+            sesion: cierre.sesion,
+            operador: cierre.operador,
+            abierta_en: cierre.abierta_en,
+            cerrada_en: cierre.cerrada_en,
+            modo: cierre.modo,
+            fondo_inicial: cierre.fondo_inicial,
+            ventas_efectivo: cierre.ventas_efectivo,
+            desglose: cierre.desglose.into(),
+            entradas: cierre.entradas,
+            salidas: cierre.salidas,
+            arqueo_cup: cierre.arqueo_cup.into(),
+            arqueo_usd: cierre.arqueo_usd.into(),
+            cuadra: cierre.cuadra,
+            economico: ResumenEconomicoDto {
+                venta_total: cierre.economico.venta_total,
+                costo_vendido: cierre.economico.costo_vendido,
+                merma: cierre.economico.merma,
+                ganancia_bruta: cierre.economico.ganancia_bruta,
+                comision_porcentaje: cierre.economico.comision_porcentaje,
+                comision: cierre.economico.comision,
+                ganancia_neta: cierre.economico.ganancia_neta,
+            },
+        }
+    }
+}
+
+/// Una sesión en el historial.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SesionListadaDto {
+    pub id: i64,
+    pub operador: String,
+    pub abierta_en: String,
+    pub cerrada_en: Option<String>,
+    pub fecha: String,
+    pub abierta: bool,
+}
+
+impl From<SesionListada> for SesionListadaDto {
+    fn from(sesion: SesionListada) -> Self {
+        Self {
+            id: sesion.id,
+            operador: sesion.operador,
+            abierta_en: sesion.abierta_en,
+            cerrada_en: sesion.cerrada_en,
+            fecha: sesion.fecha,
+            abierta: sesion.abierta,
+        }
+    }
+}
+
+/// Un renglón del recuento de billetes.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LineaConteoDto {
+    pub denominacion: i64,
+    pub cuantos: i64,
+    pub importe: String,
+}
+
+/// El recuento de billetes, ya sumado.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConteoCalculadoDto {
+    pub lineas: Vec<LineaConteoDto>,
+    pub total: String,
+    pub cuantos_billetes: i64,
+}
+
+impl From<ConteoCalculado> for ConteoCalculadoDto {
+    fn from(conteo: ConteoCalculado) -> Self {
+        Self {
+            total: conteo.total,
+            cuantos_billetes: conteo.cuantos_billetes,
+            lineas: conteo
+                .lineas
+                .into_iter()
+                .map(|l| LineaConteoDto {
+                    denominacion: l.denominacion,
+                    cuantos: l.cuantos,
+                    importe: l.importe,
+                })
+                .collect(),
+        }
+    }
+}
+
+// ==================================================== informes (RF-EST)
+
+/// Las cifras que resumen un periodo.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ResumenPeriodoDto {
+    pub cuantas_ventas: i64,
+    pub venta: String,
+    pub costo: String,
+    pub ganancia_bruta: String,
+    pub comision_porcentaje: String,
+    pub comision: String,
+    pub ganancia_neta: String,
+    pub ticket_promedio: String,
+    pub margen: String,
+    pub en_perdida: bool,
+}
+
+/// Un día de la serie.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PuntoDiarioDto {
+    pub fecha: String,
+    pub etiqueta: String,
+    pub venta: String,
+    pub ganancia: String,
+    pub cuantas: i64,
+    pub peso: i64,
+    pub peso_ganancia: i64,
+}
+
+/// Una hora del día.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PuntoHorarioDto {
+    pub hora: i64,
+    pub etiqueta: String,
+    pub venta: String,
+    pub cuantas: i64,
+    pub peso: i64,
+}
+
+/// Lo cobrado por una forma de pago.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PorcionMetodoDto {
+    pub metodo: String,
+    pub nombre: String,
+    pub entregado: String,
+    pub moneda: String,
+    pub importe: String,
+    pub porcentaje: String,
+    pub peso: i64,
+}
+
+/// Un producto en un escalafón.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProductoEnInformeDto {
+    pub producto: i64,
+    pub nombre: String,
+    pub cantidad: String,
+    pub unidad: String,
+    pub importe: String,
+    pub ganancia: String,
+    pub margen: String,
+    pub peso: i64,
+}
+
+/// Un producto sin ventas en el periodo.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProductoParadoDto {
+    pub producto: i64,
+    pub nombre: String,
+    pub existencia: String,
+    pub unidad: String,
+    pub capital: String,
+}
+
+/// Un producto a punto de acabarse.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProductoPorAgotarseDto {
+    pub producto: i64,
+    pub nombre: String,
+    pub existencia: String,
+    pub unidad: String,
+    pub venta_diaria: String,
+    pub dias_cobertura: Option<i64>,
+    pub critico: bool,
+}
+
+/// El último día frente al anterior.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComparativaDiariaDto {
+    pub etiqueta_ultimo: String,
+    pub etiqueta_anterior: String,
+    pub venta_ultimo: String,
+    pub venta_anterior: String,
+    pub diferencia: String,
+    pub porcentaje: Option<String>,
+    pub subio: bool,
+}
+
+/// El informe completo de un periodo.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InformeDto {
+    pub desde: String,
+    pub hasta: String,
+    pub dias: i64,
+    pub resumen: ResumenPeriodoDto,
+    pub por_dia: Vec<PuntoDiarioDto>,
+    pub por_hora: Vec<PuntoHorarioDto>,
+    pub por_metodo: Vec<PorcionMetodoDto>,
+    pub mas_vendidos: Vec<ProductoEnInformeDto>,
+    pub mas_rentables: Vec<ProductoEnInformeDto>,
+    pub sin_movimiento: Vec<ProductoParadoDto>,
+    pub por_agotarse: Vec<ProductoPorAgotarseDto>,
+    pub comparativa: Option<ComparativaDiariaDto>,
+    pub capital_parado: String,
+    pub sin_datos: bool,
+}
+
+impl From<ProductoEnInforme> for ProductoEnInformeDto {
+    fn from(p: ProductoEnInforme) -> Self {
+        Self {
+            producto: p.producto,
+            nombre: p.nombre,
+            cantidad: p.cantidad,
+            unidad: p.unidad,
+            importe: p.importe,
+            ganancia: p.ganancia,
+            margen: p.margen,
+            peso: p.peso,
+        }
+    }
+}
+
+impl From<Informe> for InformeDto {
+    fn from(informe: Informe) -> Self {
+        Self {
+            desde: informe.desde,
+            hasta: informe.hasta,
+            dias: informe.dias,
+            capital_parado: informe.capital_parado,
+            sin_datos: informe.sin_datos,
+            comparativa: informe.comparativa.map(|c| ComparativaDiariaDto {
+                etiqueta_ultimo: c.etiqueta_ultimo,
+                etiqueta_anterior: c.etiqueta_anterior,
+                venta_ultimo: c.venta_ultimo,
+                venta_anterior: c.venta_anterior,
+                diferencia: c.diferencia,
+                porcentaje: c.porcentaje,
+                subio: c.subio,
+            }),
+            resumen: ResumenPeriodoDto {
+                cuantas_ventas: informe.resumen.cuantas_ventas,
+                venta: informe.resumen.venta,
+                costo: informe.resumen.costo,
+                ganancia_bruta: informe.resumen.ganancia_bruta,
+                comision_porcentaje: informe.resumen.comision_porcentaje,
+                comision: informe.resumen.comision,
+                ganancia_neta: informe.resumen.ganancia_neta,
+                ticket_promedio: informe.resumen.ticket_promedio,
+                margen: informe.resumen.margen,
+                en_perdida: informe.resumen.en_perdida,
+            },
+            por_dia: informe
+                .por_dia
+                .into_iter()
+                .map(|d| PuntoDiarioDto {
+                    fecha: d.fecha,
+                    etiqueta: d.etiqueta,
+                    venta: d.venta,
+                    ganancia: d.ganancia,
+                    cuantas: d.cuantas,
+                    peso: d.peso,
+                    peso_ganancia: d.peso_ganancia,
+                })
+                .collect(),
+            por_hora: informe
+                .por_hora
+                .into_iter()
+                .map(|h| PuntoHorarioDto {
+                    hora: h.hora,
+                    etiqueta: h.etiqueta,
+                    venta: h.venta,
+                    cuantas: h.cuantas,
+                    peso: h.peso,
+                })
+                .collect(),
+            por_metodo: informe
+                .por_metodo
+                .into_iter()
+                .map(|m| PorcionMetodoDto {
+                    metodo: m.metodo,
+                    nombre: m.nombre,
+                    entregado: m.entregado,
+                    moneda: m.moneda,
+                    importe: m.importe,
+                    porcentaje: m.porcentaje,
+                    peso: m.peso,
+                })
+                .collect(),
+            mas_vendidos: informe
+                .mas_vendidos
+                .into_iter()
+                .map(ProductoEnInformeDto::from)
+                .collect(),
+            mas_rentables: informe
+                .mas_rentables
+                .into_iter()
+                .map(ProductoEnInformeDto::from)
+                .collect(),
+            sin_movimiento: informe
+                .sin_movimiento
+                .into_iter()
+                .map(|p| ProductoParadoDto {
+                    producto: p.producto,
+                    nombre: p.nombre,
+                    existencia: p.existencia,
+                    unidad: p.unidad,
+                    capital: p.capital,
+                })
+                .collect(),
+            por_agotarse: informe
+                .por_agotarse
+                .into_iter()
+                .map(|p| ProductoPorAgotarseDto {
+                    producto: p.producto,
+                    nombre: p.nombre,
+                    existencia: p.existencia,
+                    unidad: p.unidad,
+                    venta_diaria: p.venta_diaria,
+                    dias_cobertura: p.dias_cobertura,
+                    critico: p.critico,
+                })
+                .collect(),
+        }
+    }
+}

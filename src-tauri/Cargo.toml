@@ -1,0 +1,26 @@
+[package]
+name = "kilo12"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Punto de venta y control de inventario para un mercadito"
+
+[lib]
+# Tauri necesita la biblioteca para los destinos móviles; el binario de
+# escritorio la invoca.
+name = "kilo12_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+domain = { path = "../crates/domain" }
+application = { path = "../crates/application" }
+infrastructure = { path = "../crates/infrastructure" }
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+
+[lints.rust]
+unsafe_code = "forbid"

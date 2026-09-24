@@ -1,0 +1,358 @@
+<section class="mostrador">
+  <!-- ================================================= izquierda -->
+  <div class="columna">
+    @if (error(); as fallo) {
+      <div
+        class="aviso"
+        [class.aviso--error]="!fallo.delUsuario"
+        [class.aviso--atencion]="fallo.delUsuario"
+        role="alert"
+      >
+        <strong>{{ fallo.mensaje }}</strong>
+        <span class="codigo">{{ fallo.codigo }}</span>
+      </div>
+    }
+
+    <!-- Sin caja abierta no se cobra, y conviene decirlo ANTES de que
+         haya una venta montada y un cliente esperando. -->
+    @if (!hayCaja()) {
+      <div class="aviso aviso--atencion" role="alert">
+        <strong>La caja está cerrada</strong>
+        <span>
+          No se puede cobrar hasta que la abras. Ve a Caja <kbd class="tecla">F7</kbd>, cuenta con
+          cuánto empiezas y vuelve.
+        </span>
+      </div>
+    }
+
+    <!-- ------------------------------------------- qué se lleva -->
+    <div class="panel buscador">
+      <label for="buscador" class="pregunta">¿Qué se lleva?</label>
+      <input
+        #buscador
+        id="buscador"
+        class="buscador__campo"
+        autocomplete="off"
+        placeholder="Nombre o código…"
+        [value]="busqueda()"
+        (input)="alEscribir($any($event.target).value)"
+      />
+
+      @if (!enCurso() && resultados().length) {
+        <ul class="resultados">
+          @for (producto of resultados(); track producto.id; let i = $index) {
+            <li>
+              <button
+                type="button"
+                class="resultado"
+                [class.resultado--resaltado]="resaltado() === i"
+                [class.resultado--agotado]="producto.agotado"
+                (click)="elegir(producto)"
+              >
+                <span class="resultado__nombre">{{ producto.nombre }}</span>
+                <span class="apagado mono">
+                  @if (producto.agotado) {
+                    sin existencia
+                  } @else {
+                    quedan {{ producto.enVitrina }} {{ producto.unidadBase }}
+                  }
+                </span>
+              </button>
+            </li>
+          }
+        </ul>
+        <span class="pista">
+          <kbd class="tecla">↑</kbd><kbd class="tecla">↓</kbd> para moverte ·
+          <kbd class="tecla">Enter</kbd> para elegir
+        </span>
+      }
+    </div>
+
+    <!-- ------------------------------------- cuánto y cómo se vende -->
+    @if (enCurso(); as producto) {
+      <div class="panel panel--linea">
+        <div class="panel__cabecera">
+          <span class="panel__titulo">{{ producto.nombre }}</span>
+          <span class="apagado nota">
+            Quedan {{ producto.enVitrina }} {{ producto.unidadBase }} en vitrina
+          </span>
+        </div>
+
+        <div class="panel__cuerpo pila">
+          @if (producto.presentaciones.length > 1) {
+            <div class="campo">
+              <label>Cómo se lo lleva</label>
+              <div class="segmento">
+                @for (presentacion of producto.presentaciones; track presentacion.id) {
+                  <button
+                    type="button"
+                    [attr.aria-pressed]="presentacionElegida()?.id === presentacion.id"
+                    (click)="elegirPresentacion(presentacion)"
+                  >
+                    {{ presentacion.nombre }} · {{ presentacion.precio }}
+                  </button>
+                }
+              </div>
+            </div>
+          }
+
+          <div class="fila">
+            <div class="campo">
+              <label for="cantidad">
+                Cuántos
+                @if (presentacionElegida(); as elegida) {
+                  <span class="opcional">
+                    a {{ elegida.precio }}
+                    @if (elegida.factor !== '1' && elegida.factor !== '1.000') {
+                      · lleva {{ elegida.factor }} {{ producto.unidadBase }}
+                    }
+                  </span>
+                }
+              </label>
+              <input
+                id="cantidad"
+                class="control control--cifra grande"
+                inputmode="decimal"
+                [value]="cantidad()"
+                (input)="cantidad.set($any($event.target).value)"
+                (keydown.enter)="agregar()"
+              />
+            </div>
+
+            <button type="button" class="boton boton--grande" (click)="agregar()">
+              Agregar <kbd class="tecla">Enter</kbd>
+            </button>
+            <button type="button" class="boton boton--discreto" (click)="cancelarLinea()">
+              Cancelar <kbd class="tecla">Esc</kbd>
+            </button>
+          </div>
+
+          @if (!producto.esGranel) {
+            <span class="pista">Se vende de uno en uno: no admite decimales.</span>
+          }
+        </div>
+      </div>
+    }
+
+    <!-- ------------------------------------------ lo que lleva ya -->
+    <div class="panel panel--lista">
+      <div class="panel__cabecera">
+        <span class="panel__titulo">La venta</span>
+        @if (lineas().length) {
+          <button type="button" class="boton boton--discreto" (click)="cancelarVenta()">
+            Cancelar todo
+          </button>
+        }
+      </div>
+
+      <div class="tabla-envoltorio">
+        <table class="tabla">
+          <thead>
+            <tr>
+              <th>Producto</th>
+              <th>Cómo</th>
+              <th class="derecha">Cantidad</th>
+              <th class="derecha">Precio</th>
+              <th class="derecha">Importe</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (linea of prevista()?.lineas ?? []; track $index) {
+              <tr [class.fila--faltante]="linea.sinExistencia">
+                <td>
+                  {{ linea.nombreProducto }}
+                  @if (linea.sinExistencia) {
+                    <span class="etiqueta etiqueta--error">No alcanza en vitrina</span>
+                  }
+                </td>
+                <td class="apagado">{{ linea.nombrePresentacion }}</td>
+                <td class="derecha cifra">{{ linea.cantidad }}</td>
+                <td class="derecha cifra apagado">{{ linea.precio }}</td>
+                <td class="derecha cifra">{{ linea.importe }}</td>
+                <td class="derecha">
+                  <button type="button" class="boton boton--discreto" (click)="quitar($index)">
+                    Quitar
+                  </button>
+                </td>
+              </tr>
+            } @empty {
+              <tr>
+                <td colspan="6">
+                  <div class="vacio">
+                    @if (ultima(); as hecha) {
+                      <span class="vacio__titulo">Venta {{ hecha.folio }} cobrada</span>
+                      <span class="vacio__texto">
+                        Total {{ hecha.total }} · Entregó {{ hecha.entregado }}
+                      </span>
+                      <span class="vuelto">Vuelto {{ hecha.vuelto }}</span>
+                    } @else {
+                      <span class="vacio__titulo">Empieza escribiendo arriba</span>
+                      <span class="vacio__texto">
+                        Busca el producto, pon la cantidad y se va sumando aquí.
+                      </span>
+                    }
+                  </div>
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- =================================================== derecha -->
+  <aside class="columna columna--cobro">
+    <div class="panel total">
+      <span class="total__titulo">Total a cobrar</span>
+      <span class="cifra cifra--grande">{{ prevista()?.total ?? '0.00' }}</span>
+      @if (lineas().length) {
+        <span class="apagado nota">
+          {{ lineas().length }} {{ lineas().length === 1 ? 'línea' : 'líneas' }}
+        </span>
+      }
+    </div>
+
+    @if (prevista()?.hayFaltantes) {
+      <div class="aviso aviso--error">
+        <span>
+          Algo no alcanza en vitrina. Baja lo que falta desde Vitrina
+          <kbd class="tecla">F3</kbd> o quita la línea.
+        </span>
+      </div>
+    }
+
+    <!-- ------------------------------------------------ el pago -->
+    <div class="panel panel--pago">
+      <div class="panel__cabecera">
+        <span class="panel__titulo">Cómo paga</span>
+        <button type="button" class="boton boton--discreto" (click)="agregarParte()">
+          Añadir forma
+        </button>
+      </div>
+
+      <div class="panel__cuerpo pila">
+        <!-- El índice de la parte se guarda en `i`: dentro del bucle de los
+             métodos, `$index` sería el del método y acabaría cambiando la
+             parte equivocada. -->
+        @for (parte of partes(); track $index; let i = $index) {
+          <div class="parte">
+            <div class="segmento segmento--pago">
+              @for (metodo of metodos; track metodo.valor) {
+                <button
+                  type="button"
+                  [attr.aria-pressed]="parte.metodo === metodo.valor"
+                  (click)="alCambiarParte(i, 'metodo', metodo.valor)"
+                >
+                  {{ metodo.nombre }}
+                </button>
+              }
+            </div>
+
+            <div class="fila fila--entrega">
+              <input
+                class="control control--cifra"
+                inputmode="decimal"
+                placeholder="0.00"
+                [value]="parte.entregado"
+                (input)="alCambiarParte(i, 'entregado', $any($event.target).value)"
+                [attr.aria-label]="'Cuánto entrega en ' + parte.metodo"
+              />
+              <span class="apagado moneda">{{ simboloDe(parte.metodo) }}</span>
+              @if (partes().length > 1) {
+                <button type="button" class="boton boton--discreto" (click)="quitarParte(i)">
+                  Quitar
+                </button>
+              }
+            </div>
+          </div>
+        }
+
+        <!-- La tasa se arregla aquí mismo. Avisar de que falta y obligar a
+             irse a otra pantalla a ponerla, con el cliente delante, es
+             media ayuda. -->
+        @if (editandoTasa()) {
+          <div class="tasa tasa--editando">
+            <label for="tasa">Un dólar vale</label>
+            <input
+              id="tasa"
+              class="control control--cifra"
+              inputmode="decimal"
+              placeholder="420.00"
+              [value]="tasaNueva()"
+              (input)="tasaNueva.set($any($event.target).value)"
+              (keydown.enter)="guardarTasa()"
+              (keydown.escape)="cancelarTasa()"
+            />
+            <span class="apagado moneda">CUP</span>
+            <button type="button" class="boton" (click)="guardarTasa()">Guardar</button>
+            <button type="button" class="boton boton--discreto" (click)="cancelarTasa()">
+              Cancelar
+            </button>
+          </div>
+        } @else if (tasa(); as valor) {
+          <div class="tasa">
+            <span class="apagado nota">Dólar a {{ valor }} CUP</span>
+            <button type="button" class="boton boton--discreto" (click)="editarTasa()">
+              Cambiar
+            </button>
+          </div>
+        } @else {
+          <div class="tasa">
+            <span class="nota" [class.pista--fuerte]="hayDolares">
+              @if (hayDolares) {
+                Falta la tasa: sin ella no se puede cobrar en dólares.
+              } @else {
+                Todavía no has fijado la tasa del dólar.
+              }
+            </span>
+            <button type="button" class="boton boton--discreto" (click)="editarTasa()">
+              Fijarla
+            </button>
+          </div>
+        }
+
+        @if (hayDolares && tasa()) {
+          <span class="pista">
+            La tasa queda guardada con la venta: cambiarla mañana no altera lo cobrado hoy.
+          </span>
+        }
+
+        <!-- Lo que hace falta ver con los billetes en la mano. -->
+        @if (cobro(); as calculo) {
+          <div class="cuenta" [class.cuenta--falta]="!calculo.alcanza">
+            <div class="cuenta__fila">
+              <span class="apagado">Entregado</span>
+              <strong class="cifra">{{ calculo.entregado }}</strong>
+            </div>
+            @if (calculo.alcanza) {
+              <div class="cuenta__fila cuenta__fila--vuelto">
+                <span>Vuelto</span>
+                <strong class="cifra">{{ calculo.vuelto }}</strong>
+              </div>
+            } @else {
+              <div class="cuenta__fila cuenta__fila--vuelto">
+                <span>Falta</span>
+                <strong class="cifra">{{ calculo.falta }}</strong>
+              </div>
+            }
+          </div>
+        }
+
+        <button
+          type="button"
+          class="boton boton--destacado boton--grande boton--ancho"
+          [disabled]="!puedeCobrar || cobrando()"
+          (click)="cobrar()"
+        >
+          {{ cobrando() ? 'Cobrando…' : 'Cobrar' }}
+        </button>
+
+        <span class="pista">
+          El vuelto se calcula y se entrega siempre en pesos, aunque el cliente pague en dólares.
+        </span>
+      </div>
+    </div>
+  </aside>
+</section>

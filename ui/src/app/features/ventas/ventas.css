@@ -1,0 +1,266 @@
+/* Ventas: lo que ya pasó.
+   ---------------------------------------------------------------------
+   Arriba, tres cifras del día que se leen sin detenerse. Abajo, la lista
+   a la izquierda y el detalle a la derecha: elegir una venta no cambia de
+   pantalla, solo llena el panel de al lado. */
+
+:host {
+  display: block;
+}
+
+.ventas {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e4);
+  padding: var(--e4) var(--e5) var(--e5);
+}
+
+/* ============================================== cómo va el día */
+
+.dia {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--e3);
+}
+
+.tarjeta {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e1);
+  padding: var(--e4);
+  border: 1px solid var(--linea);
+  border-radius: var(--radio-m);
+  background: var(--fondo);
+}
+
+.tarjeta__titulo {
+  font-size: var(--texto-s);
+  font-weight: var(--peso-fuerte);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--apagado);
+}
+
+.tarjeta__pie {
+  font-size: var(--texto-xs);
+  color: var(--apagado);
+}
+
+/* Tres tarjetas, tres colores, y el reparto no es decorativo: el conteo
+   va en gris porque no es dinero —es un número de veces—, lo cobrado en
+   naranja y lo ganado en verde. Así se distinguen de un vistazo sin leer
+   el rótulo, y el gris deja claro cuál de las tres no se cuenta en pesos. */
+.tarjeta--conteo {
+  border-color: var(--linea);
+  background: var(--superficie-fuerte);
+}
+
+.tarjeta--conteo .cifra {
+  color: var(--tinta);
+}
+
+/* El naranja usa su tono oscuro porque el de marca, sobre fondo claro, no
+   tiene contraste suficiente para una cifra. */
+.tarjeta--cobrado {
+  border-color: var(--destaque);
+  background: var(--destaque-suave);
+}
+
+.tarjeta--cobrado .cifra {
+  color: var(--destaque-texto);
+}
+
+/* La ganancia es la cifra que decide si el día valió la pena. */
+.tarjeta--ganancia {
+  border-color: var(--acento);
+  background: var(--acento-suave);
+}
+
+.tarjeta--ganancia .cifra {
+  color: var(--acento);
+}
+
+/* Vender por debajo del costo tiene que verse distinto, no más pequeño. */
+.tarjeta--perdida {
+  border-color: var(--rojo);
+  background: var(--rojo-suave);
+}
+
+.tarjeta--perdida .cifra {
+  color: var(--rojo);
+}
+
+.cifra--grande {
+  font-family: var(--letra-cifra);
+  font-size: var(--texto-2xl);
+  font-weight: var(--peso-fuerte);
+}
+
+/* ==================================================== el reparto */
+
+.columnas {
+  display: grid;
+  grid-template-columns: 1fr 400px;
+  gap: var(--e4);
+  align-items: start;
+}
+
+.panel--detalle {
+  position: sticky;
+  top: var(--e4);
+}
+
+/* Toda la fila es el botón: apuntar a un enlace diminuto dentro de una
+   tabla es una forma de perder el tiempo. */
+.fila--pulsable {
+  cursor: pointer;
+}
+
+.fila--pulsable:hover td {
+  background: var(--superficie);
+}
+
+.fila--abierta td {
+  background: var(--acento-suave);
+  box-shadow: inset 3px 0 0 var(--acento);
+}
+
+.hora {
+  display: block;
+  font-family: var(--letra-cifra);
+  font-weight: var(--peso-medio);
+}
+
+.nota {
+  display: block;
+  font-size: var(--texto-xs);
+}
+
+.negativo {
+  color: var(--rojo);
+}
+
+/* =================================================== las cuentas */
+
+.cuentas {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e1);
+  padding: var(--e3);
+  border-radius: var(--radio-s);
+  background: var(--superficie);
+}
+
+.cuentas__fila {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--e3);
+  font-size: var(--texto-s);
+}
+
+.cuentas__fila--ganancia {
+  padding-top: var(--e2);
+  border-top: 1px solid var(--linea);
+  font-size: var(--texto-l);
+  font-weight: var(--peso-fuerte);
+  color: var(--acento);
+}
+
+.cuentas__fila--ganancia.negativo {
+  color: var(--rojo);
+}
+
+.cuentas__fila--vuelto {
+  font-weight: var(--peso-fuerte);
+  color: var(--destaque-texto);
+}
+
+/* ====================================================== los pagos */
+
+.pagos {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e2);
+}
+
+.subtitulo {
+  font-size: var(--texto-s);
+  font-weight: var(--peso-fuerte);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--apagado);
+}
+
+.pago {
+  display: flex;
+  align-items: baseline;
+  gap: var(--e2);
+  flex-wrap: wrap;
+}
+
+.pago .cifra {
+  margin-left: auto;
+  font-weight: var(--peso-medio);
+}
+
+@media (max-width: 1100px) {
+  .columnas {
+    grid-template-columns: 1fr;
+  }
+
+  .panel--detalle {
+    position: static;
+  }
+
+  .dia {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ===================================================== anular
+   Se pide el motivo antes de dejar pulsar: una anulación sin explicación
+   es indistinguible de un descuadre cuando se arquee la caja. */
+
+.anulacion {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e2);
+  padding: var(--e3);
+  border-radius: var(--radio-s);
+  border-left: 3px solid var(--rojo);
+  background: var(--rojo-suave);
+}
+
+.anulacion label {
+  font-size: var(--texto-s);
+  font-weight: var(--peso-medio);
+}
+
+/* ============================================ ventas anuladas
+   Se quedan en la lista porque el folio ya se emitió y el historial tiene
+   que poder explicarlo. Pero se ven apagadas y tachadas: si se vieran
+   igual que las vivas, la lista mentiría sobre lo que se vendió. */
+
+.fila--anulada td {
+  opacity: 0.55;
+}
+
+.fila--anulada .cifra {
+  text-decoration: line-through;
+}
+
+.anulada {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e1);
+  padding: var(--e3);
+  border-radius: var(--radio-s);
+  border-left: 3px solid var(--rojo);
+  background: var(--rojo-suave);
+  font-size: var(--texto-s);
+}
+
+.anulada strong {
+  color: var(--rojo);
+}

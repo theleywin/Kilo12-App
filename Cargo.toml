@@ -1,0 +1,20 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/domain",
+    "crates/application",
+    "crates/infrastructure",
+    "src-tauri",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+license = "UNLICENSED"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
