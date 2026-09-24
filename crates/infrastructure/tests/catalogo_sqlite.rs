@@ -9,9 +9,10 @@ use std::sync::Arc;
 
 use application::casos::vender::CLAVE_TASA;
 use application::casos::{
-    AbrirCaja, AnularVenta, CerrarCaja, ComandoAbrirCaja, ComandoAnularVenta, ComandoCerrarCaja,
-    ComandoMoverEfectivo, ComandoVender, ConsultarCaja, ConsultarVenta, ConsultarVentas,
-    HistorialCajas, LineaPedida, MoverEfectivo, PagoPedido, Vender,
+    AbrirCaja, AnularVenta, BorrarTodo, CerrarCaja, ComandoAbrirCaja, ComandoAnularVenta,
+    ComandoCerrarCaja, ComandoMoverEfectivo, ComandoVender, ConsultarCaja, ConsultarInforme,
+    ConsultarVenta, ConsultarVentas, HistorialCajas, LineaPedida, MoverEfectivo, PagoPedido,
+    Vender, CLAVE_MANTENIMIENTO,
 };
 use application::casos::{
     AgregarPresentacion, CambiarPrecio, ComandoAgregarPresentacion, ComandoCambiarPrecio,
@@ -1801,4 +1802,302 @@ fn el_cierre_explica_de_donde_sale_lo_esperado() {
     assert_eq!(cierre.salidas, "200.00");
     // 500 + 800 + 50 − 200 = 1 150
     assert_eq!(cierre.arqueo_cup.esperado, "1150.00");
+}
+
+// ========================================================= informes (RF-EST)
+
+/// Rango que abarca cualquier fecha: las pruebas no dependen del reloj.
+const SIEMPRE: (&str, &str) = ("2000-01-01", "2999-12-31");
+
+fn informe(repositorio: &RepositorioProductoSqlite, dias: i64) -> application::casos::Informe {
+    ConsultarInforme::nuevo(repositorio)
+        .ejecutar(SIEMPRE.0, SIEMPRE.1, dias)
+        .expect("armar el informe")
+}
+
+#[test]
+fn el_informe_separa_venta_ganancia_bruta_y_neta() {
+    let repositorio = repositorio_en_memoria();
+    let (producto, presentacion) = producto_en_vitrina(&repositorio);
+
+    repositorio
+        .guardar_configuracion("comision_operador", "5")
+        .expect("comisión al 5 %");
+
+    // Precio 80, costo 41.67. Diez unidades: 800 de venta, 416.70 de costo.
+    venta_de(&repositorio, producto, presentacion, "10", "800.00");
+
+    let resumen = informe(&repositorio, 7).resumen;
+
+    // RF-EST-13: los tres niveles no se confunden.
+    assert_eq!(resumen.venta, "800.00");
+    assert_eq!(resumen.costo, "416.70");
+    assert_eq!(resumen.ganancia_bruta, "383.30");
+    // 5 % de 800 = 40, y la neta descuenta eso de la bruta.
+    assert_eq!(resumen.comision, "40.00");
+    assert_eq!(resumen.ganancia_neta, "343.30");
+    assert_eq!(resumen.ticket_promedio, "800.00");
+    assert!(!resumen.en_perdida);
+}
+
+#[test]
+fn el_ticket_promedio_reparte_entre_las_ventas() {
+    let repositorio = repositorio_en_memoria();
+    let (producto, presentacion) = producto_en_vitrina(&repositorio);
+
+    venta_de(&repositorio, producto, presentacion, "5", "400.00");
+    venta_de(&repositorio, producto, presentacion, "5", "400.00");
+    venta_de(&repositorio, producto, presentacion, "10", "800.00");
+
+    let resumen = informe(&repositorio, 7).resumen;
+
+    assert_eq!(resumen.cuantas_ventas, 3);
+    assert_eq!(resumen.venta, "1600.00");
+    // 1 600 ÷ 3
+    assert_eq!(resumen.ticket_promedio, "533.33");
+}
+
+#[test]
+fn lo_mas_vendido_se_cuenta_en_unidad_base() {
+    let repositorio = repositorio_en_memoria();
+    let (producto, presentacion) = producto_en_vitrina(&repositorio);
+
+    // Se añade un six-pack para vender el mismo producto de dos formas.
+    AgregarPresentacion::nuevo(&repositorio)
+        .ejecutar(ComandoAgregarPresentacion {
+            producto,
+            nombre: "Six-pack".to_owned(),
+            factor: "6".to_owned(),
+            precio: "450.00".to_owned(),
+            codigo_barras: None,
+        })
+        .expect("agregar el six-pack");
+
+    let ficha = ConsultarProducto::nuevo(&repositorio)
+        .ejecutar(producto)
+        .expect("ficha");
+    let paquete = ficha
+        .presentaciones
+        .iter()
+        .find(|p| p.nombre == "Six-pack")
+        .expect("el six-pack")
+        .id;
+
+    // 2 sueltas + 1 six-pack = 8 unidades base, no 3 «cosas».
+    Vender::nuevo(&repositorio)
+        .ejecutar(ComandoVender {
+            lineas: vec![
+                LineaPedida {
+                    producto,
+                    presentacion,
+                    cantidad: "2".to_owned(),
+                },
+                LineaPedida {
+                    producto,
+                    presentacion: paquete,
+                    cantidad: "1".to_owned(),
+                },
+            ],
+            pagos: vec![efectivo("610.00")],
+        })
+        .expect("cobrar");
+
+    let vendidos = informe(&repositorio, 7).mas_vendidos;
+
+    // RF-EST-03: el suelto y el paquete tienen que ser comparables.
+    assert_eq!(vendidos.len(), 1);
+    assert_eq!(vendidos[0].cantidad, "8");
+    // 2 × 80 + 1 × 450 = 610
+    assert_eq!(vendidos[0].importe, "610.00");
+    // La barra del primero siempre llena: es el techo de su serie.
+    assert_eq!(vendidos[0].peso, 1000);
+}
+
+#[test]
+fn lo_que_no_se_vende_aparece_con_su_capital_detenido() {
+    let repositorio = repositorio_en_memoria();
+    let (producto, presentacion) = producto_en_vitrina(&repositorio);
+
+    // Un segundo producto que nadie compra, con mercancía pagada dentro.
+    let mut parado = alta("Vino de mesa");
+    parado.precio_unitario = "900.00".to_owned();
+    parado.costo_unitario = Some("500.00".to_owned());
+    parado.cantidad_almacen = Some("4".to_owned());
+    RegistrarProducto::nuevo(&repositorio)
+        .ejecutar(parado)
+        .expect("registrar");
+
+    venta_de(&repositorio, producto, presentacion, "1", "80.00");
+
+    let datos = informe(&repositorio, 7);
+
+    // RF-EST-05: 4 × 500 son 2 000 pesos gastados que siguen en el estante.
+    assert_eq!(datos.sin_movimiento.len(), 1);
+    assert_eq!(datos.sin_movimiento[0].nombre, "Vino de mesa");
+    assert_eq!(datos.sin_movimiento[0].capital, "2000.00");
+    assert_eq!(datos.capital_parado, "2000.00");
+}
+
+#[test]
+fn los_dias_de_cobertura_salen_del_ritmo_de_venta() {
+    let repositorio = repositorio_en_memoria();
+    let (producto, presentacion) = producto_en_vitrina(&repositorio);
+
+    // Arranca con 20 en vitrina. Vende 10 en un periodo de 5 días: el
+    // ritmo es 2 al día y quedan 10, así que aguanta 5 días.
+    venta_de(&repositorio, producto, presentacion, "10", "800.00");
+
+    let agotarse = informe(&repositorio, 5).por_agotarse;
+
+    assert_eq!(agotarse.len(), 1);
+    assert_eq!(agotarse[0].existencia, "10");
+    assert_eq!(agotarse[0].venta_diaria, "2");
+    assert_eq!(agotarse[0].dias_cobertura, Some(5));
+    // RF-EST-06: menos de una semana es para actuar hoy.
+    assert!(agotarse[0].critico);
+}
+
+#[test]
+fn el_reparto_por_metodo_suma_el_cien_por_ciento() {
+    let repositorio = repositorio_en_memoria();
+    let (producto, presentacion) = producto_en_vitrina(&repositorio);
+
+    // Mitad en efectivo, mitad por transferencia.
+    venta_de(&repositorio, producto, presentacion, "5", "400.00");
+    Vender::nuevo(&repositorio)
+        .ejecutar(ComandoVender {
+            lineas: vec![LineaPedida {
+                producto,
+                presentacion,
+                cantidad: "5".to_owned(),
+            }],
+            pagos: vec![PagoPedido {
+                metodo: "TRANSFERENCIA".to_owned(),
+                entregado: "400.00".to_owned(),
+            }],
+        })
+        .expect("cobrar por transferencia");
+
+    let metodos = informe(&repositorio, 7).por_metodo;
+
+    assert_eq!(metodos.len(), 2);
+    for metodo in &metodos {
+        assert_eq!(metodo.porcentaje, "50.0");
+        assert_eq!(metodo.peso, 500);
+    }
+}
+
+#[test]
+fn un_periodo_sin_ventas_lo_dice_en_vez_de_enseñar_ceros() {
+    let repositorio = repositorio_en_memoria();
+    producto_en_vitrina(&repositorio);
+
+    let datos = informe(&repositorio, 7);
+
+    assert!(datos.sin_datos);
+    assert_eq!(datos.resumen.venta, "0.00");
+    // Sin ventas no se divide por cero en ningún sitio.
+    assert_eq!(datos.resumen.ticket_promedio, "0.00");
+    assert_eq!(datos.resumen.margen, "0.00");
+    assert!(datos.por_dia.is_empty());
+}
+
+#[test]
+fn el_informe_compara_el_ultimo_dia_con_el_anterior() {
+    let repositorio = repositorio_en_memoria();
+    let (producto, presentacion) = producto_en_vitrina(&repositorio);
+
+    // Dos ventas en el mismo día: no hay con qué comparar todavía.
+    venta_de(&repositorio, producto, presentacion, "5", "400.00");
+    venta_de(&repositorio, producto, presentacion, "5", "400.00");
+
+    let datos = informe(&repositorio, 7);
+
+    // Un solo día con ventas: la comparativa no se inventa nada.
+    assert!(datos.comparativa.is_none());
+    assert_eq!(datos.por_dia.len(), 1);
+}
+
+#[test]
+fn sin_dia_anterior_no_hay_porcentaje_que_calcular() {
+    // La variación se calcula sobre la venta del día anterior; si aquella
+    // fue cero, dividir daría una cifra inventada.
+    let repositorio = repositorio_en_memoria();
+    producto_en_vitrina(&repositorio);
+
+    assert!(informe(&repositorio, 7).comparativa.is_none());
+}
+
+// ==================================================== mantenimiento
+
+#[test]
+fn la_clave_equivocada_no_borra_nada() {
+    let repositorio = repositorio_en_memoria();
+    let (producto, presentacion) = producto_en_vitrina(&repositorio);
+    venta_de(&repositorio, producto, presentacion, "1", "80.00");
+
+    let error = BorrarTodo::nuevo(&repositorio)
+        .ejecutar("000000")
+        .expect_err("la clave no es esa");
+
+    assert_eq!(error.codigo(), "CLAVE_INCORRECTA");
+    // Y todo sigue en su sitio: la comprobación va ANTES de tocar nada.
+    assert_eq!(catalogo(&repositorio).len(), 1);
+    assert_eq!(
+        ConsultarVentas::nuevo(&repositorio)
+            .ejecutar(10)
+            .expect("listar")
+            .ventas
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn con_la_clave_correcta_la_aplicacion_queda_vacia() {
+    let repositorio = repositorio_en_memoria();
+    let (producto, presentacion) = producto_en_vitrina(&repositorio);
+    venta_de(&repositorio, producto, presentacion, "1", "80.00");
+    repositorio
+        .guardar_configuracion(CLAVE_TASA, "420.00")
+        .expect("fijar la tasa");
+
+    BorrarTodo::nuevo(&repositorio)
+        .ejecutar(CLAVE_MANTENIMIENTO)
+        .expect("borrar");
+
+    assert!(catalogo(&repositorio).is_empty());
+    assert!(repositorio.sesion_abierta().expect("consultar").is_none());
+    assert!(repositorio
+        .configuracion(CLAVE_TASA)
+        .expect("consultar")
+        .is_none());
+    assert_eq!(
+        ConsultarVentas::nuevo(&repositorio)
+            .ejecutar(10)
+            .expect("listar")
+            .ventas
+            .len(),
+        0
+    );
+}
+
+#[test]
+fn despues_de_vaciar_la_aplicacion_se_puede_volver_a_usar() {
+    let repositorio = repositorio_en_memoria();
+    producto_en_vitrina(&repositorio);
+
+    BorrarTodo::nuevo(&repositorio)
+        .ejecutar(CLAVE_MANTENIMIENTO)
+        .expect("borrar");
+
+    // El esquema sigue en pie: se vaciaron las filas, no las tablas.
+    let (producto, presentacion) = producto_en_vitrina(&repositorio);
+    venta_de(&repositorio, producto, presentacion, "1", "80.00");
+
+    // Y el folio arranca de nuevo en 1, porque no quedó ninguno.
+    let historial = ConsultarVentas::nuevo(&repositorio)
+        .ejecutar(10)
+        .expect("listar");
+    assert_eq!(historial.ventas[0].folio, 1);
 }
