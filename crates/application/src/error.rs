@@ -29,6 +29,8 @@ pub enum ErrorAplicacion {
     CantidadInicialRequerida,
     /// Se intentó cobrar en dólares sin tasa de cambio configurada.
     TasaNoConfigurada,
+    /// La clave de mantenimiento no coincide.
+    ClaveIncorrecta,
 }
 
 impl ErrorAplicacion {
@@ -44,6 +46,7 @@ impl ErrorAplicacion {
             Self::CostoRequerido => "COSTO_REQUERIDO",
             Self::CantidadInicialRequerida => "CANTIDAD_INICIAL_REQUERIDA",
             Self::TasaNoConfigurada => "TASA_NO_CONFIGURADA",
+            Self::ClaveIncorrecta => "CLAVE_INCORRECTA",
         }
     }
 
@@ -76,6 +79,7 @@ impl fmt::Display for ErrorAplicacion {
             Self::TasaNoConfigurada => {
                 f.write_str("Falta la tasa de cambio: fíjala antes de cobrar en dólares")
             }
+            Self::ClaveIncorrecta => f.write_str("La clave no es correcta"),
             Self::CantidadInicialRequerida => f.write_str(
                 "Indica cuánta mercancía entra: el costo se calcula sobre la existencia, \
                  así que sin cantidad no hay dónde guardarlo",
