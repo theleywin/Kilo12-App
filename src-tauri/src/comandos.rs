@@ -25,6 +25,9 @@ use application::casos::{
     CalcularCobro, CatalogoDeVenta, ConsultarTasa, ConsultarVenta, ConsultarVentas, FijarTasa,
     PrevisualizarVenta, Vender,
 };
+use application::casos::{
+    DejarVentaEnEspera, EliminarVentaEnEspera, ListarVentasEnEspera, RetomarVentaEnEspera,
+};
 use application::margen;
 use application::puertos::RepositorioProducto;
 use domain::{Dinero, Porcentaje};
@@ -44,6 +47,7 @@ use crate::dto::{
     CobroCalculadoDto, HistorialVentasDto, NuevaVentaDto, PagoDto, ProductoVendibleDto,
     VentaDetalladaDto, VentaHechaDto, VentaPrevistaDto,
 };
+use crate::dto::{NuevaVentaEnEsperaDto, VentaEnEsperaDto, VentaRetomadaDto};
 use crate::estado::Estado;
 
 /// Da de alta un producto y devuelve su identificador.
@@ -214,6 +218,60 @@ pub fn vender(estado: State<'_, Estado>, venta: NuevaVentaDto) -> Result<VentaHe
     caso.ejecutar(venta.into())
         .map(VentaHechaDto::from)
         .map_err(ErrorDto::from)
+}
+
+// ------------------------------------------------ venta en espera (RF-VTA-14)
+
+/// Aparta la venta en curso para atender a otro cliente.
+///
+/// No exige caja abierta ni toca la vitrina: apartar no mueve dinero ni
+/// mercancía. Devuelve el identificador de la venta en espera.
+#[tauri::command]
+pub fn dejar_venta_en_espera(
+    estado: State<'_, Estado>,
+    espera: NuevaVentaEnEsperaDto,
+) -> Result<i64, ErrorDto> {
+    let caso = DejarVentaEnEspera::nuevo(
+        estado.repositorio_producto(),
+        estado.repositorio_venta_en_espera(),
+    );
+    caso.ejecutar(espera.into()).map_err(ErrorDto::from)
+}
+
+/// Lista las ventas en espera, de la más antigua a la más reciente.
+#[tauri::command]
+pub fn listar_ventas_en_espera(
+    estado: State<'_, Estado>,
+) -> Result<Vec<VentaEnEsperaDto>, ErrorDto> {
+    let caso = ListarVentasEnEspera::nuevo(estado.repositorio_venta_en_espera());
+    caso.ejecutar()
+        .map(|esperas| esperas.into_iter().map(VentaEnEsperaDto::from).collect())
+        .map_err(ErrorDto::from)
+}
+
+/// Recupera una venta en espera, calculada con el precio de hoy.
+///
+/// No la borra: se borra al cobrarla (pasando su `esperaId` a `vender`) o
+/// al eliminarla.
+#[tauri::command]
+pub fn retomar_venta_en_espera(
+    estado: State<'_, Estado>,
+    id: i64,
+) -> Result<VentaRetomadaDto, ErrorDto> {
+    let caso = RetomarVentaEnEspera::nuevo(
+        estado.repositorio_producto(),
+        estado.repositorio_venta_en_espera(),
+    );
+    caso.ejecutar(id)
+        .map(VentaRetomadaDto::from)
+        .map_err(ErrorDto::from)
+}
+
+/// Descarta una venta en espera sin cobrarla.
+#[tauri::command]
+pub fn eliminar_venta_en_espera(estado: State<'_, Estado>, id: i64) -> Result<(), ErrorDto> {
+    let caso = EliminarVentaEnEspera::nuevo(estado.repositorio_venta_en_espera());
+    caso.ejecutar(id).map_err(ErrorDto::from)
 }
 
 /// Devuelve el historial de ventas con el corte del día (RF-VTA-16).
