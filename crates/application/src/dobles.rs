@@ -1,0 +1,311 @@
+//! Dobles en memoria de los puertos, solo para las pruebas.
+//!
+//! La estrategia de pruebas (§6 del diseño técnico) prueba los casos de uso
+//! con los puertos sustituidos por implementaciones en memoria. Aquí viven
+//! las que hacen falta, sin SQLite: si un caso de uso depende de algo que
+//! aquí no está, la prueba lo dice con un `unreachable!` en vez de fingir.
+
+use std::cell::{Cell, RefCell};
+use std::collections::BTreeMap;
+
+use domain::{
+    Cantidad, Dinero, EstadoSesion, Existencias, IdPresentacion, IdProducto, IdSesion,
+    IdVentaEnEspera, Inventario, Movimiento, MovimientoEfectivo, Presentacion, Producto,
+    SesionCaja, UnidadBase, VentaEnEspera,
+};
+
+use crate::error::Resultado;
+use crate::puertos::{
+    AcumuladoSesion, AnulacionConfirmada, Asiento, CambioDePrecio, CambioRegistrado,
+    CierreConfirmado, DetalleVenta, EsperaRegistrada, EsperaResumida, LineaDelPeriodo,
+    MovimientoEfectivoRegistrado, MovimientoRegistrado, ProductoConInventario, RepositorioProducto,
+    RepositorioVentaEnEspera, ResumenDia, SesionRegistrada, TotalesPeriodo, VentaConfirmada,
+    VentaDiaria, VentaHoraria, VentaPorMetodo, VentaRegistrada,
+};
+
+fn cantidad(texto: &str) -> Cantidad {
+    texto.parse().expect("cantidad válida")
+}
+
+fn dinero(texto: &str) -> Dinero {
+    texto.parse().expect("importe válido")
+}
+
+/// Catálogo en memoria, con lo justo para vender y retomar.
+#[derive(Debug, Default)]
+pub(crate) struct ProductosEnMemoria {
+    productos: RefCell<BTreeMap<i64, ProductoConInventario>>,
+    sesion: RefCell<Option<SesionRegistrada>>,
+    /// La espera que llevaba la última venta registrada, tal cual llegó.
+    pub(crate) espera_cobrada: RefCell<Option<Option<IdVentaEnEspera>>>,
+    folio: Cell<i64>,
+}
+
+impl ProductosEnMemoria {
+    /// Da de alta un producto con una presentación por cada `(id, nombre,
+    /// factor, precio)` y la existencia indicada en vitrina.
+    pub(crate) fn con_producto(
+        self,
+        id: i64,
+        nombre: &str,
+        unidad: UnidadBase,
+        presentaciones: &[(i64, &str, &str, &str)],
+        en_vitrina: &str,
+    ) -> Self {
+        let presentaciones = presentaciones
+            .iter()
+            .enumerate()
+            .map(|(posicion, (id, nombre, factor, precio))| {
+                Presentacion::reconstituir(
+                    IdPresentacion(*id),
+                    (*nombre).to_owned(),
+                    cantidad(factor),
+                    dinero(precio),
+                    posicion == 0,
+                    None,
+                    true,
+                )
+            })
+            .collect();
+
+        let producto = Producto::reconstituir(
+            IdProducto(id),
+            format!("SKU-{id}"),
+            nombre.to_owned(),
+            unidad,
+            Cantidad::CERO,
+            Cantidad::CERO,
+            presentaciones,
+            true,
+        );
+        let inventario = Inventario::nuevo(
+            Existencias::nuevas(Cantidad::CERO, cantidad(en_vitrina)).expect("existencias"),
+            Dinero::CERO,
+        )
+        .expect("inventario");
+
+        self.productos.borrow_mut().insert(
+            id,
+            ProductoConInventario {
+                producto,
+                inventario,
+            },
+        );
+        self
+    }
+
+    /// Deja una caja abierta, para poder cobrar.
+    pub(crate) fn con_caja_abierta(self) -> Self {
+        *self.sesion.borrow_mut() = Some(SesionRegistrada {
+            sesion: SesionCaja::rehidratar(IdSesion(1), "Ana", Dinero::CERO, EstadoSesion::Abierta),
+            abierta_en: "2026-09-27 08:00:00".to_owned(),
+            cerrada_en: None,
+        });
+        self
+    }
+
+    /// Desactiva un producto, como si se hubiera hecho desde la ficha.
+    pub(crate) fn desactivar_producto(&self, id: i64) {
+        if let Some(guardado) = self.productos.borrow_mut().get_mut(&id) {
+            guardado.producto.desactivar();
+        }
+    }
+
+    /// Desactiva una presentación sin pasar por la regla de la última.
+    pub(crate) fn desactivar_presentacion(&self, producto: i64, presentacion: i64) {
+        if let Some(guardado) = self.productos.borrow_mut().get_mut(&producto) {
+            let mut presentaciones = guardado.producto.presentaciones().to_vec();
+            for actual in &mut presentaciones {
+                if actual.id() == Some(IdPresentacion(presentacion)) {
+                    actual.desactivar();
+                }
+            }
+
+            guardado.producto = Producto::reconstituir(
+                IdProducto(producto),
+                guardado.producto.sku().to_owned(),
+                guardado.producto.nombre().to_owned(),
+                guardado.producto.unidad_base(),
+                guardado.producto.stock_minimo(),
+                guardado.producto.objetivo_vitrina(),
+                presentaciones,
+                guardado.producto.esta_activo(),
+            );
+        }
+    }
+
+    /// Borra un producto del catálogo, como si nunca hubiera existido.
+    pub(crate) fn quitar_producto(&self, id: i64) {
+        self.productos.borrow_mut().remove(&id);
+    }
+}
+
+impl RepositorioProducto for ProductosEnMemoria {
+    fn obtener(&self, id: IdProducto) -> Resultado<Option<ProductoConInventario>> {
+        Ok(self.productos.borrow().get(&id.0).cloned())
+    }
+
+    fn sesion_abierta(&self) -> Resultado<Option<SesionRegistrada>> {
+        Ok(self.sesion.borrow().clone())
+    }
+
+    fn configuracion(&self, _clave: &str) -> Resultado<Option<String>> {
+        Ok(None)
+    }
+
+    fn registrar_venta(&self, confirmada: &VentaConfirmada<'_>) -> Resultado<i64> {
+        *self.espera_cobrada.borrow_mut() = Some(confirmada.espera);
+        let folio = self.folio.get().saturating_add(1);
+        self.folio.set(folio);
+        Ok(folio)
+    }
+
+    fn crear(&self, _: &Producto, _: &Inventario, _: &[Asiento]) -> Resultado<IdProducto> {
+        unreachable!("crear no se usa en estas pruebas")
+    }
+
+    fn actualizar_producto(&self, _: &Producto, _: &[CambioDePrecio]) -> Resultado<()> {
+        unreachable!("actualizar_producto no se usa en estas pruebas")
+    }
+
+    fn historial_precios(&self, _: IdProducto) -> Resultado<Vec<CambioRegistrado>> {
+        unreachable!("historial_precios no se usa en estas pruebas")
+    }
+
+    fn listar(&self, _: bool) -> Resultado<Vec<ProductoConInventario>> {
+        unreachable!("listar no se usa en estas pruebas")
+    }
+
+    fn registrar_movimiento(&self, _: IdProducto, _: &Inventario, _: &Movimiento) -> Resultado<()> {
+        unreachable!("registrar_movimiento no se usa en estas pruebas")
+    }
+
+    fn kardex(&self, _: IdProducto, _: usize) -> Resultado<Vec<MovimientoRegistrado>> {
+        unreachable!("kardex no se usa en estas pruebas")
+    }
+
+    fn existe_sku(&self, _: &str) -> Resultado<bool> {
+        unreachable!("existe_sku no se usa en estas pruebas")
+    }
+
+    fn listar_ventas(&self, _: usize) -> Resultado<Vec<VentaRegistrada>> {
+        unreachable!("listar_ventas no se usa en estas pruebas")
+    }
+
+    fn detalle_venta(&self, _: i64) -> Resultado<Option<DetalleVenta>> {
+        unreachable!("detalle_venta no se usa en estas pruebas")
+    }
+
+    fn resumen_de_hoy(&self) -> Resultado<ResumenDia> {
+        unreachable!("resumen_de_hoy no se usa en estas pruebas")
+    }
+
+    fn anular_venta(&self, _: &AnulacionConfirmada<'_>) -> Resultado<()> {
+        unreachable!("anular_venta no se usa en estas pruebas")
+    }
+
+    fn abrir_sesion(&self, _: &SesionCaja) -> Resultado<IdSesion> {
+        unreachable!("abrir_sesion no se usa en estas pruebas")
+    }
+
+    fn sesion(&self, _: IdSesion) -> Resultado<Option<SesionRegistrada>> {
+        unreachable!("sesion no se usa en estas pruebas")
+    }
+
+    fn acumulado_de_sesion(&self, _: IdSesion) -> Resultado<AcumuladoSesion> {
+        unreachable!("acumulado_de_sesion no se usa en estas pruebas")
+    }
+
+    fn registrar_movimiento_efectivo(&self, _: IdSesion, _: &MovimientoEfectivo) -> Resultado<()> {
+        unreachable!("registrar_movimiento_efectivo no se usa en estas pruebas")
+    }
+
+    fn movimientos_efectivo(&self, _: IdSesion) -> Resultado<Vec<MovimientoEfectivoRegistrado>> {
+        unreachable!("movimientos_efectivo no se usa en estas pruebas")
+    }
+
+    fn cerrar_sesion(&self, _: &CierreConfirmado) -> Resultado<()> {
+        unreachable!("cerrar_sesion no se usa en estas pruebas")
+    }
+
+    fn listar_sesiones(&self, _: usize) -> Resultado<Vec<SesionRegistrada>> {
+        unreachable!("listar_sesiones no se usa en estas pruebas")
+    }
+
+    fn cierre_de_sesion(&self, _: IdSesion) -> Resultado<Option<CierreConfirmado>> {
+        unreachable!("cierre_de_sesion no se usa en estas pruebas")
+    }
+
+    fn resumen_periodo(&self, _: &str, _: &str) -> Resultado<TotalesPeriodo> {
+        unreachable!("resumen_periodo no se usa en estas pruebas")
+    }
+
+    fn ventas_por_dia(&self, _: &str, _: &str) -> Resultado<Vec<VentaDiaria>> {
+        unreachable!("ventas_por_dia no se usa en estas pruebas")
+    }
+
+    fn ventas_por_hora(&self, _: &str, _: &str) -> Resultado<Vec<VentaHoraria>> {
+        unreachable!("ventas_por_hora no se usa en estas pruebas")
+    }
+
+    fn ventas_por_metodo(&self, _: &str, _: &str) -> Resultado<Vec<VentaPorMetodo>> {
+        unreachable!("ventas_por_metodo no se usa en estas pruebas")
+    }
+
+    fn lineas_del_periodo(&self, _: &str, _: &str) -> Resultado<Vec<LineaDelPeriodo>> {
+        unreachable!("lineas_del_periodo no se usa en estas pruebas")
+    }
+
+    fn borrar_todos_los_datos(&self) -> Resultado<()> {
+        unreachable!("borrar_todos_los_datos no se usa en estas pruebas")
+    }
+
+    fn guardar_configuracion(&self, _: &str, _: &str) -> Resultado<()> {
+        unreachable!("guardar_configuracion no se usa en estas pruebas")
+    }
+}
+
+/// Ventas en espera en memoria.
+#[derive(Debug, Default)]
+pub(crate) struct EsperasEnMemoria {
+    esperas: RefCell<BTreeMap<i64, EsperaRegistrada>>,
+    siguiente: Cell<i64>,
+}
+
+impl RepositorioVentaEnEspera for EsperasEnMemoria {
+    fn guardar(&self, espera: &VentaEnEspera) -> Resultado<IdVentaEnEspera> {
+        let id = IdVentaEnEspera(self.siguiente.get().saturating_add(1));
+        self.siguiente.set(id.0);
+        self.esperas.borrow_mut().insert(
+            id.0,
+            EsperaRegistrada {
+                id,
+                espera: espera.clone(),
+                creada_en: "2026-09-27 10:15:00".to_owned(),
+            },
+        );
+        Ok(id)
+    }
+
+    fn listar(&self) -> Resultado<Vec<EsperaResumida>> {
+        Ok(self
+            .esperas
+            .borrow()
+            .values()
+            .map(|registrada| EsperaResumida {
+                id: registrada.id,
+                nota: registrada.espera.nota().map(str::to_owned),
+                creada_en: registrada.creada_en.clone(),
+                cuantas_lineas: i64::try_from(registrada.espera.lineas().len()).unwrap_or(i64::MAX),
+            })
+            .collect())
+    }
+
+    fn obtener(&self, id: IdVentaEnEspera) -> Resultado<Option<EsperaRegistrada>> {
+        Ok(self.esperas.borrow().get(&id.0).cloned())
+    }
+
+    fn eliminar(&self, id: IdVentaEnEspera) -> Resultado<bool> {
+        Ok(self.esperas.borrow_mut().remove(&id.0).is_some())
+    }
+}
