@@ -11,236 +11,367 @@
     </div>
   }
 
-  <!-- ------------------------------------------------- cómo va el día -->
-  @if (historial()?.hoy; as hoy) {
-    <div class="dia">
-      <div class="tarjeta tarjeta--conteo">
-        <span class="tarjeta__titulo">Ventas de hoy</span>
-        <span class="cifra cifra--grande">{{ hoy.cuantas }}</span>
-        <span class="tarjeta__pie">Cuántas veces se cobró desde que abriste</span>
+  <!-- --------------------------------------------- cómo va la sesión
+       Las cifras son de la sesión de caja, no del día del calendario: la
+       abierta o, con la caja cerrada, la última. La etiqueta dice cuál,
+       porque a primera hora «Cobrado» enseña lo de anoche. -->
+  @if (historial(); as datos) {
+    @if (datos.sesion) {
+      <div class="sesion">
+        <span class="etiqueta" [class.etiqueta--acento]="datos.sesion.abierta">{{ etiqueta() }}</span>
+        @if (!datos.sesion.abierta) {
+          <span class="apagado nota">
+            La caja está cerrada: estas son las cifras de la última sesión.
+          </span>
+        }
       </div>
-      <div class="tarjeta tarjeta--cobrado">
-        <span class="tarjeta__titulo">Cobrado hoy</span>
-        <span class="cifra cifra--grande">{{ hoy.total }}</span>
-        <span class="tarjeta__pie">Todo lo que entró, antes de descontar costos</span>
+
+      <div class="dia">
+        <div class="tarjeta tarjeta--conteo">
+          <span class="tarjeta__titulo">Ventas de la sesión</span>
+          <span class="cifra cifra--grande">{{ datos.hoy.cuantas }}</span>
+          <span class="tarjeta__pie">
+            {{
+              datos.sesion.abierta
+                ? 'Cuántas veces se cobró desde que abriste la caja'
+                : 'Cuántas veces se cobró en esa sesión'
+            }}, sin las anuladas
+          </span>
+        </div>
+        <div class="tarjeta tarjeta--cobrado">
+          <span class="tarjeta__titulo">Cobrado en la sesión</span>
+          <span class="cifra cifra--grande">{{ datos.hoy.total }}</span>
+          <span class="tarjeta__pie">Todo lo que entró, antes de descontar costos</span>
+        </div>
+        <div class="tarjeta tarjeta--ganancia" [class.tarjeta--perdida]="conPerdida(datos.hoy.ganancia)">
+          <span class="tarjeta__titulo">Ganancia de la sesión</span>
+          <span class="cifra cifra--grande">{{ datos.hoy.ganancia }}</span>
+          <span class="tarjeta__pie">Ya descontado lo que costó la mercancía</span>
+        </div>
       </div>
-      <div class="tarjeta tarjeta--ganancia" [class.tarjeta--perdida]="conPerdida(hoy.ganancia)">
-        <span class="tarjeta__titulo">Ganancia de hoy</span>
-        <span class="cifra cifra--grande">{{ hoy.ganancia }}</span>
-        <span class="tarjeta__pie">Ya descontado lo que costó la mercancía</span>
+    } @else {
+      <div class="panel vacio vacio--sesion">
+        <span class="vacio__titulo">Todavía no has abierto la caja</span>
+        <span class="vacio__texto">
+          Ábrela en Caja <kbd class="tecla">F7</kbd>: desde ese momento, aquí verás cuánto
+          llevas cobrado y cuánto has ganado en la sesión.
+        </span>
       </div>
-    </div>
+    }
   }
 
-  <div class="columnas">
+  <!-- Agrupado por productos, el detalle de una venta no tiene nada que decir:
+       la tabla se queda con todo el ancho. -->
+  <div class="columnas" [class.columnas--sola]="agruparPorProductos()">
     <!-- ------------------------------------------------- la lista -->
     <div class="panel panel--lista">
       <div class="panel__cabecera">
-        <span class="panel__titulo">Últimas ventas</span>
-        <button type="button" class="boton boton--discreto" (click)="recargar()" [disabled]="cargando()">
-          {{ cargando() ? 'Cargando…' : 'Actualizar' }}
-        </button>
-      </div>
-
-      <div class="tabla-envoltorio">
-        <table class="tabla">
-          <thead>
-            <tr>
-              <th>Folio</th>
-              <th>Cuándo</th>
-              <th class="derecha">Total</th>
-              <th class="derecha">Ganancia</th>
-            </tr>
-          </thead>
-          <tbody>
-            @for (venta of historial()?.ventas ?? []; track venta.id) {
-              <!-- Una venta anulada se queda en el historial: el folio ya
-                   se emitió. Pero tiene que verse que no cuenta, o la lista
-                   miente sobre lo que se vendió. -->
-              <tr
-                class="fila--pulsable"
-                [class.fila--abierta]="detalle()?.id === venta.id"
-                [class.fila--anulada]="venta.anulada"
-                (click)="abrir(venta)"
-                tabindex="0"
-                (keydown.enter)="abrir(venta)"
-              >
-                <td class="mono">#{{ venta.folio }}</td>
-                <td>
-                  <span class="hora">{{ venta.hora }}</span>
-                  @if (venta.anulada) {
-                    <span class="etiqueta etiqueta--error">Anulada</span>
-                  } @else {
-                    <span class="apagado nota">{{ venta.fecha }}</span>
-                  }
-                </td>
-                <td class="derecha cifra">{{ venta.total }}</td>
-                <td class="derecha cifra" [class.negativo]="conPerdida(venta.ganancia)">
-                  {{ venta.ganancia }}
-                </td>
-              </tr>
-            } @empty {
-              <tr>
-                <td colspan="4">
-                  <div class="vacio">
-                    <span class="vacio__titulo">Todavía no has vendido nada</span>
-                    <span class="vacio__texto">
-                      Cobra en Vender <kbd class="tecla">F1</kbd> y las ventas aparecerán aquí.
-                    </span>
-                  </div>
-                </td>
-              </tr>
-            }
-          </tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- ------------------------------------------------ el detalle -->
-    <aside class="panel panel--detalle">
-      @if (detalle(); as venta) {
-        <div class="panel__cabecera">
-          <span class="panel__titulo">Venta #{{ venta.folio }}</span>
-          <span class="apagado nota">{{ venta.fecha }} · {{ venta.hora }}</span>
+        <span class="panel__titulo">
+          {{ titulo() }}
+        </span>
+        <div class="fila fila--herramientas">
+          <label class="casilla casilla--compacta">
+            <input
+              #casillaAgrupar
+              type="checkbox"
+              [checked]="agruparPorProductos()"
+              (change)="cambiarAgrupacion(casillaAgrupar.checked)"
+            />
+            <span>Agrupar por productos</span>
+          </label>
+          <button
+            type="button"
+            class="boton boton--discreto"
+            (click)="recargar()"
+            [disabled]="ocupadoRecargando()"
+          >
+            {{ ocupadoRecargando() ? 'Cargando…' : 'Actualizar' }}
+          </button>
         </div>
+      </div>
 
-        <div class="panel__cuerpo pila">
-          @if (venta.anulada) {
-            <div class="anulada" role="status">
-              <strong>Esta venta está anulada</strong>
-              @if (venta.motivoAnulacion; as porque) {
-                <span>{{ porque }}</span>
-              }
-              <span class="nota">
-                La mercancía volvió a la vitrina y no cuenta para la caja ni para el día.
-              </span>
-            </div>
-          }
-          <div class="tabla-envoltorio">
-            <table class="tabla">
-              <thead>
-                <tr>
-                  <th>Producto</th>
-                  <th class="derecha">Cant.</th>
-                  <th class="derecha">Precio</th>
-                  <th class="derecha">Importe</th>
-                  <th class="derecha">Ganancia</th>
-                </tr>
-              </thead>
+      @if (agruparPorProductos()) {
+        <!-- -------------------------------------------- por producto
+             Una fila por presentación, y cada presentación es un producto
+             distinto: no hay subtotales. Todo viene sumado del núcleo, en
+             el orden en que llega: lo que más dinero movió, primero. -->
+        <div class="tabla-envoltorio">
+          <table class="tabla tabla--agrupada">
+            <thead>
+              <tr>
+                <th>Producto</th>
+                <th>Presentación</th>
+                <th class="derecha">Salida</th>
+                <th class="derecha">Total</th>
+                <th class="derecha">Ganancia</th>
+              </tr>
+            </thead>
+            @if (agrupado(); as datos) {
               <tbody>
-                @for (linea of venta.lineas; track $index) {
+                @for (fila of datos.filas; track fila.presentacion) {
                   <tr>
-                    <td>
-                      {{ linea.nombreProducto }}
-                      <span class="apagado nota">{{ linea.nombrePresentacion }}</span>
+                    <td>{{ fila.nombreProducto }}</td>
+                    <td>{{ fila.nombrePresentacion }}</td>
+                    <td class="derecha cifra">{{ fila.cantidad }}</td>
+                    <td class="derecha cifra">{{ fila.total }}</td>
+                    <td class="derecha cifra" [class.negativo]="conPerdida(fila.ganancia)">
+                      {{ fila.ganancia }}
                     </td>
-                    <td class="derecha cifra">{{ linea.cantidad }}</td>
-                    <td class="derecha cifra apagado">{{ linea.precio }}</td>
-                    <td class="derecha cifra">{{ linea.importe }}</td>
-                    <td class="derecha cifra" [class.negativo]="conPerdida(linea.ganancia)">
-                      {{ linea.ganancia }}
+                  </tr>
+                } @empty {
+                  <tr>
+                    <td colspan="5">
+                      <div class="vacio">
+                        @if (!datos.sesion) {
+                          <span class="vacio__titulo">Todavía no has abierto la caja</span>
+                          <span class="vacio__texto">
+                            Ábrela en Caja <kbd class="tecla">F7</kbd> y cobra en Vender
+                            <kbd class="tecla">F1</kbd>: lo vendido aparecerá aquí.
+                          </span>
+                        } @else if (datos.sesion.abierta) {
+                          <span class="vacio__titulo">Todavía no has vendido nada en esta sesión</span>
+                          <span class="vacio__texto">
+                            Cobra en Vender <kbd class="tecla">F1</kbd> y aquí verás cada producto. Las
+                            ventas anuladas no cuentan.
+                          </span>
+                        } @else {
+                          <span class="vacio__titulo">En la última sesión no se vendió nada</span>
+                          <span class="vacio__texto">
+                            Las ventas anuladas no cuentan. Abre la caja en Caja
+                            <kbd class="tecla">F7</kbd> para empezar otra.
+                          </span>
+                        }
+                      </div>
                     </td>
                   </tr>
                 }
               </tbody>
-            </table>
-          </div>
-
-          <!-- Las cuentas de la venta, con el costo a la vista: el total
-               solo no dice si el negocio ganó algo. -->
-          <div class="cuentas">
-            <div class="cuentas__fila">
-              <span class="apagado">Total cobrado</span>
-              <strong class="cifra">{{ venta.total }}</strong>
-            </div>
-            <div class="cuentas__fila">
-              <span class="apagado">Costo de la mercancía</span>
-              <span class="cifra apagado">{{ venta.costoTotal }}</span>
-            </div>
-            <div class="cuentas__fila cuentas__fila--ganancia" [class.negativo]="conPerdida(venta.ganancia)">
-              <span>Ganancia</span>
-              <strong class="cifra">{{ venta.ganancia }}</strong>
-            </div>
-          </div>
-
-          <!-- ------------------------------------------ cómo se pagó -->
-          <div class="pagos">
-            <span class="subtitulo">Cómo se pagó</span>
-            @for (pago of venta.pagos; track $index) {
-              <div class="pago">
-                <span class="etiqueta">{{ pago.metodoNombre }}</span>
-                <span class="cifra">{{ pago.entregado }} {{ pago.moneda }}</span>
-                @if (pago.tasa) {
-                  <span class="apagado nota">
-                    a {{ pago.tasa }} → {{ pago.equivalente }}
-                  </span>
-                }
-              </div>
+            } @else {
+              <tbody>
+                <tr>
+                  <td colspan="5">
+                    <div class="vacio">
+                      <span class="vacio__titulo">Sumando lo vendido…</span>
+                    </div>
+                  </td>
+                </tr>
+              </tbody>
             }
+          </table>
+        </div>
 
-            <div class="cuentas__fila">
-              <span class="apagado">Entregó en total</span>
-              <span class="cifra">{{ venta.entregado }}</span>
-            </div>
-            <div class="cuentas__fila cuentas__fila--vuelto">
-              <span>Vuelto</span>
-              <strong class="cifra">{{ venta.vuelto }}</strong>
-            </div>
-          </div>
-
-          <!-- ------------------------------------------- anular
-               Solo se puede con ventas de la caja abierta. Si la sesión ya
-               se cerró, el núcleo lo rechaza y explica por qué: su arqueo
-               se hizo contra dinero físico. -->
-          @if (venta.anulada) {
-            <!-- Nada que ofrecer: ya se anuló. -->
-          } @else if (anulando()) {
-            <div class="anulacion">
-              <label for="motivo">¿Por qué se anula?</label>
-              <input
-                id="motivo"
-                class="control"
-                autocomplete="off"
-                placeholder="Cobro equivocado, el cliente se arrepintió…"
-                [value]="motivo()"
-                (input)="motivo.set($any($event.target).value)"
-                (keydown.enter)="anular()"
-              />
-              <div class="fila">
-                <button
-                  type="button"
-                  class="boton boton--peligro"
-                  [disabled]="!motivo().trim() || ocupado()"
-                  (click)="anular()"
-                >
-                  {{ ocupado() ? 'Anulando…' : 'Confirmar anulación' }}
-                </button>
-                <button type="button" class="boton boton--discreto" (click)="cancelarAnulacion()">
-                  Cancelar
-                </button>
-              </div>
-              <span class="pista">
-                La mercancía vuelve a la vitrina y la venta deja de contar para la caja.
-              </span>
-            </div>
-          } @else {
-            <button type="button" class="boton boton--discreto" (click)="empezarAnulacion()">
-              Anular esta venta
-            </button>
-          }
+        <!-- Esta vista es solo la sesión. Para otro periodo está Informes,
+             que cuenta por días del calendario: no tiene por qué coincidir. -->
+        <div class="pie-panel">
+          <a class="enlace-discreto" routerLink="/informes">¿Otro periodo? Ver en Informes</a>
+          <span class="apagado nota">
+            En Informes, «Hoy» es el día del calendario y no la sesión de caja, así que sus
+            cifras pueden no coincidir con estas.
+          </span>
         </div>
       } @else {
-        <div class="vacio">
-          @if (cargandoDetalle()) {
-            <span class="vacio__titulo">Abriendo la venta…</span>
-          } @else {
-            <span class="vacio__titulo">Elige una venta</span>
-            <span class="vacio__texto">
-              Pulsa cualquier fila de la izquierda para ver qué se llevó el cliente y cómo pagó.
-            </span>
-          }
+        <div class="tabla-envoltorio">
+          <table class="tabla">
+            <thead>
+              <tr>
+                <th>Folio</th>
+                <th>Cuándo</th>
+                <th class="derecha">Total</th>
+                <th class="derecha">Ganancia</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (venta of historial()?.ventas ?? []; track venta.id) {
+                <!-- Una venta anulada se queda en el historial: el folio ya
+                     se emitió. Pero tiene que verse que no cuenta, o la lista
+                     miente sobre lo que se vendió. -->
+                <tr
+                  class="fila--pulsable"
+                  [class.fila--abierta]="detalle()?.id === venta.id"
+                  [class.fila--anulada]="venta.anulada"
+                  (click)="abrir(venta)"
+                  tabindex="0"
+                  (keydown.enter)="abrir(venta)"
+                >
+                  <td class="mono">#{{ venta.folio }}</td>
+                  <td>
+                    <span class="hora">{{ venta.hora }}</span>
+                    @if (venta.anulada) {
+                      <span class="etiqueta etiqueta--error">Anulada</span>
+                    } @else {
+                      <span class="apagado nota">{{ venta.fecha }}</span>
+                    }
+                  </td>
+                  <td class="derecha cifra">{{ venta.total }}</td>
+                  <td class="derecha cifra" [class.negativo]="conPerdida(venta.ganancia)">
+                    {{ venta.ganancia }}
+                  </td>
+                </tr>
+              } @empty {
+                <tr>
+                  <td colspan="4">
+                    <div class="vacio">
+                      <span class="vacio__titulo">Todavía no has vendido nada</span>
+                      <span class="vacio__texto">
+                        Cobra en Vender <kbd class="tecla">F1</kbd> y las ventas aparecerán aquí.
+                      </span>
+                    </div>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
         </div>
       }
-    </aside>
+    </div>
+
+    <!-- ------------------------------------------------ el detalle -->
+    @if (!agruparPorProductos()) {
+      <aside class="panel panel--detalle">
+        @if (detalle(); as venta) {
+          <div class="panel__cabecera">
+            <span class="panel__titulo">Venta #{{ venta.folio }}</span>
+            <span class="apagado nota">{{ venta.fecha }} · {{ venta.hora }}</span>
+          </div>
+
+          <div class="panel__cuerpo pila">
+            @if (venta.anulada) {
+              <div class="anulada" role="status">
+                <strong>Esta venta está anulada</strong>
+                @if (venta.motivoAnulacion; as porque) {
+                  <span>{{ porque }}</span>
+                }
+                <span class="nota">
+                  La mercancía volvió a la vitrina y no cuenta para la caja ni para el día.
+                </span>
+              </div>
+            }
+            <div class="tabla-envoltorio">
+              <table class="tabla">
+                <thead>
+                  <tr>
+                    <th>Producto</th>
+                    <th class="derecha">Cant.</th>
+                    <th class="derecha">Precio</th>
+                    <th class="derecha">Importe</th>
+                    <th class="derecha">Ganancia</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (linea of venta.lineas; track $index) {
+                    <tr>
+                      <td>
+                        {{ linea.nombreProducto }}
+                        <span class="apagado nota">{{ linea.nombrePresentacion }}</span>
+                      </td>
+                      <td class="derecha cifra">{{ linea.cantidad }}</td>
+                      <td class="derecha cifra apagado">{{ linea.precio }}</td>
+                      <td class="derecha cifra">{{ linea.importe }}</td>
+                      <td class="derecha cifra" [class.negativo]="conPerdida(linea.ganancia)">
+                        {{ linea.ganancia }}
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+
+            <!-- Las cuentas de la venta, con el costo a la vista: el total
+                 solo no dice si el negocio ganó algo. -->
+            <div class="cuentas">
+              <div class="cuentas__fila">
+                <span class="apagado">Total cobrado</span>
+                <strong class="cifra">{{ venta.total }}</strong>
+              </div>
+              <div class="cuentas__fila">
+                <span class="apagado">Costo de la mercancía</span>
+                <span class="cifra apagado">{{ venta.costoTotal }}</span>
+              </div>
+              <div class="cuentas__fila cuentas__fila--ganancia" [class.negativo]="conPerdida(venta.ganancia)">
+                <span>Ganancia</span>
+                <strong class="cifra">{{ venta.ganancia }}</strong>
+              </div>
+            </div>
+
+            <!-- ------------------------------------------ cómo se pagó -->
+            <div class="pagos">
+              <span class="subtitulo">Cómo se pagó</span>
+              @for (pago of venta.pagos; track $index) {
+                <div class="pago">
+                  <span class="etiqueta">{{ pago.metodoNombre }}</span>
+                  <span class="cifra">{{ pago.entregado }} {{ pago.moneda }}</span>
+                  @if (pago.tasa) {
+                    <span class="apagado nota">
+                      a {{ pago.tasa }} → {{ pago.equivalente }}
+                    </span>
+                  }
+                </div>
+              }
+
+              <div class="cuentas__fila">
+                <span class="apagado">Entregó en total</span>
+                <span class="cifra">{{ venta.entregado }}</span>
+              </div>
+              <div class="cuentas__fila cuentas__fila--vuelto">
+                <span>Vuelto</span>
+                <strong class="cifra">{{ venta.vuelto }}</strong>
+              </div>
+            </div>
+
+            <!-- ------------------------------------------- anular
+                 Solo se puede con ventas de la caja abierta. Si la sesión ya
+                 se cerró, el núcleo lo rechaza y explica por qué: su arqueo
+                 se hizo contra dinero físico. -->
+            @if (venta.anulada) {
+              <!-- Nada que ofrecer: ya se anuló. -->
+            } @else if (anulando()) {
+              <div class="anulacion">
+                <label for="motivo">¿Por qué se anula?</label>
+                <input
+                  id="motivo"
+                  class="control"
+                  autocomplete="off"
+                  placeholder="Cobro equivocado, el cliente se arrepintió…"
+                  [value]="motivo()"
+                  (input)="motivo.set($any($event.target).value)"
+                  (keydown.enter)="anular()"
+                />
+                <div class="fila">
+                  <button
+                    type="button"
+                    class="boton boton--peligro"
+                    [disabled]="!motivo().trim() || ocupado()"
+                    (click)="anular()"
+                  >
+                    {{ ocupado() ? 'Anulando…' : 'Confirmar anulación' }}
+                  </button>
+                  <button type="button" class="boton boton--discreto" (click)="cancelarAnulacion()">
+                    Cancelar
+                  </button>
+                </div>
+                <span class="pista">
+                  La mercancía vuelve a la vitrina y la venta deja de contar para la caja.
+                </span>
+              </div>
+            } @else {
+              <button type="button" class="boton boton--discreto" (click)="empezarAnulacion()">
+                Anular esta venta
+              </button>
+            }
+          </div>
+        } @else {
+          <div class="vacio">
+            @if (cargandoDetalle()) {
+              <span class="vacio__titulo">Abriendo la venta…</span>
+            } @else {
+              <span class="vacio__titulo">Elige una venta</span>
+              <span class="vacio__texto">
+                Pulsa cualquier fila de la izquierda para ver qué se llevó el cliente y cómo pagó.
+              </span>
+            }
+          </div>
+        }
+      </aside>
+    }
   </div>
 </section>
