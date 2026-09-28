@@ -7,8 +7,8 @@ import { Icono as NombreIcono } from './navegacion';
  *
  * No se usa ninguna biblioteca de iconos: la aplicación funciona sin
  * internet y la política de seguridad de Tauri bloquea cualquier descarga
- * externa. Ocho trazos propios pesan menos que una fuente de iconos con
- * mil símbolos que nunca se van a usar.
+ * externa. Un puñado de trazos propios pesa menos que una fuente de iconos
+ * con mil símbolos que nunca se van a usar.
  *
  * Heredan el color del texto (`currentColor`), así que el menú los pinta
  * sin que el icono sepa nada de la paleta.
@@ -59,6 +59,14 @@ import { Icono as NombreIcono } from './navegacion';
           <rect x="2.6" y="5.6" width="14.8" height="8.8" rx="1.4" />
           <circle cx="10" cy="10" r="2.1" />
           <path d="M5.4 10h.01M14.6 10h.01" />
+        }
+        @case ('contar') {
+          <!-- Un fajo: el billete de atrás asoma por la esquina. Se
+               distingue de «caja» en que ahí el círculo va centrado, como
+               en la gaveta, y aquí va donde va el retrato. -->
+          <path d="M5.6 6V4.4h11.8v8" />
+          <rect x="2.6" y="6" width="11.8" height="9.2" rx="1.2" />
+          <circle cx="8.5" cy="10.6" r="1.9" />
         }
         @case ('informes') {
           <path d="M3.4 16.6h13.2" />
