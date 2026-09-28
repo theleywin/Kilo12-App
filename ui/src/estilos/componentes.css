@@ -350,6 +350,18 @@
   text-align: center;
 }
 
+/* `.tabla th` alinea a la izquierda con más especificidad que `.derecha`
+   sola: sin esto, la cabecera de una columna de cifras se queda a la
+   izquierda mientras sus valores van a la derecha, y la tabla se lee
+   corrida una columna. */
+.tabla th.derecha {
+  text-align: right;
+}
+
+.tabla th.centro {
+  text-align: center;
+}
+
 /* ============================================================== cifras */
 
 .cifra {
