@@ -14,6 +14,7 @@ import {
   ErrorDto,
   FichaProductoDto,
   MargenDto,
+  Moneda,
   MovimientoDto,
   NuevaEntradaDto,
   NuevaMermaDto,
@@ -222,20 +223,27 @@ export class Kilo12Api {
     return invoke<void>('borrar_todos_los_datos', { clave });
   }
 
-  /** Denominaciones con que se cuenta la caja, de menor a mayor. */
-  denominacionesEfectivo(): Promise<number[]> {
-    return invoke<number[]>('denominaciones_efectivo');
+  /**
+   * Denominaciones con que se cuenta una moneda, de menor a mayor.
+   *
+   * Las dos listas no miden lo mismo —doce billetes de peso frente a siete
+   * de dólar—, así que la pantalla las pide y no las da por sabidas.
+   */
+  denominacionesEfectivo(moneda: Moneda): Promise<number[]> {
+    return invoke<number[]>('denominaciones_efectivo', { moneda });
   }
 
   /**
    * Suma un recuento de billetes.
    *
-   * `cuantos` va en el mismo orden que `denominacionesEfectivo`. La suma la
-   * hace Rust: es la cifra contra la que se arquea la caja y no se calcula
-   * en la pantalla, como ninguna otra cifra de dinero.
+   * `cuantos` va en el mismo orden que `denominacionesEfectivo` para esa
+   * misma moneda. La suma la hace Rust: es la cifra contra la que se arquea
+   * la caja y no se calcula en la pantalla, como ninguna otra cifra de
+   * dinero. El total viene en la moneda que se contó; aquí no se convierte
+   * nada ni se suman pesos con dólares.
    */
-  contarEfectivo(cuantos: number[]): Promise<ConteoCalculadoDto> {
-    return invoke<ConteoCalculadoDto>('contar_efectivo', { cuantos });
+  contarEfectivo(moneda: Moneda, cuantos: number[]): Promise<ConteoCalculadoDto> {
+    return invoke<ConteoCalculadoDto>('contar_efectivo', { moneda, cuantos });
   }
 
   /** Porcentaje de comisión del operador, si está configurado. */
