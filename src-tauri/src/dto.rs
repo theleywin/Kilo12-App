@@ -25,6 +25,9 @@ use application::casos::{
     CobroCalculado, ComandoVender, HistorialVentas, LineaPedida, LineaVendida, PagoHecho,
     PagoPedido, ProductoVendible, VentaDetallada, VentaHecha, VentaListada, VentaPrevista,
 };
+use application::casos::{
+    ComandoDejarEnEspera, LineaRetomada, VentaEnEsperaListada, VentaRetomada,
+};
 use application::{ErrorAplicacion, Margen};
 use serde::{Deserialize, Serialize};
 
@@ -646,20 +649,16 @@ pub struct PagoDto {
 pub struct NuevaVentaDto {
     pub lineas: Vec<LineaVentaDto>,
     pub pagos: Vec<PagoDto>,
+    /// La venta en espera de la que sale este cobro, si sale de una
+    /// (RF-VTA-14). Se borra en la misma operación que registra la venta.
+    #[serde(default)]
+    pub espera_id: Option<i64>,
 }
 
 impl From<NuevaVentaDto> for ComandoVender {
     fn from(dto: NuevaVentaDto) -> Self {
         Self {
-            lineas: dto
-                .lineas
-                .into_iter()
-                .map(|l| LineaPedida {
-                    producto: l.producto,
-                    presentacion: l.presentacion,
-                    cantidad: l.cantidad,
-                })
-                .collect(),
+            lineas: lineas_pedidas(dto.lineas),
             pagos: dto
                 .pagos
                 .into_iter()
@@ -668,6 +667,143 @@ impl From<NuevaVentaDto> for ComandoVender {
                     entregado: p.entregado,
                 })
                 .collect(),
+            espera_id: dto.espera_id,
+        }
+    }
+}
+
+fn lineas_pedidas(lineas: Vec<LineaVentaDto>) -> Vec<LineaPedida> {
+    lineas
+        .into_iter()
+        .map(|l| LineaPedida {
+            producto: l.producto,
+            presentacion: l.presentacion,
+            cantidad: l.cantidad,
+        })
+        .collect()
+}
+
+// ------------------------------------------------ venta en espera (RF-VTA-14)
+
+/// La venta en curso que se aparta al pulsar «Pendiente».
+///
+/// Solo viaja la intención —producto, presentación y cantidad—: ni precio
+/// ni pagos. Al retomarla se calcula con el precio de ese momento.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NuevaVentaEnEsperaDto {
+    /// Texto libre para reconocerla en la lista. Opcional.
+    #[serde(default)]
+    pub nota: Option<String>,
+    pub lineas: Vec<LineaVentaDto>,
+}
+
+impl From<NuevaVentaEnEsperaDto> for ComandoDejarEnEspera {
+    fn from(dto: NuevaVentaEnEsperaDto) -> Self {
+        Self {
+            nota: dto.nota,
+            lineas: lineas_pedidas(dto.lineas),
+        }
+    }
+}
+
+/// Una venta en espera en la lista.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VentaEnEsperaDto {
+    pub id: i64,
+    pub nota: Option<String>,
+    /// `YYYY-MM-DD HH:MM:SS`, hora local. La antigüedad se calcula con esto.
+    pub creada_en: String,
+    pub cuantas_lineas: i64,
+}
+
+impl From<VentaEnEsperaListada> for VentaEnEsperaDto {
+    fn from(listada: VentaEnEsperaListada) -> Self {
+        Self {
+            id: listada.id,
+            nota: listada.nota,
+            creada_en: listada.creada_en,
+            cuantas_lineas: listada.cuantas_lineas,
+        }
+    }
+}
+
+/// Por qué un renglón retomado no se puede cobrar tal cual.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProblemaLineaDto {
+    /// `PRODUCTO_NO_ENCONTRADO`, `PRODUCTO_INACTIVO`,
+    /// `PRESENTACION_NO_ENCONTRADA`, `PRESENTACION_INACTIVA`,
+    /// `CANTIDAD_INVALIDA` o `SIN_EXISTENCIA`.
+    pub codigo: String,
+    pub mensaje: String,
+}
+
+/// Un renglón de la venta retomada, al precio de hoy.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LineaRetomadaDto {
+    pub producto: i64,
+    pub presentacion: i64,
+    /// Vacío si el producto ya no existe.
+    pub nombre_producto: String,
+    /// Vacío si la presentación ya no existe.
+    pub nombre_presentacion: String,
+    pub cantidad: String,
+    /// Solo en los renglones que se pueden calcular.
+    pub precio: Option<String>,
+    pub importe: Option<String>,
+    pub unidades_base: Option<String>,
+    pub problema: Option<ProblemaLineaDto>,
+}
+
+impl From<LineaRetomada> for LineaRetomadaDto {
+    fn from(linea: LineaRetomada) -> Self {
+        Self {
+            producto: linea.producto,
+            presentacion: linea.presentacion,
+            nombre_producto: linea.nombre_producto,
+            nombre_presentacion: linea.nombre_presentacion,
+            cantidad: linea.cantidad,
+            precio: linea.precio,
+            importe: linea.importe,
+            unidades_base: linea.unidades_base,
+            problema: linea.problema.map(|problema| ProblemaLineaDto {
+                codigo: problema.codigo().to_owned(),
+                mensaje: problema.to_string(),
+            }),
+        }
+    }
+}
+
+/// Una venta en espera lista para volver a la pantalla.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VentaRetomadaDto {
+    pub id: i64,
+    pub nota: Option<String>,
+    pub creada_en: String,
+    pub lineas: Vec<LineaRetomadaDto>,
+    /// Suma de los renglones que se pueden calcular.
+    pub total: String,
+    /// Algún renglón hay que corregirlo antes de cobrar.
+    pub hay_problemas: bool,
+}
+
+impl From<VentaRetomada> for VentaRetomadaDto {
+    fn from(retomada: VentaRetomada) -> Self {
+        Self {
+            id: retomada.id,
+            nota: retomada.nota,
+            creada_en: retomada.creada_en,
+            lineas: retomada
+                .lineas
+                .into_iter()
+                .map(LineaRetomadaDto::from)
+                .collect(),
+            total: retomada.total,
+            hay_problemas: retomada.hay_problemas,
         }
     }
 }
@@ -1531,5 +1667,171 @@ impl From<Informe> for InformeDto {
                 })
                 .collect(),
         }
+    }
+}
+
+/// Pruebas del contrato con la interfaz (§6 del diseño técnico): lo que
+/// aquí se fija es el JSON que `kilo12-api.ts` espera recibir y mandar.
+#[cfg(test)]
+mod pruebas {
+    use application::casos::ProblemaLinea;
+    use serde_json::json;
+
+    use super::*;
+
+    fn venta(json: serde_json::Value) -> ComandoVender {
+        serde_json::from_value::<NuevaVentaDto>(json)
+            .expect("la interfaz manda un JSON válido")
+            .into()
+    }
+
+    #[test]
+    fn un_cobro_directo_no_trae_espera() {
+        let comando = venta(json!({
+            "lineas": [{ "producto": 1, "presentacion": 10, "cantidad": "2" }],
+            "pagos": [{ "metodo": "EFECTIVO_CUP", "entregado": "200.00" }],
+        }));
+
+        assert_eq!(comando.espera_id, None);
+        assert_eq!(comando.lineas[0].cantidad, "2");
+        assert_eq!(comando.pagos[0].entregado, "200.00");
+    }
+
+    #[test]
+    fn el_cobro_de_una_espera_trae_su_id() {
+        let comando = venta(json!({
+            "lineas": [{ "producto": 1, "presentacion": 10, "cantidad": "2" }],
+            "pagos": [{ "metodo": "EFECTIVO_CUP", "entregado": "200.00" }],
+            "esperaId": 7,
+        }));
+
+        assert_eq!(comando.espera_id, Some(7));
+    }
+
+    #[test]
+    fn apartar_admite_la_nota_en_blanco_o_ausente() {
+        let sin_nota: ComandoDejarEnEspera = serde_json::from_value::<NuevaVentaEnEsperaDto>(
+            json!({ "lineas": [{ "producto": 1, "presentacion": 10, "cantidad": "1" }] }),
+        )
+        .expect("sin nota")
+        .into();
+        assert_eq!(sin_nota.nota, None);
+        assert_eq!(sin_nota.lineas.len(), 1);
+
+        let con_nota: ComandoDejarEnEspera =
+            serde_json::from_value::<NuevaVentaEnEsperaDto>(json!({
+                "nota": "mesa 3",
+                "lineas": [],
+            }))
+            .expect("con nota")
+            .into();
+        assert_eq!(con_nota.nota.as_deref(), Some("mesa 3"));
+    }
+
+    #[test]
+    fn la_lista_de_esperas_viaja_en_camel_case() {
+        let dto = VentaEnEsperaDto::from(VentaEnEsperaListada {
+            id: 3,
+            nota: None,
+            creada_en: "2026-09-27 10:15:00".to_owned(),
+            cuantas_lineas: 2,
+        });
+
+        assert_eq!(
+            serde_json::to_value(dto).expect("serializar"),
+            json!({
+                "id": 3,
+                "nota": null,
+                "creadaEn": "2026-09-27 10:15:00",
+                "cuantasLineas": 2,
+            })
+        );
+    }
+
+    #[test]
+    fn la_venta_retomada_lleva_el_problema_con_codigo_y_mensaje() {
+        let dto = VentaRetomadaDto::from(VentaRetomada {
+            id: 7,
+            nota: Some("mesa 3".to_owned()),
+            creada_en: "2026-09-27 10:15:00".to_owned(),
+            lineas: vec![
+                LineaRetomada {
+                    producto: 1,
+                    presentacion: 10,
+                    nombre_producto: "Refresco 500 ml".to_owned(),
+                    nombre_presentacion: "Unidad".to_owned(),
+                    cantidad: "2".to_owned(),
+                    precio: Some("80.00".to_owned()),
+                    importe: Some("160.00".to_owned()),
+                    unidades_base: Some("2".to_owned()),
+                    problema: None,
+                },
+                LineaRetomada {
+                    producto: 3,
+                    presentacion: 30,
+                    nombre_producto: "Galletas".to_owned(),
+                    nombre_presentacion: "Paquete".to_owned(),
+                    cantidad: "1".to_owned(),
+                    precio: None,
+                    importe: None,
+                    unidades_base: None,
+                    problema: Some(ProblemaLinea::ProductoInactivo),
+                },
+            ],
+            total: "160.00".to_owned(),
+            hay_problemas: true,
+        });
+
+        assert_eq!(
+            serde_json::to_value(dto).expect("serializar"),
+            json!({
+                "id": 7,
+                "nota": "mesa 3",
+                "creadaEn": "2026-09-27 10:15:00",
+                "lineas": [
+                    {
+                        "producto": 1,
+                        "presentacion": 10,
+                        "nombreProducto": "Refresco 500 ml",
+                        "nombrePresentacion": "Unidad",
+                        "cantidad": "2",
+                        "precio": "80.00",
+                        "importe": "160.00",
+                        "unidadesBase": "2",
+                        "problema": null,
+                    },
+                    {
+                        "producto": 3,
+                        "presentacion": 30,
+                        "nombreProducto": "Galletas",
+                        "nombrePresentacion": "Paquete",
+                        "cantidad": "1",
+                        "precio": null,
+                        "importe": null,
+                        "unidadesBase": null,
+                        "problema": {
+                            "codigo": "PRODUCTO_INACTIVO",
+                            "mensaje": "Este producto se desactivó: ya no se vende",
+                        },
+                    },
+                ],
+                "total": "160.00",
+                "hayProblemas": true,
+            })
+        );
+    }
+
+    #[test]
+    fn el_error_de_producto_inactivo_llega_tipado() {
+        let dto = ErrorDto::from(domain::ErrorDominio::ProductoInactivo);
+
+        assert_eq!(
+            serde_json::to_value(dto).expect("serializar"),
+            json!({
+                "codigo": "PRODUCTO_INACTIVO",
+                "mensaje": "Este producto se desactivó: ya no se vende",
+                "delUsuario": true,
+            })
+        );
     }
 }
