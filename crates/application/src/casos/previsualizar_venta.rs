@@ -74,11 +74,9 @@ impl<'a, R: RepositorioProducto> PrevisualizarVenta<'a, R> {
                     id: pedida.producto,
                 })?;
 
-            let presentacion = producto
-                .presentacion(IdPresentacion(pedida.presentacion))
-                .ok_or(ErrorAplicacion::Dominio(
-                    domain::ErrorDominio::PresentacionNoEncontrada,
-                ))?;
+            // Lo desactivado ya no se vende, aunque siga en el carrito.
+            let presentacion =
+                producto.presentacion_vendible(IdPresentacion(pedida.presentacion))?;
 
             let cantidad: Cantidad = pedida.cantidad.trim().parse()?;
             producto.validar_cantidad(cantidad)?;
@@ -116,5 +114,60 @@ impl<'a, R: RepositorioProducto> PrevisualizarVenta<'a, R> {
             total: total.formatear(2),
             hay_faltantes,
         })
+    }
+}
+
+#[cfg(test)]
+mod pruebas {
+    use domain::UnidadBase;
+
+    use super::*;
+    use crate::dobles::ProductosEnMemoria;
+
+    fn catalogo() -> ProductosEnMemoria {
+        ProductosEnMemoria::default().con_producto(
+            1,
+            "Refresco 500 ml",
+            UnidadBase::Unidad,
+            &[
+                (10, "Unidad", "1", "80.00"),
+                (11, "Six-pack", "6", "300.00"),
+            ],
+            "20",
+        )
+    }
+
+    fn prever(productos: &ProductosEnMemoria, presentacion: i64) -> Resultado<VentaPrevista> {
+        PrevisualizarVenta::nuevo(productos).ejecutar(vec![LineaPedida {
+            producto: 1,
+            presentacion,
+            cantidad: "2".to_owned(),
+        }])
+    }
+
+    #[test]
+    fn calcula_lo_que_esta_activo() {
+        let prevista = prever(&catalogo(), 11).expect("prever");
+
+        assert_eq!(prevista.total, "600.00");
+        assert!(!prevista.hay_faltantes);
+    }
+
+    #[test]
+    fn rechaza_lo_desactivado_igual_que_el_cobro() {
+        // Si la vista previa diera un total que el cobro luego rechaza, la
+        // pantalla enseñaría una venta imposible.
+        let productos = catalogo();
+        productos.desactivar_presentacion(1, 11);
+        assert_eq!(
+            prever(&productos, 11).expect_err("inactiva").codigo(),
+            "PRESENTACION_INACTIVA"
+        );
+
+        productos.desactivar_producto(1);
+        assert_eq!(
+            prever(&productos, 10).expect_err("inactivo").codigo(),
+            "PRODUCTO_INACTIVO"
+        );
     }
 }
