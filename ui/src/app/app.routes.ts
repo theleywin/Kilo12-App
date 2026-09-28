@@ -2,6 +2,7 @@ import { Routes } from '@angular/router';
 
 import { Almacen } from './features/almacen/almacen';
 import { Caja } from './features/caja/caja';
+import { Contar } from './features/contar/contar';
 import { Informes } from './features/informes/informes';
 import { Vender } from './features/vender/vender';
 import { Entrada } from './features/entrada/entrada';
@@ -32,6 +33,7 @@ export const routes: Routes = [
   { path: 'vitrina', component: Vitrina, title: 'Vitrina · Kilo12' },
   { path: 'ventas', component: Ventas, title: 'Ventas · Kilo12' },
   { path: 'caja', component: Caja, title: 'Caja · Kilo12' },
+  { path: 'contar', component: Contar, title: 'Contar dinero · Kilo12' },
   { path: 'informes', component: Informes, title: 'Informes · Kilo12' },
 
   { path: GUIA.ruta, component: Guia, title: `${GUIA.titulo} · Kilo12` },
