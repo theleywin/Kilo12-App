@@ -23,6 +23,7 @@ pub mod simular_movimiento;
 pub mod tasa_cambio;
 pub mod traspasar;
 pub mod vender;
+pub mod venta_en_espera;
 
 pub use anular_venta::{AnularVenta, ComandoAnularVenta};
 pub use caja::{
@@ -62,6 +63,10 @@ pub use simular_movimiento::{ComandoSimular, Simulacion, SimularMovimiento};
 pub use tasa_cambio::{ConsultarTasa, FijarTasa};
 pub use traspasar::{ComandoTraspasar, Traspasar};
 pub use vender::{ComandoVender, LineaPedida, PagoPedido, Vender, VentaHecha};
+pub use venta_en_espera::{
+    ComandoDejarEnEspera, DejarVentaEnEspera, EliminarVentaEnEspera, LineaRetomada,
+    ListarVentasEnEspera, ProblemaLinea, RetomarVentaEnEspera, VentaEnEsperaListada, VentaRetomada,
+};
 
 use domain::{Cantidad, Producto};
 
