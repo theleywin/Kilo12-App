@@ -1,9 +1,10 @@
 # Kilo12 — Requerimientos Funcionales
 
-**Versión:** 1.4
-**Fecha:** 2026-09-22
+**Versión:** 1.5
+**Fecha:** 2026-09-28
 **Estado:** Alcance funcional cerrado. Todas las decisiones de modelo de datos están resueltas.
 
+**Cambios en 1.5:** las cifras de la pantalla Ventas se refieren a la **sesión de caja de referencia** (la abierta o, si no hay ninguna, la última cerrada) y no al día del calendario (RF-VTA-20). El desglose por presentación (RF-EST-03b) se ofrece en Ventas para esa sesión, con una fila por presentación y sin subtotal por producto.
 **Cambios en 1.4:** se incorpora la **libra** como unidad base y se sustituye la moneda única por tres métodos de pago —efectivo en pesos, transferencia y efectivo en dólares—, con tasa de cambio, arqueo por moneda y dos modos de cierre. Nuevo módulo §6.11 — Divisa y tasa de cambio.
 **Cambios en 1.3:** se declaran las plataformas objetivo, que hasta ahora no estaban especificadas: Windows como principal y macOS como secundaria (RNF-8 a RNF-10).
 **Cambios en 1.2:** la comisión del operador de caja se calcula sobre la **venta total** de la sesión, no sobre la ganancia, y se **descuenta de la ganancia bruta** del local. Se incorpora el concepto de ganancia neta de comisión.
@@ -319,12 +320,14 @@ La venta del 20/03 debe registrar un costo de lo vendido de $625.00 y una gananc
 | RF-VTA-17 | El sistema debe asignar a cada venta un folio consecutivo único e irrepetible. | M |
 | RF-VTA-18 | El sistema debe permitir consultar y buscar ventas anteriores por folio, fecha o producto vendido. | S |
 | RF-VTA-19 | El sistema debe permitir mostrar en pantalla un resumen imprimible/exportable de la venta (comprobante interno, sin valor fiscal). | C |
+| RF-VTA-20 | La pantalla de ventas debe mostrar el número de ventas, el total cobrado y la ganancia de la **sesión de caja de referencia**: la sesión abierta o, si no hay ninguna, la última cerrada. No se usa el día del calendario. Las ventas anuladas no cuentan, y las cifras deben salir del mismo cálculo con el que se arquea la caja, para que las dos pantallas no discrepen. Junto a las cifras se indica a qué sesión se refieren («Sesión abierta desde 08:00», «Sesión cerrada · 27/09 08:00–20:30»); si nunca se abrió una caja, se indica en lugar de enseñar ceros. | M |
 
 **Criterios de aceptación destacados**
 
 - RF-VTA-02: el flujo completo de una venta simple (buscar, agregar, cobrar, confirmar) debe poder ejecutarse sin tocar el ratón.
 - RF-VTA-13: si hoy vendo un producto con costo 10 y mañana el costo sube a 14, el informe de ganancia de la venta de hoy sigue calculándose con 10.
 - RF-VTA-15: una venta de ayer, con la caja de ayer ya cerrada, no ofrece la acción de anular. El arqueo de una sesión cerrada es inmutable.
+- RF-VTA-20: con la caja abierta desde las 22:00 de ayer, a las 07:00 de hoy las tarjetas incluyen las ventas de anoche y la etiqueta dice «Sesión abierta desde ayer 22:00». Con la caja cerrada, muestran la última sesión y lo dicen. «Cobrado en la sesión» coincide con lo cobrado que arquea la caja para esa misma sesión.
 - RF-VTA-14: en la pantalla Vender, junto a «Cobrar», el botón «Pendiente» aparta la venta en curso y deja la pantalla libre; el panel «En espera (N)» ofrece «Retomar» y «Eliminar» (con confirmación) para cada una. Con otra venta en pantalla, «Retomar» se **bloquea** y pide cobrarla o dejarla en espera primero. Si al retomar algún renglón ya no se puede vender (producto o presentación desactivados o eliminados, cantidad inválida, sin existencia en vitrina), la venta se carga igual, el renglón aparece marcado con su aviso y no se puede cobrar hasta quitarlo o corregirlo. Cobrar una venta retomada la saca de la lista **en la misma transacción** que registra la venta: una espera no se puede cobrar dos veces.
 
 ---
@@ -441,7 +444,7 @@ Conviene tener presente el efecto de la regla: al no depender del margen, la com
 | RF-EST-01 | El sistema debe ofrecer un panel de inicio con los indicadores del día: número de ventas, total vendido, ganancia bruta estimada, comisión devengada y ticket promedio. | M |
 | RF-EST-02 | El sistema debe permitir consultar ventas, ganancia bruta, comisión, ganancia neta de comisión y número de operaciones por periodo (día, semana, mes, rango personalizado). | M |
 | RF-EST-03 | El sistema debe ofrecer un informe de **productos más vendidos** por cantidad y por importe, para un periodo dado. Las cantidades deben consolidarse en unidad base para que las ventas sueltas y en paquete sean comparables entre sí. | M |
-| RF-EST-03b | El sistema debe permitir desglosar las ventas de un producto **por presentación**, mostrando cuánto se vendió en cada una y qué ganancia aportó, para evaluar la conveniencia de cada formato. | S |
+| RF-EST-03b | El sistema debe permitir desglosar las ventas de un producto **por presentación**, mostrando cuánto se vendió en cada una y qué ganancia aportó, para evaluar la conveniencia de cada formato. En la pantalla de ventas, la casilla «Agrupar por productos» (desmarcada por omisión, que es la lista venta por venta) ofrece este desglose para la sesión de caja de referencia (RF-VTA-20): una fila por cada presentación vendida (producto, presentación, salida, total y ganancia), sin subtotal por producto: cada presentación cuenta como un producto distinto. La salida se expresa en presentaciones (cajas, si es la caja). Se agrupa por la presentación y no por su nombre, se muestran con su nombre congelado los productos ya eliminados del catálogo, se excluyen las anuladas y se ordenan todas las filas por total, de mayor a menor, sin agruparlas por producto. Para otros periodos se remite a Informes, indicando que allí «Hoy» es el día del calendario. | S |
 | RF-EST-04 | El sistema debe ofrecer un informe de **productos más rentables**, ordenados por ganancia bruta aportada en el periodo. | S |
 | RF-EST-05 | El sistema debe ofrecer un informe de **productos sin movimiento** (sin ventas) en un periodo configurable, señalando el capital inmovilizado en ellos. | S |
 | RF-EST-06 | El sistema debe ofrecer un informe de **productos por agotarse**, comparando la existencia actual contra el stock mínimo y contra el ritmo de venta reciente. | M |
@@ -453,6 +456,10 @@ Conviene tener presente el efecto de la regla: al no depender del margen, la com
 | RF-EST-11b | El sistema debe ofrecer un informe de ventas **por método de pago** en el periodo consultado, mostrando los dólares tanto en su moneda como en su equivalente en pesos. | S |
 | RF-EST-12 | El sistema debe permitir exportar cualquier informe a CSV. | S |
 | RF-EST-13 | Todos los informes deben distinguir con claridad los tres niveles, sin confundirlos: **venta** (dinero que entró), **ganancia bruta** (venta − costo de lo vendido) y **ganancia neta de comisión** (ganancia bruta − comisión del operador). | M |
+
+**Criterios de aceptación destacados**
+
+- RF-EST-03b: si en la sesión se vendieron 3 refrescos sueltos y 2 six-packs, la vista muestra dos filas independientes, «Refresco · Unidad» con salida 3 y «Refresco · Six-pack» con salida 2, cada una con su total y su ganancia calculados por el núcleo. No hay fila de subtotal ni columna «Veces vendido», y las filas se ordenan por su propio total aunque eso intercale presentaciones de productos distintos.
 
 ---
 
@@ -537,5 +544,5 @@ No quedan decisiones abiertas de modelo de datos. Las pendientes corresponden a 
 | Qué tengo y dónde está | RF-PRS-01/05/06, RF-INV-01/02/09, RF-VIT-01/04/06 |
 | Cuánto cuesta y cuánto gano | RF-COS-01 a RF-COS-14, RF-COM-04, RF-PRS-11, RF-PRE-01/02, RF-VTA-13, RF-CMS-07, RF-EST-04/13 |
 | Qué se vende y qué está parado | RF-EST-03/03b/05/06/07 |
-| Cuánto entró y si cuadra la caja | RF-CAJ-01 a RF-CAJ-10, RF-DIV-01 a RF-DIV-07, RF-VTA-09/10/10b/15/16, RF-EST-01/11b |
+| Cuánto entró y si cuadra la caja | RF-CAJ-01 a RF-CAJ-10, RF-DIV-01 a RF-DIV-07, RF-VTA-09/10/10b/15/16/20, RF-EST-01/11b |
 | Cuánto le corresponde a quien atendió | RF-CMS-01 a RF-CMS-14, RF-CAJ-09/10 |
