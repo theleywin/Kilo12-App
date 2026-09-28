@@ -17,6 +17,8 @@ import {
   MovimientoDto,
   NuevaEntradaDto,
   NuevaMermaDto,
+  NuevaVentaDto,
+  NuevaVentaEnEsperaDto,
   NuevoProductoDto,
   LineaVentaDto,
   NuevoTraspasoDto,
@@ -26,8 +28,10 @@ import {
   SimulacionDto,
   SesionListadaDto,
   VentaDetalladaDto,
+  VentaEnEsperaDto,
   VentaHechaDto,
   VentaPrevistaDto,
+  VentaRetomadaDto,
   VitrinaDto,
 } from './api.types';
 
@@ -94,11 +98,40 @@ export class Kilo12Api {
    * Va entera en una sola llamada: si algo falla no se guarda nada, ni
    * media venta ni medio descuento de inventario.
    */
-  vender(venta: {
-    lineas: LineaVentaDto[];
-    pagos: PagoDto[];
-  }): Promise<VentaHechaDto> {
+  vender(venta: NuevaVentaDto): Promise<VentaHechaDto> {
     return invoke<VentaHechaDto>('vender', { venta });
+  }
+
+  // ------------------------------------- venta en espera (RF-VTA-14)
+
+  /**
+   * Aparta la venta en curso y devuelve su identificador.
+   *
+   * No hace falta caja abierta ni se toca la vitrina: apartar no mueve
+   * dinero ni mercancía.
+   */
+  dejarVentaEnEspera(espera: NuevaVentaEnEsperaDto): Promise<number> {
+    return invoke<number>('dejar_venta_en_espera', { espera });
+  }
+
+  /** Las ventas en espera, de la más antigua a la más reciente. */
+  listarVentasEnEspera(): Promise<VentaEnEsperaDto[]> {
+    return invoke<VentaEnEsperaDto[]>('listar_ventas_en_espera');
+  }
+
+  /**
+   * Recupera una venta en espera, calculada con el precio de hoy.
+   *
+   * No la borra: se borra al cobrarla (con `esperaId` en `vender`) o al
+   * eliminarla. Los renglones que ya no se pueden vender llegan marcados.
+   */
+  retomarVentaEnEspera(id: number): Promise<VentaRetomadaDto> {
+    return invoke<VentaRetomadaDto>('retomar_venta_en_espera', { id });
+  }
+
+  /** Descarta una venta en espera sin cobrarla. */
+  eliminarVentaEnEspera(id: number): Promise<void> {
+    return invoke<void>('eliminar_venta_en_espera', { id });
   }
 
   /**

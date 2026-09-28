@@ -274,6 +274,92 @@ export interface VentaHechaDto {
   readonly vuelto: string;
 }
 
+/**
+ * La venta que se quiere cobrar.
+ *
+ * `esperaId` solo va cuando el cobro sale de una venta en espera: el núcleo
+ * la borra en la misma operación que registra la venta (RF-VTA-14).
+ */
+export interface NuevaVentaDto {
+  readonly lineas: readonly LineaVentaDto[];
+  readonly pagos: readonly PagoDto[];
+  readonly esperaId?: number;
+}
+
+// ------------------------------------------- venta en espera (RF-VTA-14)
+
+/** La venta en curso que se aparta al pulsar «Pendiente». */
+export interface NuevaVentaEnEsperaDto {
+  /** Texto libre para reconocerla en la lista. Opcional. */
+  readonly nota?: string;
+  readonly lineas: readonly LineaVentaDto[];
+}
+
+/** Una venta en espera en la lista. */
+export interface VentaEnEsperaDto {
+  readonly id: number;
+  readonly nota: string | null;
+  /** `YYYY-MM-DD HH:MM:SS`, hora local. La antigüedad sale de aquí. */
+  readonly creadaEn: string;
+  readonly cuantasLineas: number;
+}
+
+/** Largo máximo de la nota, en caracteres. El núcleo aplica el mismo. */
+export const LARGO_MAXIMO_NOTA = 120;
+
+/** Códigos de error propios de la venta en espera (DT-7). */
+export const ERROR_VENTA_EN_ESPERA = {
+  ESPERA_VACIA: 'ESPERA_VACIA',
+  NOTA_DEMASIADO_LARGA: 'NOTA_DEMASIADO_LARGA',
+  VENTA_EN_ESPERA_NO_ENCONTRADA: 'VENTA_EN_ESPERA_NO_ENCONTRADA',
+} as const;
+
+/** Por qué un renglón retomado no se puede cobrar tal cual. */
+export const PROBLEMA_LINEA = {
+  PRODUCTO_NO_ENCONTRADO: 'PRODUCTO_NO_ENCONTRADO',
+  PRODUCTO_INACTIVO: 'PRODUCTO_INACTIVO',
+  PRESENTACION_NO_ENCONTRADA: 'PRESENTACION_NO_ENCONTRADA',
+  PRESENTACION_INACTIVA: 'PRESENTACION_INACTIVA',
+  CANTIDAD_INVALIDA: 'CANTIDAD_INVALIDA',
+  SIN_EXISTENCIA: 'SIN_EXISTENCIA',
+} as const;
+
+export type CodigoProblemaLinea = (typeof PROBLEMA_LINEA)[keyof typeof PROBLEMA_LINEA];
+
+/** El aviso de un renglón retomado, listo para enseñar. */
+export interface ProblemaLineaDto {
+  readonly codigo: CodigoProblemaLinea;
+  readonly mensaje: string;
+}
+
+/** Un renglón de la venta retomada, al precio de hoy. */
+export interface LineaRetomadaDto {
+  readonly producto: number;
+  readonly presentacion: number;
+  /** Vacío si el producto ya no existe. */
+  readonly nombreProducto: string;
+  /** Vacío si la presentación ya no existe. */
+  readonly nombrePresentacion: string;
+  readonly cantidad: string;
+  /** Solo en los renglones que se pueden calcular. */
+  readonly precio: string | null;
+  readonly importe: string | null;
+  readonly unidadesBase: string | null;
+  readonly problema: ProblemaLineaDto | null;
+}
+
+/** Una venta en espera lista para volver a la pantalla. */
+export interface VentaRetomadaDto {
+  readonly id: number;
+  readonly nota: string | null;
+  readonly creadaEn: string;
+  readonly lineas: readonly LineaRetomadaDto[];
+  /** Suma de los renglones que se pueden calcular. */
+  readonly total: string;
+  /** Algún renglón hay que corregirlo antes de cobrar. */
+  readonly hayProblemas: boolean;
+}
+
 /** Una venta en la lista del historial. */
 export interface VentaListadaDto {
   readonly id: number;
