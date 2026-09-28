@@ -22,9 +22,10 @@ use std::collections::BTreeMap;
 
 use domain::{Cantidad, Dinero, Porcentaje};
 
+use crate::casos::agregados::{agregar_por, Movido};
 use crate::casos::caja::CLAVE_COMISION;
 use crate::error::Resultado;
-use crate::puertos::{LineaDelPeriodo, ProductoConInventario, RepositorioProducto};
+use crate::puertos::{ProductoConInventario, RepositorioProducto};
 
 /// Cuántos productos se enseñan en cada escalafón.
 pub const CUANTOS_EN_RANKING: usize = 8;
@@ -213,7 +214,7 @@ impl<'a, R: RepositorioProducto> ConsultarInforme<'a, R> {
             en_perdida: ganancia_bruta.es_negativo(),
         };
 
-        let agregados = agregar_por_producto(&lineas)?;
+        let agregados = agregar_por(&lineas, |linea| linea.producto.0)?;
         let por_dia = self.serie_diaria(desde, hasta)?;
         let comparativa = comparar_ultimos_dias(desde, hasta, self.repositorio)?;
 
@@ -325,35 +326,8 @@ impl<'a, R: RepositorioProducto> ConsultarInforme<'a, R> {
 
 // ============================================================= agregados
 
-/// Lo que un producto movió en el periodo.
-#[derive(Debug, Clone, Copy, Default)]
-struct Movido {
-    /// Unidades base, para que suelto y paquete sean comparables.
-    unidades: Cantidad,
-    importe: Dinero,
-    costo: Dinero,
-}
-
-/// Junta las líneas por producto.
-///
-/// Aquí es donde se multiplica precio por cantidad, y por eso esto no se
-/// hace en SQL: las escalas las conocen `Dinero` y `Cantidad`, no SQLite.
-fn agregar_por_producto(lineas: &[LineaDelPeriodo]) -> Resultado<BTreeMap<i64, Movido>> {
-    let mut acumulado: BTreeMap<i64, Movido> = BTreeMap::new();
-
-    for linea in lineas {
-        let unidades = linea.cantidad.multiplicar_por_factor(linea.factor)?;
-        let importe = linea.precio.multiplicar_por(linea.cantidad)?;
-        let costo = linea.costo_unitario.multiplicar_por(unidades)?;
-
-        let movido = acumulado.entry(linea.producto.0).or_default();
-        movido.unidades = movido.unidades.sumar(unidades)?;
-        movido.importe = movido.importe.sumar(importe)?;
-        movido.costo = movido.costo.sumar(costo)?;
-    }
-
-    Ok(acumulado)
-}
+// La suma de renglones por producto vive en `casos::agregados`, compartida
+// con la pantalla de ventas: las dos tienen que llegar a la misma cifra.
 
 /// Por qué se ordena un escalafón.
 #[derive(Debug, Clone, Copy)]
