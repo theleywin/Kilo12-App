@@ -8,8 +8,8 @@
 
 use domain::{
     Cantidad, Cobro, Comision, Dinero, Existencias, IdPresentacion, IdProducto, IdSesion,
-    Inventario, MetodoPago, Movimiento, MovimientoEfectivo, Producto, ResumenCierre, SesionCaja,
-    Venta,
+    IdVentaEnEspera, Inventario, MetodoPago, Movimiento, MovimientoEfectivo, Producto,
+    ResumenCierre, SesionCaja, Venta, VentaEnEspera,
 };
 
 use crate::error::Resultado;
@@ -99,6 +99,12 @@ pub struct VentaConfirmada<'a> {
     pub descuentos: &'a [DescuentoVenta],
     /// Sesión de caja a la que pertenece (RF-CAJ-02).
     pub sesion: IdSesion,
+    /// Venta en espera que este cobro liquida, si viene de una (RF-VTA-14).
+    ///
+    /// Se borra en la MISMA operación que registra la venta. Si ya no
+    /// existe, no se registra nada: cobrar dos veces la misma espera sería
+    /// una venta doble.
+    pub espera: Option<IdVentaEnEspera>,
 }
 
 /// Una venta ya cobrada, tal como quedó guardada.
@@ -444,4 +450,49 @@ pub trait RepositorioProducto {
 
     /// Guarda un ajuste del negocio.
     fn guardar_configuracion(&self, clave: &str, valor: &str) -> Resultado<()>;
+}
+
+/// Una venta en espera tal como está guardada.
+#[derive(Debug, Clone)]
+pub struct EsperaRegistrada {
+    pub id: IdVentaEnEspera,
+    pub espera: VentaEnEspera,
+    /// Fecha y hora en que se apartó, como la guarda la base de datos.
+    pub creada_en: String,
+}
+
+/// Una venta en espera vista desde la lista: lo justo para reconocerla.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EsperaResumida {
+    pub id: IdVentaEnEspera,
+    pub nota: Option<String>,
+    pub creada_en: String,
+    pub cuantas_lineas: i64,
+}
+
+/// Acceso a las ventas en espera (RF-VTA-14).
+///
+/// Es un puerto aparte y no un puñado más de métodos en
+/// [`RepositorioProducto`]: quien lista esperas no necesita saber cerrar
+/// una caja, y quien la implemente en memoria para una prueba no debería
+/// tener que escribir cuarenta métodos para cuatro.
+pub trait RepositorioVentaEnEspera {
+    /// Guarda una venta en espera y devuelve su identificador.
+    ///
+    /// La cabecera y sus renglones entran juntos: una espera sin renglones
+    /// es una fila que no se puede retomar.
+    fn guardar(&self, espera: &VentaEnEspera) -> Resultado<IdVentaEnEspera>;
+
+    /// Lista las ventas en espera, de la más antigua a la más reciente:
+    /// la que lleva más tiempo esperando va primero.
+    fn listar(&self) -> Resultado<Vec<EsperaResumida>>;
+
+    /// Recupera una venta en espera con sus renglones en orden.
+    fn obtener(&self, id: IdVentaEnEspera) -> Resultado<Option<EsperaRegistrada>>;
+
+    /// Borra una venta en espera con sus renglones.
+    ///
+    /// Devuelve `false` si no existía, para que el caso de uso decida qué
+    /// decirle al usuario.
+    fn eliminar(&self, id: IdVentaEnEspera) -> Resultado<bool>;
 }

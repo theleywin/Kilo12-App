@@ -12,6 +12,8 @@
 #![warn(missing_debug_implementations)]
 
 pub mod casos;
+#[cfg(test)]
+mod dobles;
 pub mod error;
 pub mod margen;
 pub mod puertos;
@@ -20,7 +22,7 @@ pub mod sku;
 pub use error::{ErrorAplicacion, Resultado};
 pub use margen::Margen;
 pub use puertos::{
-    Asiento, CambioDePrecio, CambioRegistrado, DescuentoVenta, DetalleVenta, LineaRegistrada,
-    MovimientoRegistrado, PagoRegistrado, ProductoConInventario, RepositorioProducto, ResumenDia,
-    VentaConfirmada, VentaRegistrada,
+    Asiento, CambioDePrecio, CambioRegistrado, DescuentoVenta, DetalleVenta, EsperaRegistrada,
+    EsperaResumida, LineaRegistrada, MovimientoRegistrado, PagoRegistrado, ProductoConInventario,
+    RepositorioProducto, RepositorioVentaEnEspera, ResumenDia, VentaConfirmada, VentaRegistrada,
 };
