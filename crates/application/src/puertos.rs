@@ -163,18 +163,6 @@ pub struct DetalleVenta {
     pub pagos: Vec<PagoRegistrado>,
 }
 
-/// Lo vendido en una jornada.
-///
-/// El corte del día lo hace la base con su propio reloj: preguntar «¿qué
-/// llevo hoy?» desde Rust obligaría a saber en qué huso está la tienda, y
-/// la tienda está donde está la máquina.
-#[derive(Debug, Clone, Default)]
-pub struct ResumenDia {
-    pub cuantas: i64,
-    pub total: Dinero,
-    pub costo_total: Dinero,
-}
-
 /// Sumas de una sesión, tal como las calcula la base.
 ///
 /// Van juntas porque se leen de una vez y porque separadas invitan al error
@@ -289,7 +277,12 @@ pub struct VentaPorMetodo {
 /// multiplicar precio por cantidad, y esa cuenta no se hace en SQL.
 #[derive(Debug, Clone)]
 pub struct LineaDelPeriodo {
+    /// Venta a la que pertenece: dos renglones de la misma venta cuentan
+    /// como una sola vez vendido.
+    pub venta: i64,
     pub producto: IdProducto,
+    pub presentacion: IdPresentacion,
+    /// Nombres congelados al cobrar, como en el recibo.
     pub nombre_producto: String,
     pub nombre_presentacion: String,
     pub cantidad: Cantidad,
@@ -367,9 +360,6 @@ pub trait RepositorioProducto {
 
     /// Devuelve una venta con sus líneas y sus pagos.
     fn detalle_venta(&self, id: i64) -> Resultado<Option<DetalleVenta>>;
-
-    /// Cuánto se lleva vendido hoy, según el reloj de la máquina.
-    fn resumen_de_hoy(&self) -> Resultado<ResumenDia>;
 
     /// Anula una venta y devuelve la mercancía a vitrina (RF-VTA-15).
     ///
@@ -450,6 +440,19 @@ pub trait RepositorioProducto {
 
     /// Guarda un ajuste del negocio.
     fn guardar_configuracion(&self, clave: &str, valor: &str) -> Resultado<()>;
+}
+
+/// Lo vendido en una sesión de caja, renglón a renglón (RF-VTA-16).
+///
+/// Es un puerto de solo lectura y aparte de [`RepositorioProducto`] por la
+/// misma razón que [`RepositorioVentaEnEspera`]: quien agrupa lo vendido no
+/// necesita saber dar de alta un producto, y su doble de pruebas no debería
+/// tener que fingir cuarenta métodos para usar uno.
+pub trait ConsultaVentasDeSesion {
+    /// Renglones de las ventas de una sesión, en el orden en que se
+    /// cobraron. Las anuladas nunca aparecen: la mercancía volvió y el
+    /// dinero se devolvió.
+    fn lineas_de_sesion(&self, sesion: IdSesion) -> Resultado<Vec<LineaDelPeriodo>>;
 }
 
 /// Una venta en espera tal como está guardada.

@@ -17,10 +17,10 @@ use domain::{
 use crate::error::Resultado;
 use crate::puertos::{
     AcumuladoSesion, AnulacionConfirmada, Asiento, CambioDePrecio, CambioRegistrado,
-    CierreConfirmado, DetalleVenta, EsperaRegistrada, EsperaResumida, LineaDelPeriodo,
-    MovimientoEfectivoRegistrado, MovimientoRegistrado, ProductoConInventario, RepositorioProducto,
-    RepositorioVentaEnEspera, ResumenDia, SesionRegistrada, TotalesPeriodo, VentaConfirmada,
-    VentaDiaria, VentaHoraria, VentaPorMetodo, VentaRegistrada,
+    CierreConfirmado, ConsultaVentasDeSesion, DetalleVenta, EsperaRegistrada, EsperaResumida,
+    LineaDelPeriodo, MovimientoEfectivoRegistrado, MovimientoRegistrado, ProductoConInventario,
+    RepositorioProducto, RepositorioVentaEnEspera, SesionRegistrada, TotalesPeriodo,
+    VentaConfirmada, VentaDiaria, VentaHoraria, VentaPorMetodo, VentaRegistrada,
 };
 
 fn cantidad(texto: &str) -> Cantidad {
@@ -36,6 +36,12 @@ fn dinero(texto: &str) -> Dinero {
 pub(crate) struct ProductosEnMemoria {
     productos: RefCell<BTreeMap<i64, ProductoConInventario>>,
     sesion: RefCell<Option<SesionRegistrada>>,
+    /// Sesiones ya cerradas, por su identificador.
+    cerradas: RefCell<BTreeMap<i64, SesionRegistrada>>,
+    /// Lo que la base sumaría para cada sesión.
+    acumulados: RefCell<BTreeMap<i64, AcumuladoSesion>>,
+    /// Ventas en el orden en que las devolvería la lista.
+    ventas: RefCell<Vec<VentaRegistrada>>,
     /// La espera que llevaba la última venta registrada, tal cual llegó.
     pub(crate) espera_cobrada: RefCell<Option<Option<IdVentaEnEspera>>>,
     folio: Cell<i64>,
@@ -96,11 +102,60 @@ impl ProductosEnMemoria {
 
     /// Deja una caja abierta, para poder cobrar.
     pub(crate) fn con_caja_abierta(self) -> Self {
+        self.con_sesion_abierta(1, "2026-09-27 08:00:00")
+    }
+
+    /// Deja abierta la sesión indicada.
+    pub(crate) fn con_sesion_abierta(self, id: i64, abierta_en: &str) -> Self {
         *self.sesion.borrow_mut() = Some(SesionRegistrada {
-            sesion: SesionCaja::rehidratar(IdSesion(1), "Ana", Dinero::CERO, EstadoSesion::Abierta),
-            abierta_en: "2026-09-27 08:00:00".to_owned(),
+            sesion: SesionCaja::rehidratar(
+                IdSesion(id),
+                "Ana",
+                Dinero::CERO,
+                EstadoSesion::Abierta,
+            ),
+            abierta_en: abierta_en.to_owned(),
             cerrada_en: None,
         });
+        self
+    }
+
+    /// Añade una sesión ya cerrada al historial.
+    pub(crate) fn con_sesion_cerrada(self, id: i64, abierta_en: &str, cerrada_en: &str) -> Self {
+        self.cerradas.borrow_mut().insert(
+            id,
+            SesionRegistrada {
+                sesion: SesionCaja::rehidratar(
+                    IdSesion(id),
+                    "Ana",
+                    Dinero::CERO,
+                    EstadoSesion::Cerrada,
+                ),
+                abierta_en: abierta_en.to_owned(),
+                cerrada_en: Some(cerrada_en.to_owned()),
+            },
+        );
+        self
+    }
+
+    /// Fija lo que la base sumaría para una sesión: ventas no anuladas,
+    /// total vendido y costo.
+    pub(crate) fn con_acumulado(self, sesion: i64, cuantas: i64, total: &str, costo: &str) -> Self {
+        self.acumulados.borrow_mut().insert(
+            sesion,
+            AcumuladoSesion {
+                cuantas_ventas: cuantas,
+                total_vendido: dinero(total),
+                costo_vendido: dinero(costo),
+                ..AcumuladoSesion::default()
+            },
+        );
+        self
+    }
+
+    /// Añade una venta a la lista, la más reciente al final.
+    pub(crate) fn con_venta(self, venta: VentaRegistrada) -> Self {
+        self.ventas.borrow_mut().push(venta);
         self
     }
 
@@ -149,6 +204,46 @@ impl RepositorioProducto for ProductosEnMemoria {
         Ok(self.sesion.borrow().clone())
     }
 
+    fn listar_sesiones(&self, limite: usize) -> Resultado<Vec<SesionRegistrada>> {
+        // Como la base: todas, abierta incluida, de la más nueva a la más
+        // vieja por identificador.
+        let mut todas: Vec<SesionRegistrada> = self.cerradas.borrow().values().cloned().collect();
+        todas.extend(self.sesion.borrow().clone());
+        todas.sort_by_key(|s| std::cmp::Reverse(s.sesion.id().map_or(0, |id| id.0)));
+        todas.truncate(limite);
+        Ok(todas)
+    }
+
+    fn acumulado_de_sesion(&self, id: IdSesion) -> Resultado<AcumuladoSesion> {
+        Ok(self
+            .acumulados
+            .borrow()
+            .get(&id.0)
+            .cloned()
+            .unwrap_or_default())
+    }
+
+    fn listar_ventas(&self, limite: usize) -> Resultado<Vec<VentaRegistrada>> {
+        Ok(self
+            .ventas
+            .borrow()
+            .iter()
+            .rev()
+            .take(limite)
+            .cloned()
+            .collect())
+    }
+
+    fn listar(&self, incluir_inactivos: bool) -> Resultado<Vec<ProductoConInventario>> {
+        Ok(self
+            .productos
+            .borrow()
+            .values()
+            .filter(|fila| incluir_inactivos || fila.producto.esta_activo())
+            .cloned()
+            .collect())
+    }
+
     fn configuracion(&self, _clave: &str) -> Resultado<Option<String>> {
         Ok(None)
     }
@@ -172,10 +267,6 @@ impl RepositorioProducto for ProductosEnMemoria {
         unreachable!("historial_precios no se usa en estas pruebas")
     }
 
-    fn listar(&self, _: bool) -> Resultado<Vec<ProductoConInventario>> {
-        unreachable!("listar no se usa en estas pruebas")
-    }
-
     fn registrar_movimiento(&self, _: IdProducto, _: &Inventario, _: &Movimiento) -> Resultado<()> {
         unreachable!("registrar_movimiento no se usa en estas pruebas")
     }
@@ -188,16 +279,8 @@ impl RepositorioProducto for ProductosEnMemoria {
         unreachable!("existe_sku no se usa en estas pruebas")
     }
 
-    fn listar_ventas(&self, _: usize) -> Resultado<Vec<VentaRegistrada>> {
-        unreachable!("listar_ventas no se usa en estas pruebas")
-    }
-
     fn detalle_venta(&self, _: i64) -> Resultado<Option<DetalleVenta>> {
         unreachable!("detalle_venta no se usa en estas pruebas")
-    }
-
-    fn resumen_de_hoy(&self) -> Resultado<ResumenDia> {
-        unreachable!("resumen_de_hoy no se usa en estas pruebas")
     }
 
     fn anular_venta(&self, _: &AnulacionConfirmada<'_>) -> Resultado<()> {
@@ -212,10 +295,6 @@ impl RepositorioProducto for ProductosEnMemoria {
         unreachable!("sesion no se usa en estas pruebas")
     }
 
-    fn acumulado_de_sesion(&self, _: IdSesion) -> Resultado<AcumuladoSesion> {
-        unreachable!("acumulado_de_sesion no se usa en estas pruebas")
-    }
-
     fn registrar_movimiento_efectivo(&self, _: IdSesion, _: &MovimientoEfectivo) -> Resultado<()> {
         unreachable!("registrar_movimiento_efectivo no se usa en estas pruebas")
     }
@@ -226,10 +305,6 @@ impl RepositorioProducto for ProductosEnMemoria {
 
     fn cerrar_sesion(&self, _: &CierreConfirmado) -> Resultado<()> {
         unreachable!("cerrar_sesion no se usa en estas pruebas")
-    }
-
-    fn listar_sesiones(&self, _: usize) -> Resultado<Vec<SesionRegistrada>> {
-        unreachable!("listar_sesiones no se usa en estas pruebas")
     }
 
     fn cierre_de_sesion(&self, _: IdSesion) -> Resultado<Option<CierreConfirmado>> {
@@ -262,6 +337,38 @@ impl RepositorioProducto for ProductosEnMemoria {
 
     fn guardar_configuracion(&self, _: &str, _: &str) -> Resultado<()> {
         unreachable!("guardar_configuracion no se usa en estas pruebas")
+    }
+}
+
+/// Renglones vendidos por sesión, en memoria.
+///
+/// Guarda lo que devolvería la base: las ventas anuladas ya no están. Que
+/// la base las excluya se prueba contra SQLite, no aquí.
+#[derive(Debug, Default)]
+pub(crate) struct VentasDeSesionEnMemoria {
+    lineas: RefCell<BTreeMap<i64, Vec<LineaDelPeriodo>>>,
+}
+
+impl VentasDeSesionEnMemoria {
+    /// Añade un renglón vendido en la sesión indicada.
+    pub(crate) fn con_linea(self, sesion: i64, linea: LineaDelPeriodo) -> Self {
+        self.lineas
+            .borrow_mut()
+            .entry(sesion)
+            .or_default()
+            .push(linea);
+        self
+    }
+}
+
+impl ConsultaVentasDeSesion for VentasDeSesionEnMemoria {
+    fn lineas_de_sesion(&self, sesion: IdSesion) -> Resultado<Vec<LineaDelPeriodo>> {
+        Ok(self
+            .lineas
+            .borrow()
+            .get(&sesion.0)
+            .cloned()
+            .unwrap_or_default())
     }
 }
 

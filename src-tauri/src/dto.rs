@@ -12,7 +12,7 @@
 use application::casos::{
     ArqueoListado, CierreCalculado, ComandoAbrirCaja, ComandoAnularVenta, ComandoCerrarCaja,
     ComandoMoverEfectivo, ConteoCalculado, DesgloseVenta, EstadoCaja, Informe, ProductoEnInforme,
-    SesionListada,
+    SesionDeReferencia, SesionListada,
 };
 use application::casos::{
     CambioDePrecioListado, ComandoAgregarPresentacion, ComandoCambiarPrecio, ComandoEditarProducto,
@@ -28,6 +28,7 @@ use application::casos::{
 use application::casos::{
     ComandoDejarEnEspera, LineaRetomada, VentaEnEsperaListada, VentaRetomada,
 };
+use application::casos::{FilaVendida, VentasPorProducto};
 use application::{ErrorAplicacion, Margen};
 use serde::{Deserialize, Serialize};
 
@@ -898,15 +899,41 @@ impl From<CobroCalculado> for CobroCalculadoDto {
     }
 }
 
-/// El historial de ventas con el corte del día.
+/// El historial de ventas con el corte de la sesión de caja.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HistorialVentasDto {
+    /// Lo vendido en la sesión de referencia, no en el día del calendario.
     pub hoy: ResumenDelDiaDto,
+    /// A qué sesión se refiere `hoy`. `null` si nunca se abrió una caja.
+    pub sesion: Option<SesionDeReferenciaDto>,
     pub ventas: Vec<VentaListadaDto>,
 }
 
-/// Lo vendido hoy.
+/// La sesión a la que se refieren «las ventas de hoy»: la abierta o, si no
+/// hay, la última cerrada.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SesionDeReferenciaDto {
+    pub id: i64,
+    pub abierta: bool,
+    pub abierta_en: String,
+    /// `null` mientras siga abierta.
+    pub cerrada_en: Option<String>,
+}
+
+impl From<SesionDeReferencia> for SesionDeReferenciaDto {
+    fn from(sesion: SesionDeReferencia) -> Self {
+        Self {
+            id: sesion.id,
+            abierta: sesion.abierta,
+            abierta_en: sesion.abierta_en,
+            cerrada_en: sesion.cerrada_en,
+        }
+    }
+}
+
+/// Lo vendido en la sesión de referencia.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResumenDelDiaDto {
@@ -937,11 +964,58 @@ impl From<HistorialVentas> for HistorialVentasDto {
                 total: historial.hoy.total,
                 ganancia: historial.hoy.ganancia,
             },
+            sesion: historial.sesion.map(SesionDeReferenciaDto::from),
             ventas: historial
                 .ventas
                 .into_iter()
                 .map(VentaListadaDto::from)
                 .collect(),
+        }
+    }
+}
+
+/// Lo vendido en la sesión, una fila por producto y presentación.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VentasPorProductoDto {
+    /// `null` si nunca se abrió una caja.
+    pub sesion: Option<SesionDeReferenciaDto>,
+    pub filas: Vec<FilaVendidaDto>,
+}
+
+/// Una presentación de un producto vendida en la sesión.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FilaVendidaDto {
+    pub producto: i64,
+    pub nombre_producto: String,
+    pub presentacion: i64,
+    pub nombre_presentacion: String,
+    /// La salida, en presentaciones: cajas, si es la caja.
+    pub cantidad: String,
+    pub total: String,
+    pub ganancia: String,
+}
+
+impl From<VentasPorProducto> for VentasPorProductoDto {
+    fn from(vista: VentasPorProducto) -> Self {
+        Self {
+            sesion: vista.sesion.map(SesionDeReferenciaDto::from),
+            filas: vista.filas.into_iter().map(FilaVendidaDto::from).collect(),
+        }
+    }
+}
+
+impl From<FilaVendida> for FilaVendidaDto {
+    fn from(fila: FilaVendida) -> Self {
+        Self {
+            producto: fila.producto,
+            nombre_producto: fila.nombre_producto,
+            presentacion: fila.presentacion,
+            nombre_presentacion: fila.nombre_presentacion,
+            cantidad: fila.cantidad,
+            total: fila.total,
+            ganancia: fila.ganancia,
         }
     }
 }
@@ -1817,6 +1891,97 @@ mod pruebas {
                 ],
                 "total": "160.00",
                 "hayProblemas": true,
+            })
+        );
+    }
+
+    fn sesion_cerrada() -> SesionDeReferencia {
+        SesionDeReferencia {
+            id: 4,
+            abierta: false,
+            abierta_en: "2026-09-27 08:00:00".to_owned(),
+            cerrada_en: Some("2026-09-27 20:30:00".to_owned()),
+        }
+    }
+
+    #[test]
+    fn el_historial_lleva_la_sesion_de_las_tarjetas() {
+        let dto = HistorialVentasDto::from(HistorialVentas {
+            hoy: application::casos::ResumenDelDia {
+                cuantas: 2,
+                total: "240.00".to_owned(),
+                ganancia: "114.99".to_owned(),
+            },
+            sesion: Some(sesion_cerrada()),
+            ventas: Vec::new(),
+        });
+
+        assert_eq!(
+            serde_json::to_value(dto).expect("serializar"),
+            json!({
+                "hoy": { "cuantas": 2, "total": "240.00", "ganancia": "114.99" },
+                "sesion": {
+                    "id": 4,
+                    "abierta": false,
+                    "abiertaEn": "2026-09-27 08:00:00",
+                    "cerradaEn": "2026-09-27 20:30:00",
+                },
+                "ventas": [],
+            })
+        );
+    }
+
+    #[test]
+    fn sin_ninguna_caja_la_sesion_viaja_como_null() {
+        let dto = VentasPorProductoDto::from(VentasPorProducto {
+            sesion: None,
+            filas: Vec::new(),
+        });
+
+        assert_eq!(
+            serde_json::to_value(dto).expect("serializar"),
+            json!({ "sesion": null, "filas": [] })
+        );
+    }
+
+    #[test]
+    fn las_ventas_por_producto_viajan_en_camel_case() {
+        let dto = VentasPorProductoDto::from(VentasPorProducto {
+            sesion: Some(SesionDeReferencia {
+                id: 7,
+                abierta: true,
+                abierta_en: "2026-09-28 08:00:00".to_owned(),
+                cerrada_en: None,
+            }),
+            filas: vec![FilaVendida {
+                producto: 1,
+                nombre_producto: "Refresco".to_owned(),
+                presentacion: 11,
+                nombre_presentacion: "Six-pack".to_owned(),
+                cantidad: "3".to_owned(),
+                total: "1260.00".to_owned(),
+                ganancia: "540.00".to_owned(),
+            }],
+        });
+
+        assert_eq!(
+            serde_json::to_value(dto).expect("serializar"),
+            json!({
+                "sesion": {
+                    "id": 7,
+                    "abierta": true,
+                    "abiertaEn": "2026-09-28 08:00:00",
+                    "cerradaEn": null,
+                },
+                "filas": [{
+                    "producto": 1,
+                    "nombreProducto": "Refresco",
+                    "presentacion": 11,
+                    "nombrePresentacion": "Six-pack",
+                    "cantidad": "3",
+                    "total": "1260.00",
+                    "ganancia": "540.00",
+                }],
             })
         );
     }

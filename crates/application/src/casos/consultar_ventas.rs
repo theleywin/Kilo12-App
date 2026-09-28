@@ -2,8 +2,10 @@
 //!
 //! Dos preguntas distintas, y conviene no mezclarlas:
 //!
-//! - **¿Cómo va el día?** Un par de cifras que se miran de reojo: cuántas
-//!   ventas, cuánto entró, cuánto se ganó.
+//! - **¿Cómo va el turno?** Un par de cifras que se miran de reojo:
+//!   cuántas ventas, cuánto entró, cuánto se ganó. «Hoy» es la sesión de
+//!   caja abierta, o la última cerrada si no hay ninguna, no el día del
+//!   calendario: un turno que cruza la medianoche sigue siendo uno.
 //! - **¿Qué pasó en esta venta?** El detalle de un cobro concreto, con sus
 //!   líneas y las formas en que se pagó.
 //!
@@ -12,8 +14,9 @@
 //! línea (RF-VTA-13). Recalcularlo con el costo de hoy haría que la
 //! ganancia de ayer cambiara sola cada vez que llega una remesa.
 
-use domain::{Cantidad, Dinero};
+use domain::{Cantidad, Dinero, IdSesion};
 
+use crate::casos::caja::{sesion_de_referencia, SesionDeReferencia};
 use crate::error::{ErrorAplicacion, Resultado};
 use crate::puertos::{DetalleVenta, RepositorioProducto, VentaRegistrada};
 
@@ -37,7 +40,11 @@ pub struct VentaListada {
     pub fecha: String,
 }
 
-/// Lo vendido hoy, para la cabecera de la pantalla.
+/// Lo vendido en la sesión de referencia, para la cabecera de la pantalla.
+///
+/// Sale de la misma suma que usa la caja para arquear, así que lo que dicen
+/// las tarjetas y lo que dice el cierre no pueden discrepar. Las anuladas
+/// no cuentan.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResumenDelDia {
     pub cuantas: i64,
@@ -49,6 +56,9 @@ pub struct ResumenDelDia {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HistorialVentas {
     pub hoy: ResumenDelDia,
+    /// A qué sesión se refiere `hoy`. Vacía si nunca se abrió una caja, y
+    /// entonces `hoy` va en ceros.
+    pub sesion: Option<SesionDeReferencia>,
     pub ventas: Vec<VentaListada>,
 }
 
@@ -112,7 +122,8 @@ impl<'a, R: RepositorioProducto> ConsultarVentas<'a, R> {
     }
 
     pub fn ejecutar(&self, limite: usize) -> Resultado<HistorialVentas> {
-        let resumen = self.repositorio.resumen_de_hoy()?;
+        let sesion = sesion_de_referencia(self.repositorio)?;
+        let hoy = self.resumen_de(sesion.as_ref())?;
         let ventas = self.repositorio.listar_ventas(limite)?;
 
         let listadas = ventas
@@ -142,12 +153,31 @@ impl<'a, R: RepositorioProducto> ConsultarVentas<'a, R> {
             .collect::<Resultado<Vec<_>>>()?;
 
         Ok(HistorialVentas {
-            hoy: ResumenDelDia {
-                cuantas: resumen.cuantas,
-                total: resumen.total.formatear(2),
-                ganancia: resumen.total.restar(resumen.costo_total)?.formatear(2),
-            },
+            hoy,
+            sesion,
             ventas: listadas,
+        })
+    }
+
+    /// Suma la sesión con el mismo acumulado que arquea la caja.
+    fn resumen_de(&self, sesion: Option<&SesionDeReferencia>) -> Resultado<ResumenDelDia> {
+        let Some(sesion) = sesion else {
+            return Ok(ResumenDelDia {
+                cuantas: 0,
+                total: Dinero::CERO.formatear(2),
+                ganancia: Dinero::CERO.formatear(2),
+            });
+        };
+
+        let acumulado = self.repositorio.acumulado_de_sesion(IdSesion(sesion.id))?;
+
+        Ok(ResumenDelDia {
+            cuantas: acumulado.cuantas_ventas,
+            total: acumulado.total_vendido.formatear(2),
+            ganancia: acumulado
+                .total_vendido
+                .restar(acumulado.costo_vendido)?
+                .formatear(2),
         })
     }
 }
@@ -248,7 +278,7 @@ fn hora_de(sello: &str) -> &str {
 ///
 /// Aquí no se tiene el producto delante para saber si era a granel, así que
 /// se deduce de la propia cifra: si es entera, se escribe entera.
-fn formatear_cantidad_vendida(cantidad: Cantidad) -> String {
+pub(crate) fn formatear_cantidad_vendida(cantidad: Cantidad) -> String {
     if cantidad.es_entera() {
         cantidad.formatear(0)
     } else {
@@ -259,6 +289,85 @@ fn formatear_cantidad_vendida(cantidad: Cantidad) -> String {
 #[cfg(test)]
 mod pruebas {
     use super::*;
+    use crate::dobles::ProductosEnMemoria;
+
+    fn venta(id: i64, sesion: i64, total: &str, ocurrido_en: &str) -> VentaRegistrada {
+        VentaRegistrada {
+            id,
+            folio: id,
+            total: total.parse().expect("importe"),
+            costo_total: Dinero::CERO,
+            vuelto: Dinero::CERO,
+            ocurrido_en: ocurrido_en.to_owned(),
+            sesion: Some(sesion),
+            anulada: false,
+            motivo_anulacion: None,
+        }
+    }
+
+    fn historial(repositorio: &ProductosEnMemoria) -> HistorialVentas {
+        ConsultarVentas::nuevo(repositorio)
+            .ejecutar(LIMITE_POR_DEFECTO)
+            .expect("consultar")
+    }
+
+    #[test]
+    fn las_tarjetas_suman_la_sesion_abierta_con_el_acumulado_de_la_caja() {
+        let repositorio = ProductosEnMemoria::default()
+            .con_sesion_abierta(7, "2026-09-27 22:00:00")
+            .con_acumulado(6, 9, "9000.00", "1000.00")
+            .con_acumulado(7, 2, "240.00", "125.01");
+
+        let historial = historial(&repositorio);
+
+        assert_eq!(
+            historial.hoy,
+            ResumenDelDia {
+                cuantas: 2,
+                total: "240.00".to_owned(),
+                ganancia: "114.99".to_owned(),
+            }
+        );
+        let sesion = historial.sesion.expect("hay sesión");
+        assert_eq!(sesion.id, 7);
+        assert!(sesion.abierta);
+        assert_eq!(sesion.abierta_en, "2026-09-27 22:00:00");
+    }
+
+    #[test]
+    fn con_la_caja_cerrada_las_tarjetas_son_de_la_ultima_sesion() {
+        let repositorio = ProductosEnMemoria::default()
+            .con_sesion_cerrada(5, "2026-09-26 08:00:00", "2026-09-26 20:00:00")
+            .con_sesion_cerrada(6, "2026-09-27 08:00:00", "2026-09-27 20:30:00")
+            .con_acumulado(5, 1, "10.00", "5.00")
+            .con_acumulado(6, 3, "300.00", "200.00");
+
+        let historial = historial(&repositorio);
+
+        assert_eq!(historial.hoy.cuantas, 3);
+        assert_eq!(historial.hoy.total, "300.00");
+        assert_eq!(historial.hoy.ganancia, "100.00");
+        let sesion = historial.sesion.expect("hay sesión");
+        assert_eq!(sesion.id, 6);
+        assert!(!sesion.abierta);
+        assert_eq!(sesion.cerrada_en.as_deref(), Some("2026-09-27 20:30:00"));
+    }
+
+    #[test]
+    fn sin_ninguna_sesion_las_tarjetas_van_en_cero_y_la_lista_sigue() {
+        // Ventas de antes de que existiera la caja: se listan, pero no hay
+        // turno al que atribuirlas.
+        let repositorio =
+            ProductosEnMemoria::default().con_venta(venta(1, 1, "80.00", "2026-09-20 10:00:00"));
+
+        let historial = historial(&repositorio);
+
+        assert_eq!(historial.sesion, None);
+        assert_eq!(historial.hoy.cuantas, 0);
+        assert_eq!(historial.hoy.total, "0.00");
+        assert_eq!(historial.hoy.ganancia, "0.00");
+        assert_eq!(historial.ventas.len(), 1);
+    }
 
     #[test]
     fn la_fecha_y_la_hora_salen_del_sello_de_la_base() {

@@ -129,6 +129,21 @@ pub struct SesionListada {
     pub abierta: bool,
 }
 
+/// La sesión a la que se refieren «las ventas de hoy» (RF-VTA-16).
+///
+/// «Hoy» no es el día del calendario: es el turno de caja. Un turno que
+/// cruza la medianoche sigue siendo el mismo turno, y un día con dos turnos
+/// son dos cuentas distintas. Con la caja abierta es esa; con la caja
+/// cerrada es la última que se cerró, que es la que el dueño quiere repasar.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SesionDeReferencia {
+    pub id: i64,
+    pub abierta: bool,
+    pub abierta_en: String,
+    /// Vacía mientras la sesión siga abierta.
+    pub cerrada_en: Option<String>,
+}
+
 // ========================================================== abrir la caja
 
 /// Lo que llega de la pantalla al abrir.
@@ -612,6 +627,34 @@ fn presentar_cierre(
             ganancia_neta: ganancia_neta.formatear(2),
         },
     })
+}
+
+/// Busca la sesión de referencia: la abierta o, si no hay, la última.
+///
+/// Devuelve `None` si nunca se ha abierto una caja. No es un error: es el
+/// estado de una tienda recién instalada, y la pantalla tiene que poder
+/// dibujarlo.
+///
+/// Como solo puede haber una sesión abierta a la vez, sin ninguna abierta
+/// la más reciente es por fuerza la última que se cerró.
+pub fn sesion_de_referencia<R: RepositorioProducto>(
+    repositorio: &R,
+) -> Resultado<Option<SesionDeReferencia>> {
+    let registrada = match repositorio.sesion_abierta()? {
+        Some(abierta) => Some(abierta),
+        None => repositorio.listar_sesiones(1)?.into_iter().next(),
+    };
+
+    registrada
+        .map(|registrada| {
+            Ok(SesionDeReferencia {
+                id: identificador(&registrada)?.0,
+                abierta: registrada.sesion.esta_abierta(),
+                abierta_en: registrada.abierta_en,
+                cerrada_en: registrada.cerrada_en,
+            })
+        })
+        .transpose()
 }
 
 /// Tasa vigente, solo para presentar el cierre consolidado.

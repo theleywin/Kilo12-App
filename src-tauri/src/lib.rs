@@ -51,6 +51,7 @@ pub fn ejecutar() {
             comandos::retomar_venta_en_espera,
             comandos::eliminar_venta_en_espera,
             comandos::consultar_ventas,
+            comandos::consultar_ventas_por_producto,
             comandos::consultar_venta,
             comandos::consultar_tasa,
             comandos::fijar_tasa,

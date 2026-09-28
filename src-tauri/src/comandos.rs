@@ -22,8 +22,8 @@ use application::casos::{
     RegistrarMerma, RegistrarProducto, SimularMovimiento, Traspasar,
 };
 use application::casos::{
-    CalcularCobro, CatalogoDeVenta, ConsultarTasa, ConsultarVenta, ConsultarVentas, FijarTasa,
-    PrevisualizarVenta, Vender,
+    CalcularCobro, CatalogoDeVenta, ConsultarTasa, ConsultarVenta, ConsultarVentas,
+    ConsultarVentasPorProducto, FijarTasa, PrevisualizarVenta, Vender,
 };
 use application::casos::{
     DejarVentaEnEspera, EliminarVentaEnEspera, ListarVentasEnEspera, RetomarVentaEnEspera,
@@ -45,7 +45,7 @@ use crate::dto::{
 };
 use crate::dto::{
     CobroCalculadoDto, HistorialVentasDto, NuevaVentaDto, PagoDto, ProductoVendibleDto,
-    VentaDetalladaDto, VentaHechaDto, VentaPrevistaDto,
+    VentaDetalladaDto, VentaHechaDto, VentaPrevistaDto, VentasPorProductoDto,
 };
 use crate::dto::{NuevaVentaEnEsperaDto, VentaEnEsperaDto, VentaRetomadaDto};
 use crate::estado::Estado;
@@ -274,7 +274,8 @@ pub fn eliminar_venta_en_espera(estado: State<'_, Estado>, id: i64) -> Result<()
     caso.ejecutar(id).map_err(ErrorDto::from)
 }
 
-/// Devuelve el historial de ventas con el corte del día (RF-VTA-16).
+/// Devuelve el historial de ventas con el corte de la sesión de caja
+/// (RF-VTA-16): las tarjetas cuentan la sesión abierta, o la última cerrada.
 #[tauri::command]
 pub fn consultar_ventas(
     estado: State<'_, Estado>,
@@ -283,6 +284,22 @@ pub fn consultar_ventas(
     let caso = ConsultarVentas::nuevo(estado.repositorio_producto());
     caso.ejecutar(limite.unwrap_or(LIMITE_VENTAS))
         .map(HistorialVentasDto::from)
+        .map_err(ErrorDto::from)
+}
+
+/// Devuelve lo vendido en la sesión de referencia, agrupado por producto y
+/// presentación (RF-VTA-16).
+#[tauri::command]
+pub fn consultar_ventas_por_producto(
+    estado: State<'_, Estado>,
+) -> Result<VentasPorProductoDto, ErrorDto> {
+    // El mismo adaptador implementa los dos puertos: comparten la base.
+    let caso = ConsultarVentasPorProducto::nuevo(
+        estado.repositorio_producto(),
+        estado.repositorio_producto(),
+    );
+    caso.ejecutar()
+        .map(VentasPorProductoDto::from)
         .map_err(ErrorDto::from)
 }
 

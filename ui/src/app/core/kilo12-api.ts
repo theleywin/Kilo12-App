@@ -33,6 +33,7 @@ import {
   VentaHechaDto,
   VentaPrevistaDto,
   VentaRetomadaDto,
+  VentasPorProductoDto,
   VitrinaDto,
 } from './api.types';
 
@@ -136,13 +137,23 @@ export class Kilo12Api {
   }
 
   /**
-   * El historial de ventas con el corte del día (RF-VTA-16).
+   * El historial de ventas con el corte de la sesión de caja (RF-VTA-16).
    *
-   * Los totales y la ganancia vienen calculados: la ganancia sale del costo
-   * que tenía la mercancía cuando se vendió, no del de hoy.
+   * Las tarjetas (`hoy`) cuentan la sesión abierta o, si no hay, la última
+   * cerrada; `sesion` dice cuál. Los totales y la ganancia vienen
+   * calculados: la ganancia sale del costo que tenía la mercancía cuando se
+   * vendió, no del de hoy.
    */
   consultarVentas(limite?: number): Promise<HistorialVentasDto> {
     return invoke<HistorialVentasDto>('consultar_ventas', { limite });
+  }
+
+  /**
+   * Lo vendido en la sesión de referencia: una fila por producto y
+   * presentación, de la que más vendió a la que menos.
+   */
+  consultarVentasPorProducto(): Promise<VentasPorProductoDto> {
+    return invoke<VentasPorProductoDto>('consultar_ventas_por_producto');
   }
 
   /** Una venta concreta, con sus líneas y sus formas de pago. */

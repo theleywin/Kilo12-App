@@ -1,5 +1,6 @@
 //! Casos de uso, uno por operación del negocio.
 
+pub(crate) mod agregados;
 pub mod anular_venta;
 pub mod caja;
 pub mod calcular_cobro;
@@ -24,13 +25,14 @@ pub mod tasa_cambio;
 pub mod traspasar;
 pub mod vender;
 pub mod venta_en_espera;
+pub mod ventas_por_producto;
 
 pub use anular_venta::{AnularVenta, ComandoAnularVenta};
 pub use caja::{
     AbrirCaja, ArqueoListado, CerrarCaja, CierreCalculado, ComandoAbrirCaja, ComandoCerrarCaja,
     ComandoMoverEfectivo, ConsultarCaja, ContarEfectivo, ConteoCalculado, DesgloseVenta,
     EstadoCaja, HistorialCajas, LineaConteo, MoverEfectivo, MovimientoEfectivoListado,
-    ResumenEconomico, SesionListada,
+    ResumenEconomico, SesionDeReferencia, SesionListada,
 };
 pub use calcular_cobro::{CalcularCobro, CobroCalculado};
 pub use catalogo_venta::{CatalogoDeVenta, PresentacionVendible, ProductoVendible};
@@ -67,6 +69,7 @@ pub use venta_en_espera::{
     ComandoDejarEnEspera, DejarVentaEnEspera, EliminarVentaEnEspera, LineaRetomada,
     ListarVentasEnEspera, ProblemaLinea, RetomarVentaEnEspera, VentaEnEsperaListada, VentaRetomada,
 };
+pub use ventas_por_producto::{ConsultarVentasPorProducto, FilaVendida, VentasPorProducto};
 
 use domain::{Cantidad, Producto};
 
