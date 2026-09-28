@@ -243,6 +243,39 @@ const MIGRACIONES: &[&str] = &[
 
     CREATE INDEX idx_venta_sesion ON venta(sesion_id);
     "#,
+    // 7 — La venta en espera (RF-VTA-14).
+    //
+    // Guarda solo la INTENCIÓN: producto, presentación y cantidad. Ni
+    // precio, ni costo, ni tasa, ni folio, ni sesión: todo eso se decide al
+    // cobrar, porque una venta en espera todavía no ocurrió. Por eso vive en
+    // tablas propias y no como una fila de `venta` con otro estado: el folio
+    // consecutivo, los totales obligatorios y cada consulta de caja e
+    // informes tendrían que aprender a ignorarla, y basta con que una lo
+    // olvide para descuadrar un arqueo.
+    //
+    // Los renglones caen con su cabecera (ON DELETE CASCADE): cobrar o
+    // descartar una espera es borrar una fila, no acordarse de dos.
+    r#"
+    CREATE TABLE venta_en_espera (
+        id        INTEGER PRIMARY KEY,
+        -- Texto libre para reconocerla en la lista. Recortado; nunca vacío.
+        nota      TEXT    CHECK (nota IS NULL OR length(nota) BETWEEN 1 AND 120),
+        creada_en TEXT    NOT NULL
+    );
+
+    CREATE TABLE venta_en_espera_linea (
+        id              INTEGER PRIMARY KEY,
+        espera_id       INTEGER NOT NULL
+                        REFERENCES venta_en_espera(id) ON DELETE CASCADE,
+        producto_id     INTEGER NOT NULL REFERENCES producto(id),
+        presentacion_id INTEGER NOT NULL REFERENCES presentacion(id),
+        -- Milésimas de presentaciones, como `venta_linea.cantidad`.
+        cantidad        INTEGER NOT NULL CHECK (cantidad > 0),
+        -- Posición en la venta: se retoma en el orden en que se armó.
+        orden           INTEGER NOT NULL CHECK (orden >= 0),
+        UNIQUE (espera_id, orden)
+    );
+    "#,
 ];
 
 /// Lleva el esquema a la última versión.
