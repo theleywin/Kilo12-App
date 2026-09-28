@@ -34,6 +34,7 @@ export type Icono =
   | 'productos'
   | 'ventas'
   | 'caja'
+  | 'contar'
   | 'informes'
   | 'guia';
 
@@ -133,10 +134,21 @@ export const SECCIONES: readonly Seccion[] = [
     ],
   },
   {
+    ruta: 'contar',
+    titulo: 'Contar dinero',
+    descripcion: 'La calculadora de billetes, sin tocar la caja.',
+    // Va pegada a Caja porque es su pariente: quien cuenta un fajo suele
+    // venir de arquear o ir hacia ello.
+    tecla: 'F8',
+    icono: 'contar',
+    densidad: 'amplia',
+    incluye: [],
+  },
+  {
     ruta: 'informes',
     titulo: 'Informes',
     descripcion: 'Qué se vende, qué deja ganancia y qué está por agotarse.',
-    tecla: 'F8',
+    tecla: 'F9',
     icono: 'informes',
     densidad: 'amplia',
     incluye: [
@@ -153,7 +165,7 @@ export const GUIA: Seccion = {
   ruta: 'guia',
   titulo: 'Guía de estilo',
   descripcion: 'El lenguaje visual de Kilo12: colores, textos y piezas.',
-  tecla: 'F9',
+  tecla: 'F10',
   icono: 'guia',
   densidad: 'amplia',
   incluye: [],

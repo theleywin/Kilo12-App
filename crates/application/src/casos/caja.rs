@@ -9,9 +9,9 @@
 //! buscando un descuadre que no existe.
 
 use domain::{
-    contar_billetes, ArqueoMoneda, Comision, Dinero, ErrorDominio, IdSesion, ModoCierre,
-    MovimientoEfectivo, Porcentaje, ResumenCierre, SesionCaja, TasaCambio, TipoMovimientoEfectivo,
-    TotalesCaja, DENOMINACIONES_CUP,
+    contar_billetes, denominaciones, ArqueoMoneda, Comision, Dinero, ErrorDominio, IdSesion,
+    ModoCierre, Moneda, MovimientoEfectivo, Porcentaje, ResumenCierre, SesionCaja, TasaCambio,
+    TipoMovimientoEfectivo, TotalesCaja,
 };
 
 use crate::casos::vender::CLAVE_TASA;
@@ -274,7 +274,7 @@ impl<'a, R: RepositorioProducto> MoverEfectivo<'a, R> {
 /// Un renglón del recuento: cuántos billetes de una denominación.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LineaConteo {
-    /// Valor del billete, en pesos enteros.
+    /// Valor del billete, en unidades enteras de su moneda.
     pub denominacion: i64,
     pub cuantos: i64,
     /// Lo que suman esos billetes.
@@ -295,22 +295,26 @@ pub struct ConteoCalculado {
 /// La cajera teclea cuántos billetes tiene de cada valor y el total sale de
 /// aquí. Sumar doce productos en la pantalla sería tentador y también sería
 /// la única cifra del cierre calculada fuera del núcleo.
+///
+/// Cuenta pesos o dólares, según la moneda que se le pida. Son dos fajos
+/// distintos y nunca se suman entre sí: el resultado está expresado en la
+/// moneda que se contó, y quien lo muestre es el que sabe cuál era.
 #[derive(Debug)]
 pub struct ContarEfectivo;
 
 impl ContarEfectivo {
-    /// Denominaciones con que se cuenta, de menor a mayor.
-    pub const fn denominaciones() -> [i64; 12] {
-        DENOMINACIONES_CUP
+    /// Denominaciones con que se cuenta una moneda, de menor a mayor.
+    pub const fn denominaciones(moneda: Moneda) -> &'static [i64] {
+        denominaciones(moneda)
     }
 
     /// Suma un recuento.
     ///
-    /// `cuantos` llega en el mismo orden que [`Self::denominaciones`]. Un
-    /// hueco vacío cuenta como cero: la cajera no tiene por qué escribir
-    /// ceros en los billetes que no tiene.
-    pub fn ejecutar(cuantos: &[i64]) -> Resultado<ConteoCalculado> {
-        let recuento: Vec<(i64, i64)> = DENOMINACIONES_CUP
+    /// `cuantos` llega en el mismo orden que [`Self::denominaciones`] para
+    /// esa misma moneda. Un hueco vacío cuenta como cero: la cajera no tiene
+    /// por qué escribir ceros en los billetes que no tiene.
+    pub fn ejecutar(moneda: Moneda, cuantos: &[i64]) -> Resultado<ConteoCalculado> {
+        let recuento: Vec<(i64, i64)> = denominaciones(moneda)
             .iter()
             .enumerate()
             .map(|(indice, valor)| (*valor, cuantos.get(indice).copied().unwrap_or(0)))

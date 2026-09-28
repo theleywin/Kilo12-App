@@ -30,7 +30,7 @@ use application::casos::{
 };
 use application::margen;
 use application::puertos::RepositorioProducto;
-use domain::{Dinero, Porcentaje};
+use domain::{Dinero, Moneda, Porcentaje};
 use tauri::State;
 
 use crate::dto::{
@@ -559,19 +559,27 @@ pub fn fijar_comision(estado: State<'_, Estado>, porcentaje: String) -> Result<(
         .map_err(ErrorDto::from)
 }
 
-/// Devuelve las denominaciones con que se cuenta la caja.
+/// Devuelve las denominaciones con que se cuenta una moneda.
+///
+/// `moneda` es `CUP` o `USD`. Son dos listas de largo distinto —doce
+/// billetes de peso frente a siete de dólar—, así que la pantalla tiene que
+/// pedirla y no puede darla por sabida.
 #[tauri::command]
-pub const fn denominaciones_efectivo() -> [i64; 12] {
-    ContarEfectivo::denominaciones()
+pub fn denominaciones_efectivo(moneda: String) -> Result<Vec<i64>, ErrorDto> {
+    let moneda: Moneda = moneda.trim().parse()?;
+    Ok(ContarEfectivo::denominaciones(moneda).to_vec())
 }
 
 /// Suma un recuento de billetes (RF-CAJ-05).
 ///
 /// La pantalla manda cuántos billetes hay de cada valor, en el orden de
-/// `denominaciones_efectivo`, y recibe el total ya formateado.
+/// `denominaciones_efectivo` para esa misma moneda, y recibe el total ya
+/// formateado. El total está expresado en la moneda que se contó: aquí no se
+/// convierte nada ni se suman pesos con dólares.
 #[tauri::command]
-pub fn contar_efectivo(cuantos: Vec<i64>) -> Result<ConteoCalculadoDto, ErrorDto> {
-    ContarEfectivo::ejecutar(&cuantos)
+pub fn contar_efectivo(moneda: String, cuantos: Vec<i64>) -> Result<ConteoCalculadoDto, ErrorDto> {
+    let moneda: Moneda = moneda.trim().parse()?;
+    ContarEfectivo::ejecutar(moneda, &cuantos)
         .map(ConteoCalculadoDto::from)
         .map_err(ErrorDto::from)
 }

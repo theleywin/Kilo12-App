@@ -1,0 +1,38 @@
+<!-- Los billetes van de menor a mayor, que es el orden en que están los
+     fajos sobre la mesa. El total se queda a la vista mientras se teclea:
+     es lo único que hay que mirar de reojo. -->
+<div class="contador">
+  <div class="billetes">
+    @for (valor of denominaciones(); track valor; let i = $index) {
+      <div class="billete" [class.billete--lleno]="billetes()[i]">
+        <label [attr.for]="'billete-' + moneda() + '-' + valor">{{ valor }}</label>
+        <input
+          [id]="'billete-' + moneda() + '-' + valor"
+          class="control control--cifra"
+          inputmode="numeric"
+          autocomplete="off"
+          placeholder="0"
+          [value]="billetes()[i]"
+          (input)="alContarBilletes(i, $any($event.target).value)"
+        />
+        <span class="billete__importe cifra">
+          {{ conteo()?.lineas?.[i]?.importe ?? '0.00' }}
+        </span>
+      </div>
+    }
+  </div>
+
+  <aside class="recuento">
+    <span class="recuento__titulo">{{ titulo() }}</span>
+    <span class="cifra recuento__cifra">{{ conteo()?.total ?? '0.00' }}</span>
+    <span class="apagado nota">
+      {{ conteo()?.cuantosBilletes ?? 0 }}
+      {{ conteo()?.cuantosBilletes === 1 ? 'billete' : 'billetes' }}
+    </span>
+
+    <!-- Lo que cada pantalla quiera colgar del total: cotejarlo con lo
+         esperado, llevárselo a un formulario, limpiarlo. La calculadora no
+         opina sobre eso. -->
+    <ng-content />
+  </aside>
+</div>

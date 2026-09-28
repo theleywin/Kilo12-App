@@ -39,7 +39,8 @@ pub mod venta;
 pub mod venta_en_espera;
 
 pub use caja::{
-    contar_billetes, ArqueoMoneda, ModoCierre, ResumenCierre, TotalesCaja, DENOMINACIONES_CUP,
+    contar_billetes, denominaciones, ArqueoMoneda, ModoCierre, ResumenCierre, TotalesCaja,
+    DENOMINACIONES_CUP, DENOMINACIONES_USD,
 };
 pub use cantidad::Cantidad;
 pub use dinero::Dinero;

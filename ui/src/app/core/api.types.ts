@@ -579,9 +579,23 @@ export interface CierreCajaPedido {
   readonly modo: string;
 }
 
+/**
+ * Moneda de un recuento, espejo del enum `Moneda` del dominio.
+ *
+ * Es una unión de literales y no un `string`: escribir `'CUC'` por error
+ * tiene que fallar al compilar, no al invocar el comando.
+ */
+export type Moneda = 'CUP' | 'USD';
+
+/** Las dos monedas que se cuentan, con el nombre que usa el negocio. */
+export const MONEDAS: ReadonlyArray<{ valor: Moneda; nombre: string; titulo: string }> = [
+  { valor: 'CUP', nombre: 'Pesos', titulo: 'Total en pesos' },
+  { valor: 'USD', nombre: 'Dólares', titulo: 'Total en dólares' },
+];
+
 /** Un renglón del recuento de billetes. */
 export interface LineaConteoDto {
-  /** Valor del billete, en pesos enteros. */
+  /** Valor del billete, en unidades enteras de su moneda. */
   readonly denominacion: number;
   readonly cuantos: number;
   /** Lo que suman esos billetes. */

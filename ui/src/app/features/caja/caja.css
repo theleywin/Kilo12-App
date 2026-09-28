@@ -342,86 +342,14 @@
 }
 
 .modal__cuerpo {
-  display: grid;
-  grid-template-columns: 1fr 220px;
-  gap: var(--e4);
   padding: var(--e4);
   overflow-y: auto;
 }
 
-/* Los billetes van de menor a mayor y en rejilla: así se parece a los
-   fajos puestos sobre la mesa. */
-.billetes {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
-  gap: var(--e2);
-  align-content: start;
-}
-
-.billete {
-  display: grid;
-  grid-template-columns: 58px 1fr;
-  align-items: center;
-  gap: var(--e2);
-  padding: var(--e2);
-  border: 1px solid var(--linea);
-  border-radius: var(--radio-s);
-}
-
-/* Una denominación con billetes contados se destaca: de un vistazo se ve
-   por dónde va el recuento sin releer cifra por cifra. */
-.billete--lleno {
-  border-color: var(--acento);
-  background: var(--acento-suave);
-}
-
-.billete label {
-  font-family: var(--letra-cifra);
-  font-size: var(--texto-l);
-  font-weight: var(--peso-fuerte);
-  text-align: right;
-}
-
-.billete input {
-  width: 100%;
-}
-
-.billete__importe {
-  grid-column: 2;
-  font-size: var(--texto-xs);
-  color: var(--apagado);
-  text-align: right;
-}
-
-/* ----------------------------------------------- el total */
-
-.recuento {
-  position: sticky;
-  top: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--e2);
-  padding: var(--e3);
-  border-radius: var(--radio-m);
-  border: 1px solid var(--acento);
-  background: var(--acento-suave);
-  align-self: start;
-}
-
-.recuento__titulo {
-  font-size: var(--texto-s);
-  font-weight: var(--peso-fuerte);
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--apagado);
-}
-
-.recuento__cifra {
-  font-family: var(--letra-cifra);
-  font-size: var(--texto-2xl);
-  font-weight: var(--peso-fuerte);
-  color: var(--acento);
-}
+/* La rejilla de billetes y su total viven en `app-contador-efectivo`, que
+   es la misma pieza que usa la sección de Contar dinero. Aquí solo queda
+   lo que se le cuelga dentro, que es propio del arqueo: el cotejo contra
+   lo esperado y el botón que lleva el total al cierre. */
 
 .recuento__cotejo {
   display: flex;
@@ -430,16 +358,6 @@
   gap: var(--e2);
   padding-top: var(--e2);
   border-top: 1px solid var(--linea);
-}
-
-@media (max-width: 760px) {
-  .modal__cuerpo {
-    grid-template-columns: 1fr;
-  }
-
-  .recuento {
-    position: static;
-  }
 }
 
 /* El botón de contar va debajo de la casilla, no al lado: la columna del

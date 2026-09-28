@@ -1,0 +1,106 @@
+/* La calculadora de billetes.
+   ---------------------------------------------------------------------
+   Estos estilos vivían dentro de la pantalla de Caja. Se mudaron aquí con
+   el componente: dejar el estilo en un sitio y el marcado en otro es la
+   forma más rápida de que la pieza se rompa cuando alguien la use desde
+   una tercera pantalla. */
+
+/* Dos columnas: los fajos a la izquierda, el total fijo a la derecha. */
+.contador {
+  display: grid;
+  grid-template-columns: 1fr 220px;
+  gap: var(--e4);
+  align-items: start;
+}
+
+/* Los billetes en rejilla, de menor a mayor: así se parece a los fajos
+   puestos sobre la mesa. */
+.billetes {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: var(--e2);
+  align-content: start;
+}
+
+.billete {
+  display: grid;
+  grid-template-columns: 58px 1fr;
+  align-items: center;
+  gap: var(--e2);
+  padding: var(--e2);
+  border: 1px solid var(--linea);
+  border-radius: var(--radio-s);
+}
+
+/* Una denominación con billetes contados se destaca: de un vistazo se ve
+   por dónde va el recuento sin releer cifra por cifra. */
+.billete--lleno {
+  border-color: var(--acento);
+  background: var(--acento-suave);
+}
+
+.billete label {
+  font-family: var(--letra-cifra);
+  font-size: var(--texto-l);
+  font-weight: var(--peso-fuerte);
+  text-align: right;
+}
+
+.billete input {
+  width: 100%;
+}
+
+.billete__importe {
+  grid-column: 2;
+  font-size: var(--texto-xs);
+  color: var(--apagado);
+  text-align: right;
+}
+
+/* ------------------------------------------------------- el total */
+
+.recuento {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--e2);
+  padding: var(--e3);
+  border-radius: var(--radio-m);
+  border: 1px solid var(--acento);
+  background: var(--acento-suave);
+  align-self: start;
+}
+
+.recuento__titulo {
+  font-size: var(--texto-s);
+  font-weight: var(--peso-fuerte);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--apagado);
+}
+
+.recuento__cifra {
+  font-family: var(--letra-cifra);
+  font-size: var(--texto-2xl);
+  font-weight: var(--peso-fuerte);
+  color: var(--acento);
+}
+
+.nota {
+  display: block;
+  font-size: var(--texto-xs);
+}
+
+/* En estrecho el total pasa arriba y deja de perseguir al lector: con una
+   sola columna, un panel pegajoso tapa las casillas que hay que teclear. */
+@media (max-width: 760px) {
+  .contador {
+    grid-template-columns: 1fr;
+  }
+
+  .recuento {
+    position: static;
+    order: -1;
+  }
+}
