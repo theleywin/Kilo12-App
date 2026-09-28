@@ -8,6 +8,7 @@ import {
   SesionListadaDto,
 } from '../../core/api.types';
 import { comoError, Kilo12Api } from '../../core/kilo12-api';
+import { ContadorEfectivo } from '../../shared/contador-efectivo/contador-efectivo';
 
 /** Número decimal con hasta seis decimales. */
 const DECIMAL = /^\d+(\.\d{1,6})?$/;
@@ -33,6 +34,7 @@ const PORCENTAJE = /^\d{1,3}(\.\d{1,2})?$/;
 @Component({
   selector: 'app-caja',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [ContadorEfectivo],
   templateUrl: './caja.html',
   styleUrl: './caja.css',
 })
@@ -86,21 +88,13 @@ export class Caja {
 
   /** El recuento está abierto. */
   protected readonly contando = signal(false);
-  /** Denominaciones, tal como las da el núcleo. */
-  protected readonly denominaciones = signal<readonly number[]>([]);
-  /** Cuántos billetes de cada valor, en el orden de las denominaciones. */
-  protected readonly billetes = signal<readonly string[]>([]);
-  /** El recuento sumado por Rust. */
-  protected readonly conteo = signal<ConteoCalculadoDto | null>(null);
-
   /**
-   * Número de la última consulta pedida.
+   * Lo último que sumó la calculadora.
    *
-   * Las respuestas pueden llegar desordenadas si se teclea rápido, y una
-   * vieja pisando a una nueva dejaría en pantalla un total que no
-   * corresponde a lo escrito. Solo se acepta la última.
+   * Contar los billetes lo hace `app-contador-efectivo`; aquí solo se
+   * guarda su resultado, que es lo que se lleva a la casilla del cierre.
    */
-  private peticion = 0;
+  protected readonly conteo = signal<ConteoCalculadoDto | null>(null);
 
   /** Sesión del historial que se está mirando. */
   protected readonly detalle = signal<CierreCalculadoDto | null>(null);
@@ -127,13 +121,6 @@ export class Caja {
       this.caja.set(await this.api.consultarCaja());
       this.historial.set(await this.api.listarCajas());
       this.comision.set(await this.api.consultarComision());
-
-      if (!this.denominaciones().length) {
-        const valores = await this.api.denominacionesEfectivo();
-        this.denominaciones.set(valores);
-        this.billetes.set(valores.map(() => ''));
-      }
-
       this.error.set(null);
     } catch (fallo) {
       this.error.set(comoError(fallo));
@@ -262,39 +249,12 @@ export class Caja {
   // ---------------------------------------- contar los billetes
 
   protected abrirConteo(): void {
-    this.billetes.set(this.denominaciones().map(() => ''));
     this.conteo.set(null);
     this.contando.set(true);
-    void this.recalcularConteo();
   }
 
   protected cerrarConteo(): void {
     this.contando.set(false);
-  }
-
-  protected alContarBilletes(indice: number, valor: string): void {
-    // Solo dígitos: no existe medio billete ni un número negativo de ellos.
-    const limpio = valor.replace(/\D/g, '');
-    this.billetes.set(this.billetes().map((actual, i) => (i === indice ? limpio : actual)));
-    void this.recalcularConteo();
-  }
-
-  /** Le pide al núcleo la suma de lo que hay escrito. */
-  private async recalcularConteo(): Promise<void> {
-    const mio = ++this.peticion;
-    const cuantos = this.billetes().map((texto) => Number.parseInt(texto, 10) || 0);
-
-    try {
-      const conteo = await this.api.contarEfectivo(cuantos);
-      // Llegó tarde: ya hay una consulta más nueva en camino.
-      if (mio !== this.peticion) {
-        return;
-      }
-      this.conteo.set(conteo);
-      this.error.set(null);
-    } catch (fallo) {
-      this.error.set(comoError(fallo));
-    }
   }
 
   /** Lleva el total contado a la casilla del cierre y cierra el modal. */
