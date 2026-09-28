@@ -374,17 +374,62 @@ export interface VentaListadaDto {
   readonly hora: string;
 }
 
-/** Lo vendido hoy. */
+/**
+ * La sesión de caja a la que se refieren «las ventas de hoy»: la abierta o,
+ * si no hay ninguna, la última cerrada.
+ */
+export interface SesionDeReferenciaDto {
+  readonly id: number;
+  readonly abierta: boolean;
+  /** `YYYY-MM-DD HH:MM:SS`, hora local de la máquina. */
+  readonly abiertaEn: string;
+  /** `null` mientras siga abierta. */
+  readonly cerradaEn: string | null;
+}
+
+/**
+ * Lo vendido en la sesión de referencia, no en el día del calendario. Las
+ * anuladas no cuentan. Sale de la misma suma que arquea la caja.
+ */
 export interface ResumenDelDiaDto {
   readonly cuantas: number;
   readonly total: string;
   readonly ganancia: string;
 }
 
-/** El historial de ventas con el corte del día. */
+/** El historial de ventas con el corte de la sesión de caja. */
 export interface HistorialVentasDto {
   readonly hoy: ResumenDelDiaDto;
+  /** A qué sesión se refiere `hoy`. `null` si nunca se abrió una caja. */
+  readonly sesion: SesionDeReferenciaDto | null;
   readonly ventas: readonly VentaListadaDto[];
+}
+
+/**
+ * Una presentación de un producto vendida en la sesión.
+ *
+ * Cada presentación cuenta como un producto distinto: el suelto y el
+ * paquete son dos filas y no se suman entre sí.
+ */
+export interface FilaVendidaDto {
+  readonly producto: number;
+  /** Nombre congelado en la venta más reciente que lo llevó. */
+  readonly nombreProducto: string;
+  readonly presentacion: number;
+  /** Nombre congelado en la venta más reciente que la llevó. */
+  readonly nombrePresentacion: string;
+  /** La salida, en presentaciones: cajas, si es la caja. */
+  readonly cantidad: string;
+  readonly total: string;
+  readonly ganancia: string;
+}
+
+/** Lo vendido en la sesión de referencia, una fila por presentación. */
+export interface VentasPorProductoDto {
+  /** `null` si nunca se abrió una caja. */
+  readonly sesion: SesionDeReferenciaDto | null;
+  /** Ordenadas por total, de mayor a menor. */
+  readonly filas: readonly FilaVendidaDto[];
 }
 
 /** Una línea de una venta ya cobrada. */
