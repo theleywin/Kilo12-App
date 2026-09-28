@@ -14,6 +14,7 @@
 
 use crate::dinero::Dinero;
 use crate::error::ErrorDominio;
+use crate::pago::Moneda;
 use crate::tasa_cambio::TasaCambio;
 
 /// Cómo se presentan los dólares en el cierre.
@@ -145,6 +146,28 @@ impl TotalesCaja {
 pub const DENOMINACIONES_CUP: [i64; 12] = [
     5, 10, 20, 50, 100, 200, 500, 1_000, 2_000, 5_000, 10_000, 20_000,
 ];
+
+/// Billetes de dólar estadounidense, de menor a mayor.
+///
+/// Son los que emite la Reserva Federal, el de 2 incluido: circula poco,
+/// pero existe, y una lista a la que le falta un billete obliga a sumarlo
+/// aparte y a mano, que es justo lo que esta pantalla viene a evitar.
+///
+/// No hay monedas. Aquí se cuentan fajos, y el menudeo en divisa no llega a
+/// esta caja.
+pub const DENOMINACIONES_USD: [i64; 7] = [1, 2, 5, 10, 20, 50, 100];
+
+/// Denominaciones con que se cuenta una moneda.
+///
+/// Devuelve un corte y no un arreglo porque las dos listas no miden lo
+/// mismo: doce billetes de peso frente a siete de dólar. Quien cuente
+/// recorre lo que le den, sin saber cuántos son.
+pub const fn denominaciones(moneda: Moneda) -> &'static [i64] {
+    match moneda {
+        Moneda::Cup => &DENOMINACIONES_CUP,
+        Moneda::Usd => &DENOMINACIONES_USD,
+    }
+}
 
 /// Suma un recuento de billetes.
 ///
@@ -516,5 +539,37 @@ mod pruebas_conteo {
         // Se cuentan los fajos en ese orden; si la lista se desordena, la
         // pantalla deja de parecerse a la mesa.
         assert!(DENOMINACIONES_CUP.windows(2).all(|par| par[0] < par[1]));
+        assert!(DENOMINACIONES_USD.windows(2).all(|par| par[0] < par[1]));
+    }
+
+    #[test]
+    fn cada_moneda_cuenta_con_sus_propios_billetes() {
+        assert_eq!(denominaciones(Moneda::Cup), &DENOMINACIONES_CUP);
+        assert_eq!(denominaciones(Moneda::Usd), &DENOMINACIONES_USD);
+    }
+
+    #[test]
+    fn ninguna_denominacion_se_repite_ni_es_cero() {
+        // Un valor repetido contaría dos veces el mismo fajo, y un cero
+        // haría saltar el error del contador en cada recuento.
+        for moneda in Moneda::TODAS {
+            let valores = denominaciones(moneda);
+            for (indice, valor) in valores.iter().enumerate() {
+                assert!(*valor > 0, "{moneda} tiene una denominación no positiva");
+                assert!(
+                    !valores[indice + 1..].contains(valor),
+                    "{moneda} repite el billete de {valor}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn contar_dolares_usa_la_misma_suma_que_los_pesos() {
+        // `contar_billetes` no sabe de monedas: recibe pares de valor y
+        // cuántos, y eso vale igual para un fajo de dólares. 2 de 100, 3 de
+        // 20 y 1 de 2 = 200 + 60 + 2.
+        let total = contar_billetes(&[(100, 2), (20, 3), (2, 1)]).expect("contar");
+        assert_eq!(total.formatear(2), "262.00");
     }
 }
