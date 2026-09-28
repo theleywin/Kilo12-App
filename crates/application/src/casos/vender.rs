@@ -8,8 +8,8 @@
 use std::collections::BTreeMap;
 
 use domain::{
-    Cantidad, Cobro, Dinero, IdPresentacion, IdProducto, Inventario, LineaVenta, MetodoPago,
-    Movimiento, Pago, TasaCambio, Ubicacion, Venta,
+    Cantidad, Cobro, Dinero, IdPresentacion, IdProducto, IdVentaEnEspera, Inventario, LineaVenta,
+    MetodoPago, Movimiento, Pago, TasaCambio, Ubicacion, Venta,
 };
 
 use crate::error::{ErrorAplicacion, Resultado};
@@ -41,6 +41,12 @@ pub struct PagoPedido {
 pub struct ComandoVender {
     pub lineas: Vec<LineaPedida>,
     pub pagos: Vec<PagoPedido>,
+    /// Venta en espera de la que sale este cobro, si sale de una
+    /// (RF-VTA-14). Se consume al cobrar, en la misma operación.
+    ///
+    /// Las líneas mandan, no la espera: al retomarla se pudieron corregir
+    /// renglones, y lo que se cobra es lo que hay en pantalla.
+    pub espera_id: Option<i64>,
 }
 
 /// Lo que se devuelve tras cobrar.
@@ -103,11 +109,9 @@ impl<'a, R: RepositorioProducto> Vender<'a, R> {
                     id: pedida.producto,
                 })?;
 
-            let presentacion = producto
-                .presentacion(IdPresentacion(pedida.presentacion))
-                .ok_or(ErrorAplicacion::Dominio(
-                    domain::ErrorDominio::PresentacionNoEncontrada,
-                ))?;
+            // Lo desactivado ya no se vende, aunque siga en el carrito.
+            let presentacion =
+                producto.presentacion_vendible(IdPresentacion(pedida.presentacion))?;
 
             let cantidad: Cantidad = pedida.cantidad.trim().parse()?;
             // Media lata no existe, tampoco al venderla (RF-CAT-03).
@@ -173,6 +177,7 @@ impl<'a, R: RepositorioProducto> Vender<'a, R> {
             vuelto,
             descuentos: &descuentos,
             sesion,
+            espera: comando.espera_id.map(IdVentaEnEspera),
         })?;
 
         Ok(VentaHecha {
@@ -215,5 +220,78 @@ impl<'a, R: RepositorioProducto> Vender<'a, R> {
 
         let cup_por_usd: Dinero = guardada.trim().parse()?;
         TasaCambio::nueva(cup_por_usd).map_err(ErrorAplicacion::from)
+    }
+}
+
+#[cfg(test)]
+mod pruebas {
+    use domain::UnidadBase;
+
+    use super::*;
+    use crate::dobles::ProductosEnMemoria;
+
+    /// Refresco suelto a 80 y en six-pack a 300, con 20 latas en vitrina,
+    /// y una caja abierta para poder cobrar.
+    fn catalogo() -> ProductosEnMemoria {
+        ProductosEnMemoria::default()
+            .con_producto(
+                1,
+                "Refresco 500 ml",
+                UnidadBase::Unidad,
+                &[
+                    (10, "Unidad", "1", "80.00"),
+                    (11, "Six-pack", "6", "300.00"),
+                ],
+                "20",
+            )
+            .con_caja_abierta()
+    }
+
+    fn cobrar(productos: &ProductosEnMemoria, presentacion: i64) -> Resultado<VentaHecha> {
+        Vender::nuevo(productos).ejecutar(ComandoVender {
+            lineas: vec![LineaPedida {
+                producto: 1,
+                presentacion,
+                cantidad: "1".to_owned(),
+            }],
+            pagos: vec![PagoPedido {
+                metodo: "EFECTIVO_CUP".to_owned(),
+                entregado: "500.00".to_owned(),
+            }],
+            espera_id: None,
+        })
+    }
+
+    #[test]
+    fn se_cobra_lo_que_esta_activo() {
+        let hecha = cobrar(&catalogo(), 11).expect("cobrar");
+
+        assert_eq!(hecha.total, "300.00");
+        assert_eq!(hecha.vuelto, "200.00");
+    }
+
+    #[test]
+    fn no_se_cobra_un_producto_desactivado() {
+        let productos = catalogo();
+        productos.desactivar_producto(1);
+
+        let error = cobrar(&productos, 10).expect_err("ya no se vende");
+
+        assert_eq!(error.codigo(), "PRODUCTO_INACTIVO");
+        // No llegó a registrarse nada.
+        assert_eq!(*productos.espera_cobrada.borrow(), None);
+    }
+
+    #[test]
+    fn no_se_cobra_una_presentacion_desactivada() {
+        let productos = catalogo();
+        productos.desactivar_presentacion(1, 11);
+
+        let error = cobrar(&productos, 11).expect_err("ya no se vende");
+        assert_eq!(error.codigo(), "PRESENTACION_INACTIVA");
+        assert_eq!(*productos.espera_cobrada.borrow(), None);
+
+        // La lata suelta sigue a la venta.
+        assert!(cobrar(&productos, 10).is_ok());
     }
 }

@@ -1732,6 +1732,7 @@ dependencies = [
  "domain",
  "infrastructure",
  "serde",
+ "serde_json",
  "tauri",
  "tauri-build",
 ]

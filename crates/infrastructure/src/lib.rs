@@ -11,7 +11,9 @@ pub mod conexion;
 pub mod error;
 pub mod migraciones;
 pub mod repositorio_producto;
+pub mod repositorio_venta_en_espera;
 
 pub use conexion::BaseDatos;
 pub use error::{ErrorInfra, ResultadoInfra};
 pub use repositorio_producto::RepositorioProductoSqlite;
+pub use repositorio_venta_en_espera::RepositorioVentaEnEsperaSqlite;

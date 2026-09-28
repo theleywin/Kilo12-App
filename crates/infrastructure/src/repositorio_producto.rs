@@ -334,9 +334,26 @@ impl RepositorioProducto for RepositorioProductoSqlite {
             vuelto,
             descuentos,
             sesion,
+            espera,
         } = confirmada;
 
         let folio = self.base.en_transaccion(|tx| {
+            // La espera se consume LO PRIMERO y dentro de la misma
+            // transacción. Si ya no está —se cobró o se eliminó antes—, la
+            // venta no se registra: cobrarla dos veces sería una venta
+            // doble. Y si cualquier paso posterior falla, el borrado se
+            // deshace con todo lo demás y la espera sigue ahí.
+            if let Some(espera) = espera {
+                let borradas = tx.execute(
+                    "DELETE FROM venta_en_espera WHERE id = ?1",
+                    params![espera.0],
+                )?;
+
+                if borradas == 0 {
+                    return Err(ErrorInfra::Dominio(ErrorDominio::VentaEnEsperaNoEncontrada));
+                }
+            }
+
             // El folio se calcula dentro de la transacción: dos cajas no
             // pueden sacar el mismo número (RF-VTA-17).
             let folio: i64 = tx.query_row(
@@ -1109,6 +1126,8 @@ impl RepositorioProducto for RepositorioProductoSqlite {
             // se queda donde está, así que al abrir de nuevo no se intenta
             // migrar nada.
             for tabla in [
+                "venta_en_espera_linea",
+                "venta_en_espera",
                 "venta_pago",
                 "venta_linea",
                 "venta",

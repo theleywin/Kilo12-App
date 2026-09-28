@@ -172,6 +172,27 @@ impl Producto {
         self.presentaciones.iter().find(|p| p.id() == Some(id))
     }
 
+    /// La presentación con la que se puede vender hoy.
+    ///
+    /// Desactivar un producto o una presentación los retira de la venta sin
+    /// borrarlos (RF-CAT-05, RF-PRS-15): lo que ya no se ofrece tampoco se
+    /// cobra, aunque quede en un carrito abierto o en una venta en espera.
+    pub fn presentacion_vendible(&self, id: IdPresentacion) -> Result<&Presentacion, ErrorDominio> {
+        if !self.activo {
+            return Err(ErrorDominio::ProductoInactivo);
+        }
+
+        let presentacion = self
+            .presentacion(id)
+            .ok_or(ErrorDominio::PresentacionNoEncontrada)?;
+
+        if !presentacion.esta_activa() {
+            return Err(ErrorDominio::PresentacionInactiva);
+        }
+
+        Ok(presentacion)
+    }
+
     /// Agrega una presentación validándola contra la unidad base.
     pub fn agregar_presentacion(&mut self, presentacion: Presentacion) -> Result<(), ErrorDominio> {
         if !self.unidad_base.admite_fracciones() && !presentacion.factor().es_entera() {
@@ -314,5 +335,87 @@ impl Producto {
         }
 
         Ok(anomalas)
+    }
+}
+
+#[cfg(test)]
+mod pruebas {
+    use super::*;
+
+    fn dinero(texto: &str) -> Dinero {
+        texto.parse().expect("importe válido")
+    }
+
+    /// Refresco con la lata (1) y el six-pack (2).
+    fn refresco(activo: bool, six_pack_activo: bool) -> Producto {
+        let presentacion = |id, nombre: &str, factor: &str, activa| {
+            Presentacion::reconstituir(
+                IdPresentacion(id),
+                nombre.to_owned(),
+                factor.parse().expect("factor válido"),
+                dinero("80.00"),
+                id == 1,
+                None,
+                activa,
+            )
+        };
+
+        Producto::reconstituir(
+            IdProducto(1),
+            "REF-500".to_owned(),
+            "Refresco 500 ml".to_owned(),
+            UnidadBase::Unidad,
+            Cantidad::CERO,
+            Cantidad::CERO,
+            vec![
+                presentacion(1, "Unidad", "1", true),
+                presentacion(2, "Six-pack", "6", six_pack_activo),
+            ],
+            activo,
+        )
+    }
+
+    #[test]
+    fn lo_activo_se_puede_vender() {
+        let producto = refresco(true, true);
+
+        let presentacion = producto
+            .presentacion_vendible(IdPresentacion(2))
+            .expect("vendible");
+        assert_eq!(presentacion.nombre(), "Six-pack");
+    }
+
+    #[test]
+    fn lo_desactivado_no_se_vende() {
+        assert_eq!(
+            refresco(false, true).presentacion_vendible(IdPresentacion(1)),
+            Err(ErrorDominio::ProductoInactivo)
+        );
+        assert_eq!(
+            refresco(true, false).presentacion_vendible(IdPresentacion(2)),
+            Err(ErrorDominio::PresentacionInactiva)
+        );
+        // La otra presentación sigue a la venta.
+        assert!(refresco(true, false)
+            .presentacion_vendible(IdPresentacion(1))
+            .is_ok());
+    }
+
+    #[test]
+    fn una_presentacion_ajena_no_se_vende() {
+        assert_eq!(
+            refresco(true, true).presentacion_vendible(IdPresentacion(99)),
+            Err(ErrorDominio::PresentacionNoEncontrada)
+        );
+    }
+
+    #[test]
+    fn el_producto_inactivo_se_avisa_antes_que_la_presentacion_ajena() {
+        // Si el producto entero salió de la venta, eso es lo que hay que
+        // decir, no un detalle de sus presentaciones.
+        assert_eq!(
+            refresco(false, true).presentacion_vendible(IdPresentacion(99)),
+            Err(ErrorDominio::ProductoInactivo)
+        );
     }
 }

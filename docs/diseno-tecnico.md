@@ -154,6 +154,8 @@ infrastructure ──────┘   (implementa los puertos que application d
 2. **Las reglas se prueban sin base de datos.** Los casos de prueba que los requerimientos ya dejaron escritos —el arroz de §6.6, el refresco de §6.2, la comisión de §6.11— son pruebas unitarias puras, en milisegundos, sin montar nada.
 3. **Cambiar de motor de persistencia** significaría escribir otro adaptador, no tocar las reglas.
 
+**Puertos pequeños.** Un puerto agrupa lo que un caso de uso necesita, no todo lo que la base sabe hacer. Las ventas en espera tienen su propio puerto, `RepositorioVentaEnEspera` (`guardar`, `listar`, `obtener`, `eliminar`), en lugar de cuatro métodos más en `RepositorioProducto`: quien lista esperas no necesita saber cerrar una caja, y un doble en memoria para las pruebas no debería implementar cuarenta métodos para usar cuatro. Su adaptador SQLite comparte la misma `BaseDatos` que el resto.
+
 **El riesgo honesto:** para un proyecto de este tamaño, cuatro crates añaden ceremonia. Se asume a conciencia porque el núcleo —valoración, existencias, presentaciones— es lógica de negocio densa que conviene tener aislada y bajo prueba.
 
 ---
@@ -229,6 +231,7 @@ Principios aplicados:
 | `movimiento_inventario` | Kárdex inmutable de todo cambio de existencia | RF-INV-03, RF-INV-05 |
 | `compra` / `compra_linea` | Entradas de mercancía con su costo | RF-COM-01, RF-COM-02 |
 | `venta` / `venta_linea` | Ventas con precio y **costo congelado** por línea | RF-VTA-17, RF-VTA-13 |
+| `venta_en_espera` / `venta_en_espera_linea` | Ventas apartadas: solo producto, presentación y cantidad, sin precio ni folio | RF-VTA-14 |
 | `devolucion` / `devolucion_linea` | Devoluciones, independientes de la venta original | RF-VTA-16 |
 | `sesion_caja` | Apertura, cierre, arqueo, operador y comisión liquidada | RF-CAJ-01, RF-CMS-06 |
 | `movimiento_efectivo` | Entradas y salidas de efectivo ajenas a la venta | RF-CAJ-03 |
@@ -348,6 +351,30 @@ CREATE TABLE venta (
 
 La última restricción no es cosmética: obliga a que todo cobro en dólares lleve su tasa y a que ningún cobro en pesos la lleve. Sin ella, una venta en divisa sin tasa sería irrecuperable, porque no habría forma de saber a cuánto se cobró.
 
+**Ventas en espera (RF-VTA-14, migración 7).** Una venta apartada todavía no ocurrió, así que no vive en `venta`: el folio consecutivo, los totales obligatorios y cada consulta de caja e informes tendrían que aprender a ignorarla, y basta con que una lo olvide para descuadrar un arqueo. Tiene tablas propias que guardan solo la **intención**; precio, costo, tasa, folio y sesión se deciden al cobrar.
+
+```sql
+CREATE TABLE venta_en_espera (
+    id        INTEGER PRIMARY KEY,
+    -- Texto libre para reconocerla. Recortado; nunca vacío.
+    nota      TEXT    CHECK (nota IS NULL OR length(nota) BETWEEN 1 AND 120),
+    creada_en TEXT    NOT NULL   -- hora local; la lista muestra la antigüedad
+);
+
+CREATE TABLE venta_en_espera_linea (
+    id              INTEGER PRIMARY KEY,
+    espera_id       INTEGER NOT NULL
+                    REFERENCES venta_en_espera(id) ON DELETE CASCADE,
+    producto_id     INTEGER NOT NULL REFERENCES producto(id),
+    presentacion_id INTEGER NOT NULL REFERENCES presentacion(id),
+    cantidad        INTEGER NOT NULL CHECK (cantidad > 0),   -- milésimas
+    orden           INTEGER NOT NULL CHECK (orden >= 0),     -- se retoma en orden
+    UNIQUE (espera_id, orden)
+);
+```
+
+Los renglones caen con su cabecera (`ON DELETE CASCADE`): cobrar o descartar una espera es borrar una fila. Apartar no genera movimientos de kárdex ni reserva existencia. Ambas tablas entran en el borrado total de datos.
+
 **Índices** que sostienen RNF-1 y los informes:
 
 ```sql
@@ -380,6 +407,8 @@ Las invariantes críticas se defienden en dos niveles, a propósito:
 
 La validación del dominio existe para dar un buen mensaje al usuario; la restricción de la base de datos existe porque un error de programación no debe poder corromper los datos. La redundancia es deliberada.
 
+**Cobrar una venta en espera.** La venta llega con un `espera_id` opcional, y `registrar_venta` borra la espera **lo primero y dentro de la misma transacción** que registra la venta. Si la espera ya no existe —se cobró o se eliminó antes—, la venta no se registra y se responde `VENTA_EN_ESPERA_NO_ENCONTRADA`: cobrarla dos veces sería una venta doble. Si cualquier paso posterior falla, el borrado se revierte con todo lo demás y la espera sigue en la lista.
+
 ---
 
 ### DT-10 — Migraciones de esquema
@@ -389,6 +418,8 @@ La validación del dominio existe para dar un buen mensaje al usuario; la restri
 Cumple RF-DAT-08: el usuario actualiza la aplicación y sus datos se migran solos, sin pérdida. Si una migración falla, la transacción se revierte y la aplicación se niega a arrancar con un esquema a medias, en lugar de operar sobre datos corruptos.
 
 **Regla:** las migraciones ya publicadas no se editan jamás. Un error se corrige con una migración nueva.
+
+Ejemplo: la migración 7 añade `venta_en_espera` y `venta_en_espera_linea` (RF-VTA-14) sin tocar ninguna de las seis anteriores.
 
 ---
 
@@ -561,3 +592,4 @@ Entidades y objetos de valor principales. Los tipos son ilustrativos del diseño
 | RF-VTA-13, RF-PRS-13 (congelado) | DT-8 (columnas congeladas en `venta_linea`) |
 | RF-CAJ-08, RF-CMS-06 (inmutabilidad) | DT-8 (`sesion_caja`), DT-9 |
 | RF-DAT-08 (migraciones) | DT-10 |
+| RF-VTA-14 (venta en espera) | DT-5 (puerto `RepositorioVentaEnEspera`), DT-8 (tablas propias), DT-9 (borrado atómico al cobrar) |

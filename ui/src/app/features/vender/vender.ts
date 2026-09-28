@@ -2,6 +2,7 @@ import {
   ChangeDetectionStrategy,
   Component,
   computed,
+  DestroyRef,
   ElementRef,
   HostListener,
   inject,
@@ -11,14 +12,27 @@ import {
 
 import {
   CobroCalculadoDto,
+  ERROR_VENTA_EN_ESPERA,
   ErrorDto,
+  LARGO_MAXIMO_NOTA,
   METODOS_PAGO,
   PresentacionVendibleDto,
   ProductoVendibleDto,
+  VentaEnEsperaDto,
   VentaHechaDto,
   VentaPrevistaDto,
 } from '../../core/api.types';
 import { comoError, Kilo12Api } from '../../core/kilo12-api';
+import { antiguedad } from './antiguedad';
+import {
+  apartadoDe,
+  ESTADO_LINEA,
+  esMarcada,
+  filasDe,
+  type Linea,
+  lineasDeRetomada,
+  pedidoDe,
+} from './venta-en-curso';
 
 /** Número decimal con hasta seis decimales. */
 const DECIMAL = /^\d+(\.\d{1,6})?$/;
@@ -32,11 +46,21 @@ function plegar(texto: string): string {
     .trim();
 }
 
-/** Un renglón de la venta en curso, tal como se ve en pantalla. */
-interface Linea {
-  readonly producto: ProductoVendibleDto;
-  readonly presentacion: PresentacionVendibleDto;
-  readonly cantidad: string;
+/** Cada cuánto se refresca la antigüedad de las ventas en espera. */
+const REFRESCO_ANTIGUEDAD = 30_000;
+
+/** Por qué no se retoma una venta con otra a medias (decisión 3). */
+const RETOMAR_BLOQUEADO = 'Deja la venta actual en espera o cóbrala antes de retomar otra.';
+
+/** La venta en espera que está ahora en pantalla. */
+interface EsperaCargada {
+  readonly id: number;
+  readonly nota: string | null;
+}
+
+/** Caracteres, no unidades UTF-16: el núcleo cuenta igual. */
+function largoDe(texto: string): number {
+  return [...texto.trim()].length;
 }
 
 /** Una parte del cobro que el usuario está componiendo. */
@@ -81,6 +105,14 @@ export class Vender {
 
   /** Lo que el cliente se lleva. */
   protected readonly lineas = signal<readonly Linea[]>([]);
+
+  /** Renglones retomados que hoy no se pueden vender (decisión 6). */
+  protected readonly marcadas = computed(() => this.lineas().filter(esMarcada).length);
+
+  /** Lo que enseña la tabla: cada renglón con lo que calculó el núcleo. */
+  protected readonly filas = computed(() =>
+    filasDe(this.lineas(), this.prevista()?.lineas ?? null),
+  );
   /** Cómo paga. Empieza con una sola parte en efectivo. */
   protected readonly partes = signal<readonly Parte[]>([{ metodo: 'EFECTIVO_CUP', entregado: '' }]);
 
@@ -109,6 +141,14 @@ export class Vender {
   /** Espera entre tecla y consulta, para no llamar por cada dígito. */
   private temporizador?: ReturnType<typeof setTimeout>;
 
+  /**
+   * Número de la última vista previa pedida.
+   *
+   * La tabla empareja cada renglón con su línea prevista por posición: una
+   * respuesta vieja que llegue tarde emparejaría renglones que ya no son.
+   */
+  private consulta = 0;
+
   /** Resultados de la búsqueda, por prefijo de nombre o de código. */
   protected readonly resultados = computed(() => {
     const aguja = plegar(this.busqueda());
@@ -122,6 +162,14 @@ export class Vender {
 
   constructor() {
     void this.recargar();
+
+    // La antigüedad de las ventas en espera avanza sola mientras la
+    // pantalla está abierta, que es casi todo el día.
+    const reloj = setInterval(() => this.ahora.set(new Date()), REFRESCO_ANTIGUEDAD);
+    inject(DestroyRef).onDestroy(() => {
+      clearInterval(reloj);
+      clearTimeout(this.temporizador);
+    });
   }
 
   protected async recargar(): Promise<void> {
@@ -129,6 +177,7 @@ export class Vender {
       this.catalogo.set(await this.api.catalogoDeVenta());
       this.tasa.set(await this.api.consultarTasa());
       this.hayCaja.set((await this.api.consultarCaja()) !== null);
+      this.esperas.set(await this.api.listarVentasEnEspera());
       this.error.set(null);
     } catch (fallo) {
       this.error.set(comoError(fallo));
@@ -148,6 +197,13 @@ export class Vender {
   protected alPulsar(evento: KeyboardEvent): void {
     // Las teclas de función son del menú, no de la venta.
     if (evento.key.startsWith('F') && evento.key.length > 1) {
+      return;
+    }
+
+    // Con la nota de la espera abierta, Enter y Escape son de la nota: el
+    // campo los atiende él mismo, y aquí no deben elegir un resultado ni
+    // borrar la búsqueda de paso.
+    if (this.apartando()) {
       return;
     }
 
@@ -231,47 +287,78 @@ export class Vender {
       return;
     }
 
-    this.lineas.set([...this.lineas(), { producto, presentacion, cantidad }]);
+    this.lineas.set([
+      ...this.lineas(),
+      { estado: ESTADO_LINEA.VENDIBLE, producto, presentacion, cantidad },
+    ]);
     this.cancelarLinea();
     void this.recalcular();
   }
 
   protected quitar(indice: number): void {
     this.lineas.set(this.lineas().filter((_, i) => i !== indice));
+    if (!this.lineas().length) {
+      this.avisoEspera.set(null);
+      this.apartando.set(false);
+    }
     void this.recalcular();
   }
 
-  /** Le pide al núcleo los importes y el total de lo que hay puesto. */
+  /**
+   * Le pide al núcleo los importes y el total de lo que hay puesto.
+   *
+   * Solo van los renglones vendibles: los marcados harían fallar la
+   * cuenta entera (el producto no existe o ya no se vende), y lo que el
+   * usuario necesita es ver el total de lo que sí puede cobrar.
+   */
   private async recalcular(): Promise<void> {
-    if (!this.lineas().length) {
+    const numero = ++this.consulta;
+    const pedido = pedidoDe(this.lineas());
+
+    if (!pedido.length) {
       this.prevista.set(null);
+      this.cobro.set(null);
       return;
     }
 
     try {
-      this.prevista.set(
-        await this.api.previsualizarVenta(
-          this.lineas().map((linea) => ({
-            producto: linea.producto.id,
-            presentacion: linea.presentacion.id,
-            cantidad: linea.cantidad,
-          })),
-        ),
-      );
+      const prevista = await this.api.previsualizarVenta(pedido);
+      if (numero !== this.consulta) {
+        return;
+      }
+      this.prevista.set(prevista);
       this.error.set(null);
       this.recalcularCobro();
     } catch (fallo) {
+      if (numero !== this.consulta) {
+        return;
+      }
       this.error.set(comoError(fallo));
       this.prevista.set(null);
     }
   }
 
-  /** Vacía la venta sin dejar rastro en el inventario (RF-VTA-07). */
-  protected cancelarVenta(): void {
+  /**
+   * Deja la pantalla lista para la siguiente venta.
+   *
+   * Lo comparten cobrar, cancelar y apartar: las tres terminan la venta en
+   * curso, y olvidarse de un paso en una de ellas (el pago a medias, la
+   * espera cargada) es el tipo de error que no se ve hasta que cobra mal.
+   */
+  private vaciarVenta(): void {
+    this.consulta++;
     this.lineas.set([]);
     this.prevista.set(null);
     this.cobro.set(null);
     this.partes.set([{ metodo: 'EFECTIVO_CUP', entregado: '' }]);
+    this.cargada.set(null);
+    this.avisoEspera.set(null);
+  }
+
+  /** Vacía la venta sin dejar rastro en el inventario (RF-VTA-07). */
+  protected cancelarVenta(): void {
+    this.vaciarVenta();
+    this.apartando.set(false);
     this.enCurso.set(null);
     this.busqueda.set('');
     this.error.set(null);
@@ -385,8 +472,21 @@ export class Vender {
     return this.partes().some((parte) => parte.metodo === 'EFECTIVO_USD');
   }
 
+  /**
+   * Se puede cobrar.
+   *
+   * Ni con renglones marcados ni con algo que no alcanza en vitrina: el
+   * núcleo lo rechazaría igual, y es mejor que el botón lo diga antes de
+   * que el cliente saque la cartera (decisión 6).
+   */
   protected get puedeCobrar(): boolean {
-    return this.hayCaja() && this.lineas().length > 0 && (this.cobro()?.alcanza ?? false);
+    return (
+      this.hayCaja() &&
+      this.lineas().length > 0 &&
+      this.marcadas() === 0 &&
+      !(this.prevista()?.hayFaltantes ?? false) &&
+      (this.cobro()?.alcanza ?? false)
+    );
   }
 
   /**
@@ -395,37 +495,243 @@ export class Vender {
    * Se manda entera de una vez: las líneas, los pagos y nada más. Rust
    * valida la existencia, congela los costos, descuenta de la vitrina y
    * devuelve el vuelto ya calculado.
+   *
+   * Si la venta salió de una espera, va su identificador: el núcleo la
+   * borra en la MISMA operación que registra la venta. Así no puede
+   * quedar cobrada y además en la lista, lista para cobrarse dos veces.
    */
   protected async cobrar(): Promise<void> {
     if (!this.puedeCobrar) {
       return;
     }
 
+    const espera = this.cargada();
     this.cobrando.set(true);
     try {
       const hecha = await this.api.vender({
-        lineas: this.lineas().map((linea) => ({
-          producto: linea.producto.id,
-          presentacion: linea.presentacion.id,
-          cantidad: linea.cantidad,
-        })),
+        lineas: pedidoDe(this.lineas()),
         pagos: this.partes()
           .filter((parte) => DECIMAL.test(parte.entregado.trim()))
           .map((parte) => ({ metodo: parte.metodo, entregado: parte.entregado.trim() })),
+        ...(espera ? { esperaId: espera.id } : {}),
       });
 
       this.error.set(null);
       this.ultima.set(hecha);
-      this.lineas.set([]);
-      this.prevista.set(null);
-      this.cobro.set(null);
-      this.partes.set([{ metodo: 'EFECTIVO_CUP', entregado: '' }]);
+      this.vaciarVenta();
       await this.recargar();
+      this.enfocarBuscador();
+    } catch (fallo) {
+      const error = comoError(fallo);
+      this.error.set(error);
+      // La espera ya no existe (se cobró o se eliminó por otro camino). La
+      // venta sigue en pantalla: cobrarla otra vez es una venta normal.
+      if (error.codigo === ERROR_VENTA_EN_ESPERA.VENTA_EN_ESPERA_NO_ENCONTRADA) {
+        this.cargada.set(null);
+        await this.cargarEsperas();
+      }
+    } finally {
+      this.cobrando.set(false);
+    }
+  }
+
+  // ------------------------------------ la venta en espera (RF-VTA-14)
+
+  /** Las ventas apartadas, de la más antigua a la más reciente. */
+  protected readonly esperas = signal<readonly VentaEnEsperaDto[]>([]);
+
+  /** La espera que está en pantalla, si la venta salió de una. */
+  protected readonly cargada = signal<EsperaCargada | null>(null);
+
+  /** La casilla de la nota para apartar está abierta. */
+  protected readonly apartando = signal(false);
+  protected readonly nota = signal('');
+  protected readonly largoMaximoNota = LARGO_MAXIMO_NOTA;
+  protected readonly largoNota = computed(() => largoDe(this.nota()));
+  protected readonly notaValida = computed(() => this.largoNota() <= LARGO_MAXIMO_NOTA);
+
+  /** Una operación sobre las esperas en marcha: evita el doble clic. */
+  protected readonly ocupadoEspera = signal(false);
+
+  /** La espera cuya eliminación se está confirmando. */
+  protected readonly porEliminar = signal<number | null>(null);
+
+  /** Lo que hay que decirle al usuario en el panel de las esperas. */
+  protected readonly avisoEspera = signal<string | null>(null);
+
+  /** El reloj de la antigüedad. */
+  private readonly ahora = signal(new Date());
+
+  protected antiguedadDe(espera: VentaEnEsperaDto): string {
+    return antiguedad(espera.creadaEn, this.ahora());
+  }
+
+  private async cargarEsperas(): Promise<void> {
+    try {
+      this.esperas.set(await this.api.listarVentasEnEspera());
+    } catch (fallo) {
+      this.error.set(comoError(fallo));
+    }
+  }
+
+  /**
+   * Abre la casilla de la nota.
+   *
+   * Si la venta ya salía de una espera, trae su nota: es el mismo cliente
+   * que se vuelve a apartar, no uno nuevo.
+   */
+  protected empezarEspera(): void {
+    if (!this.lineas().length) {
+      return;
+    }
+    this.nota.set(this.cargada()?.nota ?? '');
+    this.apartando.set(true);
+    queueMicrotask(() => document.getElementById('nota-espera')?.focus());
+  }
+
+  protected cancelarEspera(): void {
+    this.apartando.set(false);
+    this.enfocarBuscador();
+  }
+
+  /**
+   * Aparta la venta en curso y deja la pantalla libre.
+   *
+   * No hace falta caja abierta: apartar no mueve dinero ni mercancía
+   * (decisión 4).
+   *
+   * Si la venta salía de otra espera, esa se borra DESPUÉS de guardar la
+   * nueva: lo apartado ahora ya la contiene. En ese orden, un fallo a medio
+   * camino deja una espera repetida, que se ve y se elimina; en el orden
+   * contrario dejaría la venta perdida.
+   */
+  protected async dejarEnEspera(): Promise<void> {
+    if (!this.lineas().length || !this.notaValida() || this.ocupadoEspera()) {
+      return;
+    }
+
+    const anterior = this.cargada();
+    const nota = this.nota().trim();
+    this.ocupadoEspera.set(true);
+    try {
+      await this.api.dejarVentaEnEspera({
+        ...(nota ? { nota } : {}),
+        lineas: apartadoDe(this.lineas()),
+      });
+
+      if (anterior) {
+        await this.eliminarSinAvisar(anterior.id);
+      }
+
+      this.error.set(null);
+      this.ultima.set(null);
+      this.vaciarVenta();
+      this.apartando.set(false);
+      this.nota.set('');
+      await this.cargarEsperas();
       this.enfocarBuscador();
     } catch (fallo) {
       this.error.set(comoError(fallo));
     } finally {
-      this.cobrando.set(false);
+      this.ocupadoEspera.set(false);
+    }
+  }
+
+  /** Borra una espera que ya no hace falta; si ya no estaba, da igual. */
+  private async eliminarSinAvisar(id: number): Promise<void> {
+    try {
+      await this.api.eliminarVentaEnEspera(id);
+    } catch (fallo) {
+      if (comoError(fallo).codigo !== ERROR_VENTA_EN_ESPERA.VENTA_EN_ESPERA_NO_ENCONTRADA) {
+        throw fallo;
+      }
+    }
+  }
+
+  /**
+   * Trae una venta en espera a la pantalla, con el precio de hoy.
+   *
+   * Con otra venta a medias, NO se retoma (decisión 3): mezclarlas o
+   * tirar una sin preguntar son las dos formas de perder trabajo. El
+   * usuario decide qué hacer con la que tiene delante.
+   *
+   * La espera no se borra: sigue en la lista hasta que se cobra o se
+   * elimina.
+   */
+  protected async retomar(espera: VentaEnEsperaDto): Promise<void> {
+    if (this.lineas().length) {
+      this.avisoEspera.set(RETOMAR_BLOQUEADO);
+      return;
+    }
+    if (this.ocupadoEspera()) {
+      return;
+    }
+
+    this.ocupadoEspera.set(true);
+    try {
+      // El catálogo se pide de nuevo: los renglones se emparejan contra él,
+      // y desde que se abrió la pantalla pudo cambiar.
+      const [retomada, catalogo] = await Promise.all([
+        this.api.retomarVentaEnEspera(espera.id),
+        this.api.catalogoDeVenta(),
+      ]);
+
+      this.catalogo.set(catalogo);
+      this.vaciarVenta();
+      this.enCurso.set(null);
+      this.presentacionElegida.set(null);
+      this.busqueda.set('');
+      this.ultima.set(null);
+      this.porEliminar.set(null);
+      this.lineas.set(lineasDeRetomada(retomada.lineas, catalogo));
+      this.cargada.set({ id: retomada.id, nota: retomada.nota });
+      this.error.set(null);
+      await this.recalcular();
+      this.enfocarBuscador();
+    } catch (fallo) {
+      const error = comoError(fallo);
+      this.error.set(error);
+      if (error.codigo === ERROR_VENTA_EN_ESPERA.VENTA_EN_ESPERA_NO_ENCONTRADA) {
+        await this.cargarEsperas();
+      }
+    } finally {
+      this.ocupadoEspera.set(false);
+    }
+  }
+
+  protected pedirEliminar(id: number): void {
+    this.avisoEspera.set(null);
+    this.porEliminar.set(id);
+  }
+
+  protected cancelarEliminar(): void {
+    this.porEliminar.set(null);
+  }
+
+  /**
+   * Descarta una venta en espera sin cobrarla.
+   *
+   * Si es la que está en pantalla, la venta se queda: solo deja de estar
+   * ligada a una espera, y cobrarla será una venta normal.
+   */
+  protected async eliminar(id: number): Promise<void> {
+    if (this.ocupadoEspera()) {
+      return;
+    }
+
+    this.ocupadoEspera.set(true);
+    try {
+      await this.eliminarSinAvisar(id);
+      if (this.cargada()?.id === id) {
+        this.cargada.set(null);
+      }
+      this.error.set(null);
+    } catch (fallo) {
+      this.error.set(comoError(fallo));
+    } finally {
+      this.porEliminar.set(null);
+      this.ocupadoEspera.set(false);
+      await this.cargarEsperas();
     }
   }
 

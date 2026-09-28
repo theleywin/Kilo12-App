@@ -91,6 +91,19 @@ pub enum ErrorDominio {
     PorcentajeInvalido,
     /// La venta ya se había anulado.
     VentaYaAnulada,
+    /// Se intentó dejar en espera una venta sin ninguna línea (RF-VTA-14).
+    EsperaVacia,
+    /// La nota de la venta en espera supera el largo admitido.
+    NotaDemasiadoLarga {
+        /// Caracteres admitidos.
+        maximo: usize,
+    },
+    /// La venta en espera ya no existe: se cobró o se eliminó antes.
+    VentaEnEsperaNoEncontrada,
+    /// El producto está desactivado: ya no se vende (RF-CAT-05).
+    ProductoInactivo,
+    /// La presentación está desactivada: ya no se vende (RF-PRS-15).
+    PresentacionInactiva,
 }
 
 impl ErrorDominio {
@@ -135,6 +148,11 @@ impl ErrorDominio {
             Self::ImporteNoPositivo => "IMPORTE_NO_POSITIVO",
             Self::PorcentajeInvalido => "PORCENTAJE_INVALIDO",
             Self::VentaYaAnulada => "VENTA_YA_ANULADA",
+            Self::EsperaVacia => "ESPERA_VACIA",
+            Self::NotaDemasiadoLarga { .. } => "NOTA_DEMASIADO_LARGA",
+            Self::VentaEnEsperaNoEncontrada => "VENTA_EN_ESPERA_NO_ENCONTRADA",
+            Self::ProductoInactivo => "PRODUCTO_INACTIVO",
+            Self::PresentacionInactiva => "PRESENTACION_INACTIVA",
         }
     }
 }
@@ -216,6 +234,17 @@ impl fmt::Display for ErrorDominio {
             Self::ImporteNoPositivo => f.write_str("El importe debe ser mayor que cero"),
             Self::PorcentajeInvalido => f.write_str("El porcentaje no es válido"),
             Self::VentaYaAnulada => f.write_str("Esa venta ya estaba anulada"),
+            Self::EsperaVacia => f.write_str("No hay nada que dejar en espera"),
+            Self::NotaDemasiadoLarga { maximo } => {
+                write!(f, "La nota no puede pasar de {maximo} caracteres")
+            }
+            Self::VentaEnEsperaNoEncontrada => {
+                f.write_str("Esa venta en espera ya no existe: se cobró o se eliminó antes")
+            }
+            Self::ProductoInactivo => f.write_str("Este producto se desactivó: ya no se vende"),
+            Self::PresentacionInactiva => {
+                f.write_str("Esta presentación se desactivó: ya no se vende")
+            }
             Self::TextoObligatorio(campo) => {
                 write!(f, "El campo «{campo}» no puede quedar vacío")
             }

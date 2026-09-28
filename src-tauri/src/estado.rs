@@ -7,12 +7,17 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use infrastructure::{BaseDatos, RepositorioProductoSqlite, ResultadoInfra};
+use infrastructure::{
+    BaseDatos, RepositorioProductoSqlite, RepositorioVentaEnEsperaSqlite, ResultadoInfra,
+};
 
 /// Dependencias vivas mientras la aplicación se ejecuta.
 #[derive(Debug)]
 pub struct Estado {
     repositorio_producto: RepositorioProductoSqlite,
+    /// Comparte la conexión con el de productos: cobrar una venta en espera
+    /// la borra en la misma transacción que registra la venta (RNF-5).
+    repositorio_venta_en_espera: RepositorioVentaEnEsperaSqlite,
 }
 
 impl Estado {
@@ -26,11 +31,16 @@ impl Estado {
         let base = Arc::new(BaseDatos::abrir(ruta_datos)?);
 
         Ok(Self {
-            repositorio_producto: RepositorioProductoSqlite::nuevo(base),
+            repositorio_producto: RepositorioProductoSqlite::nuevo(Arc::clone(&base)),
+            repositorio_venta_en_espera: RepositorioVentaEnEsperaSqlite::nuevo(base),
         })
     }
 
     pub const fn repositorio_producto(&self) -> &RepositorioProductoSqlite {
         &self.repositorio_producto
+    }
+
+    pub const fn repositorio_venta_en_espera(&self) -> &RepositorioVentaEnEsperaSqlite {
+        &self.repositorio_venta_en_espera
     }
 }
