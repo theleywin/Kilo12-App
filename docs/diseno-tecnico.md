@@ -1,11 +1,12 @@
 # Kilo12 — Diseño Técnico
 
-**Versión:** 1.3
-**Fecha:** 2026-09-22
+**Versión:** 1.4
+**Fecha:** 2026-09-28
 **Estado:** Propuesta de diseño para revisión. No se ha escrito código de aplicación todavía.
 
-**Documento base:** `requerimientos-funcionales.md` v1.4
+**Documento base:** `requerimientos-funcionales.md` v1.5
 
+**Cambios en 1.4:** nueva DT-14: las cifras de la pantalla Ventas se calculan sobre la sesión de caja de referencia, no sobre el día del calendario. DT-5 incorpora el puerto `ConsultaVentasDeSesion` y la agregación compartida `casos/agregados.rs`. Se retira `resumen_de_hoy`.
 **Cambios en 1.3:** se incorporan la libra como unidad base, los tres métodos de pago y la tasa de cambio congelada por venta. El esquema añade el arqueo por moneda y el modo de cierre.
 **Cambios en 1.2:** se cierra DA-2 con la convención de nomenclatura del proyecto, detallada en DT-13: el dominio se escribe en español y la estructura técnica en inglés.
 **Cambios en 1.1:** se cierra DA-1 (no se firma el ejecutable, por ser uso personal) y se detallan sus consecuencias en DT-12, junto con el requisito de incorporar WebView2 al instalador de Windows.
@@ -155,6 +156,10 @@ infrastructure ──────┘   (implementa los puertos que application d
 3. **Cambiar de motor de persistencia** significaría escribir otro adaptador, no tocar las reglas.
 
 **Puertos pequeños.** Un puerto agrupa lo que un caso de uso necesita, no todo lo que la base sabe hacer. Las ventas en espera tienen su propio puerto, `RepositorioVentaEnEspera` (`guardar`, `listar`, `obtener`, `eliminar`), en lugar de cuatro métodos más en `RepositorioProducto`: quien lista esperas no necesita saber cerrar una caja, y un doble en memoria para las pruebas no debería implementar cuarenta métodos para usar cuatro. Su adaptador SQLite comparte la misma `BaseDatos` que el resto.
+
+Con el mismo criterio, la vista agrupada de Ventas (RF-EST-03b) tiene su propio puerto estrecho, `ConsultaVentasDeSesion` (`lineas_de_sesion(IdSesion)`): devuelve los renglones de las ventas de una sesión, sin las anuladas, con la venta y la presentación de cada uno. Lo implementa `RepositorioProductoSqlite` sobre la misma base, y el caso de uso `ConsultarVentasPorProducto` lo recibe junto a `RepositorioProducto`, que solo usa para resolver la sesión de referencia (DT-14). El resultado es una lista plana de filas, una por (producto, presentación), sin subtotal por producto: cada presentación se trata como un producto distinto.
+
+**Una sola agregación.** Multiplicar precio por cantidad y costo por unidades base se hace en Rust, no en SQL, porque las escalas las conocen `Dinero` y `Cantidad` (DT-4). Ese cálculo vive en un único sitio, `application/src/casos/agregados.rs` (`Movido` y `agregar_por(lineas, clave)`), que comparten los informes (agrupando por producto) y Ventas (por producto y presentación). Si cada pantalla sumara por su cuenta, el mismo día podría dar dos cifras distintas según dónde se mire.
 
 **El riesgo honesto:** para un proyecto de este tamaño, cuatro crates añaden ceremonia. Se asume a conciencia porque el núcleo —valoración, existencias, presentaciones— es lógica de negocio densa que conviene tener aislada y bajo prueba.
 
@@ -492,6 +497,22 @@ Antes de restaurar (RF-DAT-07) se verifica que el archivo sea una base de datos 
 
 ---
 
+### DT-14 — Ventas cuenta la sesión de caja de referencia, no el día del calendario
+
+**Decisión.** Las tarjetas de la pantalla Ventas (número de ventas, cobrado y ganancia, RF-VTA-20) y su vista agrupada por producto (RF-EST-03b) se calculan sobre la **sesión de caja de referencia**: la sesión abierta o, si no hay ninguna, la última cerrada. La resuelve `caja::sesion_de_referencia`: `sesion_abierta()` y, si no hay, `listar_sesiones(1)`; como solo puede haber una sesión abierta a la vez, la más reciente sin abrir es por fuerza la última cerrada. Si nunca se abrió una caja, la sesión es `None` y la pantalla lo dice; no es un error.
+
+Las tarjetas salen de `acumulado_de_sesion`, **la misma consulta con la que se arquea la caja**, así que Ventas y Caja coinciden por construcción. Las anuladas no cuentan. Las ventas de una sesión cerrada tampoco pueden cambiar después (RF-VTA-15, RF-CAJ-08), de modo que las cifras de la última sesión no se mueven.
+
+El historial (`HistorialVentasDto`) y la vista agrupada (`VentasPorProductoDto`) devuelven la sesión a la que se refieren (`SesionDeReferenciaDto`), y la interfaz la muestra: «Sesión abierta desde 08:00», «Sesión cerrada · 27/09 08:00–20:30». La interfaz solo formatea esas fechas; los totales de cada fila llegan hechos del núcleo (DT-7).
+
+**Se retira `resumen_de_hoy`** del puerto `RepositorioProducto`, junto con `ResumenDia`. Sumaba las ventas con `date(ocurrido_en) = date('now', 'localtime')`, y solo lo usaba `ConsultarVentas`; los informes usan `resumen_periodo`.
+
+**Por qué.** El mercadito no cierra a medianoche. Con el día del calendario, a las 07:00 las tarjetas marcaban cero aunque la caja siguiera abierta desde las 22:00, y su pie («desde que abriste») mentía. La pregunta que hace el dueño en esta pantalla es cuánto lleva la caja, y la sesión la contesta.
+
+**Consecuencia asumida.** Informes sigue contando por días del calendario, y su periodo «Hoy» puede no coincidir con Ventas. La vista agrupada lo avisa junto al enlace a Informes.
+
+---
+
 ## 4. Estructura del repositorio
 
 ```
@@ -593,3 +614,4 @@ Entidades y objetos de valor principales. Los tipos son ilustrativos del diseño
 | RF-CAJ-08, RF-CMS-06 (inmutabilidad) | DT-8 (`sesion_caja`), DT-9 |
 | RF-DAT-08 (migraciones) | DT-10 |
 | RF-VTA-14 (venta en espera) | DT-5 (puerto `RepositorioVentaEnEspera`), DT-8 (tablas propias), DT-9 (borrado atómico al cobrar) |
+| RF-VTA-20, RF-EST-03b (Ventas por sesión) | DT-14 (sesión de referencia), DT-5 (puerto `ConsultaVentasDeSesion`, `casos/agregados.rs`) |

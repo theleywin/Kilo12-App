@@ -8,10 +8,10 @@ use std::sync::Arc;
 use application::error::Resultado;
 use application::puertos::{
     AcumuladoSesion, AnulacionConfirmada, Asiento, CambioDePrecio, CambioRegistrado,
-    CierreConfirmado, DetalleVenta, LineaDelPeriodo, LineaRegistrada, MovimientoEfectivoRegistrado,
-    MovimientoRegistrado, PagoRegistrado, ProductoConInventario, RepositorioProducto, ResumenDia,
-    SesionRegistrada, TotalesPeriodo, VentaConfirmada, VentaDiaria, VentaHoraria, VentaPorMetodo,
-    VentaRegistrada,
+    CierreConfirmado, ConsultaVentasDeSesion, DetalleVenta, LineaDelPeriodo, LineaRegistrada,
+    MovimientoEfectivoRegistrado, MovimientoRegistrado, PagoRegistrado, ProductoConInventario,
+    RepositorioProducto, SesionRegistrada, TotalesPeriodo, VentaConfirmada, VentaDiaria,
+    VentaHoraria, VentaPorMetodo, VentaRegistrada,
 };
 use domain::{
     ArqueoMoneda, Cantidad, Comision, Dinero, ErrorDominio, EstadoSesion, Existencias,
@@ -542,34 +542,6 @@ impl RepositorioProducto for RepositorioProductoSqlite {
         Ok(detalle)
     }
 
-    fn resumen_de_hoy(&self) -> Resultado<ResumenDia> {
-        let resumen = self.base.con(|conexion| {
-            // El corte del día lo decide la base con su propio reloj. Si lo
-            // calculara Rust tendría que saber en qué huso está la tienda, y
-            // la tienda está exactamente donde está esta máquina.
-            // Las anuladas no cuentan: la mercancía volvió y el dinero se
-            // devolvió. Dejarlas sumando inflaría el día entero.
-            let (cuantas, total, costo) = conexion.query_row(
-                "SELECT COUNT(*), COALESCE(SUM(total), 0), COALESCE(SUM(costo_total), 0)
-                 FROM venta
-                 WHERE date(ocurrido_en) = date('now', 'localtime')
-                   AND anulada_en IS NULL",
-                [],
-                |fila| Ok((fila.get(0)?, fila.get(1)?, fila.get(2)?)),
-            )?;
-
-            let resumen = ResumenDia {
-                cuantas,
-                total: Dinero::desde_millonesimas(total),
-                costo_total: Dinero::desde_millonesimas(costo),
-            };
-
-            Ok(resumen)
-        })?;
-
-        Ok(resumen)
-    }
-
     fn anular_venta(&self, anulacion: &AnulacionConfirmada<'_>) -> Resultado<()> {
         self.base.en_transaccion(|tx| {
             // Solo se anula lo que sigue vivo. El `anulada_en IS NULL` no es
@@ -1086,31 +1058,16 @@ impl RepositorioProducto for RepositorioProductoSqlite {
 
     fn lineas_del_periodo(&self, desde: &str, hasta: &str) -> Resultado<Vec<LineaDelPeriodo>> {
         let lineas = self.base.con(|conexion| {
-            let mut consulta = conexion.prepare(
-                "SELECT l.producto_id, l.nombre_producto, l.nombre_presentacion,
-                        l.cantidad, l.factor, l.precio, l.costo_unitario
+            let consulta = conexion.prepare(&format!(
+                "SELECT {COLUMNAS_LINEA}
                    FROM venta_linea l
                    JOIN venta v ON v.id = l.venta_id
                   WHERE date(v.ocurrido_en) BETWEEN ?1 AND ?2
-                    AND v.anulada_en IS NULL",
-            )?;
+                    AND v.anulada_en IS NULL
+                  ORDER BY l.id"
+            ))?;
 
-            let mut filas = consulta.query(params![desde, hasta])?;
-            let mut lineas = Vec::new();
-
-            while let Some(fila) = filas.next()? {
-                lineas.push(LineaDelPeriodo {
-                    producto: IdProducto(fila.get(0)?),
-                    nombre_producto: fila.get(1)?,
-                    nombre_presentacion: fila.get(2)?,
-                    cantidad: Cantidad::desde_milesimas(fila.get(3)?),
-                    factor: Cantidad::desde_milesimas(fila.get(4)?),
-                    precio: Dinero::desde_millonesimas(fila.get(5)?),
-                    costo_unitario: Dinero::desde_millonesimas(fila.get(6)?),
-                });
-            }
-
-            Ok(lineas)
+            leer_lineas(consulta, params![desde, hasta])
         })?;
 
         Ok(lineas)
@@ -1190,6 +1147,60 @@ impl RepositorioProducto for RepositorioProductoSqlite {
 
         Ok(existe)
     }
+}
+
+impl ConsultaVentasDeSesion for RepositorioProductoSqlite {
+    fn lineas_de_sesion(&self, sesion: IdSesion) -> Resultado<Vec<LineaDelPeriodo>> {
+        let lineas = self.base.con(|conexion| {
+            // Por la sesión y no por la fecha: un turno que cruza la
+            // medianoche es uno solo, y dos turnos del mismo día son dos.
+            // Las anuladas no cuentan, igual que en el arqueo.
+            let consulta = conexion.prepare(&format!(
+                "SELECT {COLUMNAS_LINEA}
+                   FROM venta_linea l
+                   JOIN venta v ON v.id = l.venta_id
+                  WHERE v.sesion_id = ?1
+                    AND v.anulada_en IS NULL
+                  ORDER BY l.id"
+            ))?;
+
+            leer_lineas(consulta, params![sesion.0])
+        })?;
+
+        Ok(lineas)
+    }
+}
+
+/// Columnas de un renglón vendido, en el orden en que las lee
+/// [`leer_lineas`].
+const COLUMNAS_LINEA: &str = "l.venta_id, l.producto_id, l.presentacion_id,
+                              l.nombre_producto, l.nombre_presentacion,
+                              l.cantidad, l.factor, l.precio, l.costo_unitario";
+
+/// Lee los renglones vendidos que devuelve una consulta sobre
+/// [`COLUMNAS_LINEA`].
+fn leer_lineas(
+    mut consulta: rusqlite::Statement<'_>,
+    parametros: impl rusqlite::Params,
+) -> ResultadoInfra<Vec<LineaDelPeriodo>> {
+    let mut filas = consulta.query(parametros)?;
+    let mut lineas = Vec::new();
+
+    while let Some(fila) = filas.next()? {
+        lineas.push(LineaDelPeriodo {
+            venta: fila.get(0)?,
+            producto: IdProducto(fila.get(1)?),
+            presentacion: IdPresentacion(fila.get(2)?),
+            nombre_producto: fila.get(3)?,
+            nombre_presentacion: fila.get(4)?,
+            cantidad: Cantidad::desde_milesimas(fila.get(5)?),
+            factor: Cantidad::desde_milesimas(fila.get(6)?),
+            precio: Dinero::desde_millonesimas(fila.get(7)?),
+            costo_unitario: Dinero::desde_millonesimas(fila.get(8)?),
+        });
+    }
+
+    Ok(lineas)
 }
 
 /// Lee una sesión de caja.
