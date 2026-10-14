@@ -1,11 +1,12 @@
 # Kilo12 — Diseño Técnico
 
-**Versión:** 1.4
-**Fecha:** 2026-09-28
+**Versión:** 1.5
+**Fecha:** 2026-10-13
 **Estado:** Propuesta de diseño para revisión. No se ha escrito código de aplicación todavía.
 
-**Documento base:** `requerimientos-funcionales.md` v1.5
+**Documento base:** `requerimientos-funcionales.md` v1.6
 
+**Cambios en 1.5:** DT-6 documenta por qué las rutas no se cargan de forma diferida y para qué se conserva el presupuesto de paquete, que pasa a 700 kB / 1,5 MB. Nueva DT-15: quitar un producto del catálogo son dos operaciones —borrar o desactivar— y el destino lo decide el rastro del producto, con las claves foráneas del esquema como garantía de RF-CAT-07. `RepositorioProducto` incorpora `rastro_de_producto` y `limpiar_catalogo`. `FichaProducto` incorpora `agotado`, que la interfaz no puede deducir del texto de la existencia.
 **Cambios en 1.4:** nueva DT-14: las cifras de la pantalla Ventas se calculan sobre la sesión de caja de referencia, no sobre el día del calendario. DT-5 incorpora el puerto `ConsultaVentasDeSesion` y la agregación compartida `casos/agregados.rs`. Se retira `resumen_de_hoy`.
 **Cambios en 1.3:** se incorporan la libra como unidad base, los tres métodos de pago y la tasa de cambio congelada por venta. El esquema añade el arqueo por moneda y el modo de cierre.
 **Cambios en 1.2:** se cierra DA-2 con la convención de nomenclatura del proyecto, detallada en DT-13: el dominio se escribe en español y la estructura técnica en inglés.
@@ -191,6 +192,10 @@ ui/src/app/
 **Estado.** Señales dentro de cada funcionalidad. No se introduce una biblioteca de gestión de estado global: el estado real vive en SQLite, y la interfaz es una vista sobre él. Duplicarlo en memoria solo crea dos verdades que se contradicen.
 
 **La pantalla de venta manda.** RNF-3 exige operar toda la venta con teclado. Eso condiciona su diseño: foco gestionado explícitamente, atajos, y ningún flujo que dependa de un clic.
+
+**Las rutas NO se cargan de forma diferida, y es a propósito.** Las once pantallas se importan en el paquete inicial. En una aplicación web la carga diferida es casi obligatoria; aquí sería un error: cada sección se abre con una tecla de función (F1 a F8, RNF-3), y quien atiende la caja pulsa F1 esperando que la pantalla **ya esté**. Diferirla cambia un arranque algunos milisegundos más corto —sobre recursos que ya están en el disco local— por un parpadeo en cada cambio de pantalla, muchas veces al día.
+
+**El presupuesto de paquete (`budgets` en `angular.json`) está en 700 kB de aviso y 1,5 MB de error**, no en los 500 kB / 1 MB con que la CLI de Angular genera el proyecto. Esos valores por defecto están pensados para una página que se descarga por una red lenta, y ese no es el caso: los recursos se sirven desde el binario. El presupuesto se conserva, sin embargo, como **alarma de regresión**: no mide tiempo de descarga sino que avisa de que entró código que nadie pidió —una biblioteca de gráficos, un paquete de localización completo— antes de que el arranque se note. Las cifras se revisan cuando el aviso salte por crecimiento legítimo, no se suben cada vez que molesta.
 
 ---
 
@@ -510,6 +515,31 @@ El historial (`HistorialVentasDto`) y la vista agrupada (`VentasPorProductoDto`)
 **Por qué.** El mercadito no cierra a medianoche. Con el día del calendario, a las 07:00 las tarjetas marcaban cero aunque la caja siguiera abierta desde las 22:00, y su pie («desde que abriste») mentía. La pregunta que hace el dueño en esta pantalla es cuánto lleva la caja, y la sesión la contesta.
 
 **Consecuencia asumida.** Informes sigue contando por días del calendario, y su periodo «Hoy» puede no coincidir con Ventas. La vista agrupada lo avisa junto al enlace a Informes.
+
+---
+
+### DT-15 — «Eliminar un producto» son dos operaciones, y la elige el esquema
+
+**Decisión.** Quitar un producto del catálogo (RF-CAT-13) exige existencia cero y, a partir de ahí, se resuelve de una de dos formas según su **rastro**:
+
+| Rastro del producto | Qué se hace | Por qué |
+|---|---|---|
+| Sin ventas, sin kárdex, sin esperas | `DELETE` del producto, sus presentaciones, su existencia y sus historiales de precio y costo | No hay historial que conservar, y el SKU vuelve a estar libre |
+| Con ventas o con kárdex | `activo = 0` (RF-CAT-06) | Las ventas guardan `producto_id`; borrarlo las dejaría apuntando a la nada |
+| En una venta en espera | Nada (RF-CAT-14) | Una venta a medias sigue siendo una venta |
+
+**La garantía no la da el caso de uso: la da el esquema.** `venta_linea.producto_id`, `movimiento.producto_id` y `venta_en_espera_linea.producto_id` son claves foráneas a `producto`, y `foreign_keys` está activo en cada conexión (DT-3). Un `DELETE` de un producto con rastro **falla en la base** y deshace la transacción entera. El caso de uso consulta el rastro antes para poder dar un mensaje decente y para elegir el destino, no para impedir nada: eso ya está impedido. Es el mismo criterio que la sesión de caja única, donde la unicidad la impone un índice parcial y no un `if` previo.
+
+**Dos métodos nuevos en `RepositorioProducto`**, no un puerto aparte: los usa quien ya tiene el catálogo delante.
+
+- `rastro_de_producto(IdProducto) -> RastroProducto`: tres `COUNT(*)` —ventas, movimientos, esperas—. Van en una sola estructura porque los tres frenan el borrado, y hay que poder decir **cuál**.
+- `limpiar_catalogo(borrar: &[IdProducto], retirar: &[IdProducto])`: las dos listas en **una** transacción (DT-9). Una limpieza aplicada a medias deja el catálogo en un estado que nadie pidió y por el que nadie puede saber por dónde se quedó.
+
+**La lista se recalcula al confirmar.** `LimpiarCatalogo::ejecutar` vuelve a clasificar el catálogo entero en vez de recibir identificadores de la interfaz. Lo que la pantalla tiene en la mano es una foto, y entre la foto y el clic pudo entrar mercancía de un producto que salía en la lista; borrarlo entonces sería borrar algo que ya no estaba vacío. Por el mismo motivo, lo que la pantalla enseña al terminar es lo que devolvió la llamada, no lo que decía el cartel.
+
+**El cartel separa los dos grupos.** No es cosmética: borrar no se deshace y desactivar sí. Un diálogo que dijera «se eliminarán 8 productos» estaría mintiendo sobre los que solo se esconden.
+
+**Consecuencia asumida.** Un producto que llegó a tener existencia tiene asiento de entrada en el kárdex, así que **nunca** cae en el grupo de los borrables: se desactiva aunque jamás se haya vendido. Se acepta a cambio de no tener que decidir, en cada caso, qué parte del kárdex se puede tirar. Lo que se borra de verdad son las etiquetas que nunca movieron nada, que es exactamente lo que se acumula en el catálogo.
 
 ---
 
