@@ -72,6 +72,13 @@ import { Icono as NombreIcono } from './navegacion';
           <path d="M3.4 16.6h13.2" />
           <path d="M6.2 16.6V11M10 16.6V5.4M13.8 16.6v-7.8" />
         }
+        @case ('consumo') {
+          <!-- Una bolsa que sale por la puerta de casa: la mercancía se va
+               del local pero no se vendió. -->
+          <path d="M3 17.4V9.2l7-5.6 7 5.6v8.2" />
+          <path d="M8 17.4v-4.6h4v4.6" />
+          <path d="M13.4 8.6h3.2" />
+        }
         @case ('guia') {
           <circle cx="7.6" cy="7.6" r="3.6" />
           <circle cx="12.4" cy="12.4" r="3.6" />
