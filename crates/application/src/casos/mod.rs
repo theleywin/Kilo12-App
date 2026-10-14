@@ -12,6 +12,7 @@ pub mod consultar_kardex;
 pub mod consultar_producto;
 pub mod consultar_ventas;
 pub mod consultar_vitrina;
+pub mod consumo;
 pub mod editar_producto;
 pub mod fijar_objetivo_vitrina;
 pub mod informes;
@@ -50,6 +51,12 @@ pub use consultar_ventas::{
     VentaDetallada, VentaListada,
 };
 pub use consultar_vitrina::{ConsultarVitrina, LineaVitrina, ResumenVitrina};
+pub use consumo::{
+    AnularConsumo, AnularPagoConsumo, ComandoAnularConsumo, ComandoLiquidar,
+    ComandoRegistrarConsumo, ConsultarConsumo, ConsumoHecho, ConsumoListado, CuentaEnDeuda,
+    DetalleCuenta, LineaConsumoListada, LineaConsumoPedida, LiquidarDeuda, PagoListado,
+    PanelConsumo, ProductoConsumido, RegistrarConsumo,
+};
 pub use editar_producto::{
     AgregarPresentacion, CambiarPrecio, ComandoAgregarPresentacion, ComandoCambiarPrecio,
     ComandoEditarProducto, ComandoPresentacion, DesactivarPresentacion, EditarProducto,
