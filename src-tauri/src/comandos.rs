@@ -23,6 +23,9 @@ use application::casos::{
     RegistrarProducto, SimularMovimiento, Traspasar,
 };
 use application::casos::{
+    AnularConsumo, AnularPagoConsumo, ConsultarConsumo, LiquidarDeuda, RegistrarConsumo,
+};
+use application::casos::{
     CalcularCobro, CatalogoDeVenta, ConsultarTasa, ConsultarVenta, ConsultarVentas,
     ConsultarVentasPorProducto, FijarTasa, PrevisualizarVenta, Vender,
 };
@@ -42,6 +45,11 @@ use crate::dto::{
     RevaluacionDto, SimulacionDto, VitrinaDto,
 };
 use crate::dto::{
+    AnulacionConsumoDto, ConsumoHechoDto, ConsumoPrevistoDto, DetalleCuentaDto,
+    LineaConsumoListadaDto, NuevaLiquidacionDto, NuevoConsumoDto, PanelConsumoDto,
+    ProductoConsumidoDto,
+};
+use crate::dto::{
     AnulacionDto, AperturaCajaDto, CierreCajaDto, CierreCalculadoDto, ConteoCalculadoDto,
     EstadoCajaDto, InformeDto, MovimientoEfectivoDto, SesionListadaDto,
 };
@@ -51,6 +59,13 @@ use crate::dto::{
 };
 use crate::dto::{NuevaVentaEnEsperaDto, VentaEnEsperaDto, VentaRetomadaDto};
 use crate::estado::Estado;
+
+/// Cuántos consumos y liquidaciones se traen de una cuenta.
+///
+/// Es una libreta familiar, no un histórico de ventas: con cien entradas se
+/// ve un año largo, y pedirlas todas haría crecer la pantalla sin que nadie
+/// baje hasta el final.
+const LIMITE_CONSUMOS: usize = 100;
 
 /// Da de alta un producto y devuelve su identificador.
 #[tauri::command]
@@ -530,6 +545,132 @@ pub fn limpiar_catalogo(estado: State<'_, Estado>) -> Result<LimpiezaDto, ErrorD
     let caso = LimpiarCatalogo::nuevo(estado.repositorio_producto());
     caso.ejecutar()
         .map(LimpiezaDto::from)
+        .map_err(ErrorDto::from)
+}
+
+// =========================================== el consumo (RF-CON)
+
+/// Registra lo que los dueños se llevaron para su casa (RF-CON-01).
+///
+/// Genera una deuda al costo contra la cuenta que lo carga, descuenta la
+/// existencia y deja su asiento en el kárdex. No es una venta —no entra
+/// dinero— ni una merma —no se perdió nada—.
+#[tauri::command]
+pub fn registrar_consumo(
+    estado: State<'_, Estado>,
+    consumo: NuevoConsumoDto,
+) -> Result<ConsumoHechoDto, ErrorDto> {
+    let caso = RegistrarConsumo::nuevo(estado.repositorio_producto(), estado.repositorio_consumo());
+    caso.ejecutar(consumo.into())
+        .map(ConsumoHechoDto::from)
+        .map_err(ErrorDto::from)
+}
+
+/// Dice qué costaría el consumo que se está armando, **sin registrarlo**.
+///
+/// Alimenta el carrito de la pantalla. El costo es promedio ponderado y
+/// nadie lo lleva en la cabeza; y de paso avisa de que falta existencia
+/// antes de que alguien pulse confirmar.
+#[tauri::command]
+pub fn previsualizar_consumo(
+    estado: State<'_, Estado>,
+    consumo: NuevoConsumoDto,
+) -> Result<ConsumoPrevistoDto, ErrorDto> {
+    let caso = RegistrarConsumo::nuevo(estado.repositorio_producto(), estado.repositorio_consumo());
+    caso.previsualizar(&consumo.into())
+        .map(ConsumoPrevistoDto::from)
+        .map_err(ErrorDto::from)
+}
+
+/// Paga toda o parte de la deuda de una cuenta y devuelve el saldo que
+/// queda (RF-CON-10).
+///
+/// **No toca la caja ni el arqueo** (RF-CON-11): liquidar no es un ingreso,
+/// porque el negocio ya gastó ese dinero al comprar la mercancía y el pago
+/// recupera un costo. Si el efectivo entra a la gaveta, se anota a mano
+/// como entrada de efectivo desde Caja.
+#[tauri::command]
+pub fn liquidar_deuda(
+    estado: State<'_, Estado>,
+    liquidacion: NuevaLiquidacionDto,
+) -> Result<String, ErrorDto> {
+    let caso = LiquidarDeuda::nuevo(estado.repositorio_consumo());
+    caso.ejecutar(liquidacion.into()).map_err(ErrorDto::from)
+}
+
+/// Deshace un consumo mal registrado (RF-CON-16).
+///
+/// Devuelve la mercancía a la ubicación de la que salió y al costo con que
+/// salió, y baja la deuda. El registro se conserva marcado como anulado.
+#[tauri::command]
+pub fn anular_consumo(
+    estado: State<'_, Estado>,
+    anulacion: AnulacionConsumoDto,
+) -> Result<(), ErrorDto> {
+    let caso = AnularConsumo::nuevo(estado.repositorio_producto(), estado.repositorio_consumo());
+    caso.ejecutar(anulacion.into()).map_err(ErrorDto::from)
+}
+
+/// Deshace una liquidación mal registrada (RF-CON-17).
+///
+/// **Sube** la deuda otra vez: es la otra dirección del mismo eje que
+/// anular un consumo, que la baja.
+#[tauri::command]
+pub fn anular_pago_consumo(
+    estado: State<'_, Estado>,
+    anulacion: AnulacionConsumoDto,
+) -> Result<(), ErrorDto> {
+    let caso = AnularPagoConsumo::nuevo(estado.repositorio_consumo());
+    caso.ejecutar(anulacion.into()).map_err(ErrorDto::from)
+}
+
+/// Devuelve la deuda total del local y el saldo de cada cuenta (RF-CON-12).
+#[tauri::command]
+pub fn consultar_panel_consumo(estado: State<'_, Estado>) -> Result<PanelConsumoDto, ErrorDto> {
+    let caso = ConsultarConsumo::nuevo(estado.repositorio_consumo());
+    caso.panel()
+        .map(PanelConsumoDto::from)
+        .map_err(ErrorDto::from)
+}
+
+/// Devuelve los consumos y las liquidaciones de una cuenta.
+#[tauri::command]
+pub fn consultar_cuenta_consumo(
+    estado: State<'_, Estado>,
+    cuenta: i64,
+) -> Result<DetalleCuentaDto, ErrorDto> {
+    let caso = ConsultarConsumo::nuevo(estado.repositorio_consumo());
+    caso.cuenta(cuenta, LIMITE_CONSUMOS)
+        .map(DetalleCuentaDto::from)
+        .map_err(ErrorDto::from)
+}
+
+/// Devuelve los renglones de un consumo concreto.
+#[tauri::command]
+pub fn consultar_renglones_consumo(
+    estado: State<'_, Estado>,
+    consumo: i64,
+) -> Result<Vec<LineaConsumoListadaDto>, ErrorDto> {
+    let caso = ConsultarConsumo::nuevo(estado.repositorio_consumo());
+    caso.renglones(consumo)
+        .map(|lineas| lineas.into_iter().map(Into::into).collect())
+        .map_err(ErrorDto::from)
+}
+
+/// Devuelve lo consumido por producto, de lo que más costó a lo que menos.
+///
+/// `cuenta` en blanco suma las tres. Sin fechas mira todo el historial, que
+/// es la pregunta que se hace de verdad: qué se está yendo (RF-CON-13).
+#[tauri::command]
+pub fn consultar_consumo_por_producto(
+    estado: State<'_, Estado>,
+    cuenta: Option<i64>,
+    desde: Option<String>,
+    hasta: Option<String>,
+) -> Result<Vec<ProductoConsumidoDto>, ErrorDto> {
+    let caso = ConsultarConsumo::nuevo(estado.repositorio_consumo());
+    caso.por_producto(cuenta, desde.as_deref(), hasta.as_deref())
+        .map(|filas| filas.into_iter().map(Into::into).collect())
         .map_err(ErrorDto::from)
 }
 
