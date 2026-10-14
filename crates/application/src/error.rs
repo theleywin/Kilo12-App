@@ -37,6 +37,18 @@ pub enum ErrorAplicacion {
     /// Se intentó quitar del catálogo un producto que está en una venta en
     /// espera, o sea, en una venta empezada y sin cobrar (RF-CAT-14).
     ProductoEnVentaEnEspera,
+    /// Se intentó cargar un consumo a una cuenta retirada (RF-CON-04).
+    CuentaConsumoInactiva,
+    /// Un consumo sin renglones no es nada que registrar.
+    ConsumoVacio,
+    /// El consumo ya estaba anulado: anularlo otra vez devolvería la
+    /// mercancía dos veces.
+    ConsumoYaAnulado,
+    /// La liquidación ya estaba anulada: anularla otra vez subiría el saldo
+    /// dos veces.
+    PagoYaAnulado,
+    /// Se intentó liquidar cero o menos.
+    PagoNoPositivo,
 }
 
 impl ErrorAplicacion {
@@ -55,6 +67,11 @@ impl ErrorAplicacion {
             Self::ClaveIncorrecta => "CLAVE_INCORRECTA",
             Self::ProductoConExistencia => "PRODUCTO_CON_EXISTENCIA",
             Self::ProductoEnVentaEnEspera => "PRODUCTO_EN_VENTA_EN_ESPERA",
+            Self::CuentaConsumoInactiva => "CUENTA_CONSUMO_INACTIVA",
+            Self::ConsumoVacio => "CONSUMO_VACIO",
+            Self::ConsumoYaAnulado => "CONSUMO_YA_ANULADO",
+            Self::PagoYaAnulado => "PAGO_YA_ANULADO",
+            Self::PagoNoPositivo => "PAGO_NO_POSITIVO",
         }
     }
 
@@ -100,6 +117,24 @@ impl fmt::Display for ErrorAplicacion {
                 "Este producto está en una venta en espera: una venta empezada y sin cobrar. \
                  Cóbrala o descártala antes de quitarlo del catálogo",
             ),
+            Self::CuentaConsumoInactiva => f.write_str(
+                "Esa cuenta de consumo está retirada. Vuelve a activarla si quieren \
+                 seguir cargando consumos a su nombre",
+            ),
+            Self::ConsumoVacio => {
+                f.write_str("Añade al menos un producto: un consumo sin nada no es nada")
+            }
+            Self::ConsumoYaAnulado => f.write_str(
+                "Este consumo ya estaba anulado. Anularlo otra vez devolvería la \
+                 mercancía dos veces",
+            ),
+            Self::PagoYaAnulado => f.write_str(
+                "Esta liquidación ya estaba anulada. Anularla otra vez subiría la \
+                 deuda dos veces",
+            ),
+            Self::PagoNoPositivo => {
+                f.write_str("Escribe cuánto se paga: liquidar cero no liquida nada")
+            }
             Self::SkuAgotado(base) => {
                 write!(
                     f,
