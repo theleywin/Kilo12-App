@@ -299,54 +299,13 @@
 /* ======================================= contar los billetes
    El recuento tapa la aplicación a propósito: mientras se cuenta dinero
    físico no hay nada más que hacer, y el desenfoque de atrás lo dice sin
-   necesidad de un cartel. */
+   necesidad de un cartel.
 
-.velo {
-  position: fixed;
-  inset: 0;
-  z-index: 40;
-  background: rgba(28, 33, 20, 0.45);
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
-}
+   El velo y el marco del modal viven en `estilos/componentes.css`: los usa
+   también la limpieza del catálogo, y dos copias del mismo diálogo se
+   separan en cuanto alguien retoca una.
 
-.modal {
-  position: fixed;
-  z-index: 41;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  display: flex;
-  flex-direction: column;
-  width: min(760px, calc(100vw - var(--e5) * 2));
-  max-height: calc(100vh - var(--e5) * 2);
-  border: 1px solid var(--linea);
-  border-radius: var(--radio-l);
-  background: var(--fondo);
-  box-shadow: var(--sombra-2);
-  overflow: hidden;
-}
-
-.modal__cabecera {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--e3);
-  padding: var(--e3) var(--e4);
-  border-bottom: 1px solid var(--linea);
-}
-
-.modal__titulo {
-  font-size: var(--texto-l);
-  font-weight: var(--peso-fuerte);
-}
-
-.modal__cuerpo {
-  padding: var(--e4);
-  overflow-y: auto;
-}
-
-/* La rejilla de billetes y su total viven en `app-contador-efectivo`, que
+   La rejilla de billetes y su total viven en `app-contador-efectivo`, que
    es la misma pieza que usa la sección de Contar dinero. Aquí solo queda
    lo que se le cuelga dentro, que es propio del arqueo: el cotejo contra
    lo esperado y el botón que lleva el total al cierre. */
