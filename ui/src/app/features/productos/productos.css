@@ -88,3 +88,52 @@ a.boton {
   background: var(--superficie-fuerte);
   color: var(--tinta);
 }
+
+/* ======================= el cartel de limpiar etiquetas (RF-CAT-13)
+   Cada grupo es un bloque con su propio título y su propia explicación. La
+   separación visual no es decoración: lo que se borra no se deshace y lo
+   que se retira sí, y quien va a pulsar «limpiar» tiene que poder ver de un
+   golpe cuántos van a cada lado. */
+
+.grupo + .grupo {
+  margin-top: var(--e4);
+  padding-top: var(--e4);
+  border-top: 1px solid var(--linea);
+}
+
+.grupo__titulo {
+  display: flex;
+  align-items: center;
+  gap: var(--e2);
+}
+
+.grupo__texto {
+  margin: var(--e2) 0 var(--e3);
+  font-size: var(--texto-s);
+  color: var(--apagado);
+}
+
+.lista-productos {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lista-productos li {
+  display: flex;
+  align-items: baseline;
+  gap: var(--e2);
+  padding: var(--e2) 0;
+  border-bottom: 1px solid var(--linea);
+}
+
+.lista-productos li:last-child {
+  border-bottom: 0;
+}
+
+/* El nombre se come el espacio y empuja el resto a la derecha. */
+.lista-productos li > span:first-child {
+  flex: 1;
+}

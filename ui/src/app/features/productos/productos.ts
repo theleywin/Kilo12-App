@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 
-import { ErrorDto, ProductoDto } from '../../core/api.types';
+import { ErrorDto, LimpiezaDto, ProductoDto } from '../../core/api.types';
 import { comoError, Kilo12Api } from '../../core/kilo12-api';
 
 /**
@@ -143,5 +143,84 @@ export class Productos {
 
   protected abrir(producto: ProductoDto): void {
     void this.router.navigate(['/productos', producto.id]);
+  }
+
+  // ------------------------------- limpiar las etiquetas vacías (RF-CAT-13)
+
+  /**
+   * Lo que la limpieza haría. Con algo dentro, el cartel está abierto.
+   *
+   * La lista la calcula Rust: decidir aquí qué se borra y qué se retira
+   * exigiría conocer las ventas y el kárdex de cada producto, que es
+   * justamente lo que esta pantalla no tiene.
+   */
+  protected readonly limpieza = signal<LimpiezaDto | null>(null);
+
+  /** Lo que la limpieza hizo de verdad, para enseñarlo al terminar. */
+  protected readonly limpiezaHecha = signal<LimpiezaDto | null>(null);
+
+  protected readonly limpiando = signal(false);
+
+  /** Hay productos vacíos sobre los que se puede actuar. */
+  protected readonly hayQueLimpiar = computed(() => {
+    const prevista = this.limpieza();
+    return !!prevista && (prevista.seBorran.length > 0 || prevista.seRetiran.length > 0);
+  });
+
+  /** Cuántos productos se quedaron sin mercancía, para el botón. */
+  protected readonly vacios = computed(
+    () => this.productos().filter((producto) => producto.agotado).length,
+  );
+
+  /**
+   * Pide la vista previa y abre el cartel.
+   *
+   * Se consulta cada vez que se abre y no se guarda de antes: entre una
+   * apertura y la siguiente pudo entrar mercancía, y un cartel que ofrece
+   * borrar algo que ya no está vacío es peor que no tener el botón.
+   */
+  protected async revisarLimpieza(): Promise<void> {
+    this.limpiando.set(true);
+    try {
+      this.limpiezaHecha.set(null);
+      this.limpieza.set(await this.api.previsualizarLimpieza());
+      this.error.set(null);
+    } catch (fallo) {
+      this.error.set(comoError(fallo));
+    } finally {
+      this.limpiando.set(false);
+    }
+  }
+
+  protected cerrarLimpieza(): void {
+    this.limpieza.set(null);
+    this.limpiezaHecha.set(null);
+  }
+
+  /**
+   * Confirma la limpieza.
+   *
+   * No se le manda la lista que está en pantalla: Rust la vuelve a calcular.
+   * Por eso lo que se enseña al terminar es lo que devolvió la llamada y no
+   * lo que decía el cartel, que es una foto de hace unos segundos.
+   */
+  protected async confirmarLimpieza(): Promise<void> {
+    if (!this.hayQueLimpiar()) {
+      return;
+    }
+
+    this.limpiando.set(true);
+    try {
+      const hecha = await this.api.limpiarCatalogo();
+      this.limpieza.set(null);
+      this.limpiezaHecha.set(hecha);
+      this.error.set(null);
+      await this.recargar();
+    } catch (fallo) {
+      this.error.set(comoError(fallo));
+      this.limpieza.set(null);
+    } finally {
+      this.limpiando.set(false);
+    }
   }
 }
