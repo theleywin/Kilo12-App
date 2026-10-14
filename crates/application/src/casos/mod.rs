@@ -53,9 +53,9 @@ pub use consultar_ventas::{
 pub use consultar_vitrina::{ConsultarVitrina, LineaVitrina, ResumenVitrina};
 pub use consumo::{
     AnularConsumo, AnularPagoConsumo, ComandoAnularConsumo, ComandoLiquidar,
-    ComandoRegistrarConsumo, ConsultarConsumo, ConsumoHecho, ConsumoListado, CuentaEnDeuda,
-    DetalleCuenta, LineaConsumoListada, LineaConsumoPedida, LiquidarDeuda, PagoListado,
-    PanelConsumo, ProductoConsumido, RegistrarConsumo,
+    ComandoRegistrarConsumo, ConsultarConsumo, ConsumoHecho, ConsumoListado, ConsumoPrevisto,
+    CuentaEnDeuda, DetalleCuenta, LineaConsumoListada, LineaConsumoPedida, LineaPrevistaConsumo,
+    LiquidarDeuda, PagoListado, PanelConsumo, ProductoConsumido, RegistrarConsumo,
 };
 pub use editar_producto::{
     AgregarPresentacion, CambiarPrecio, ComandoAgregarPresentacion, ComandoCambiarPrecio,
