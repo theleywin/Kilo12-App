@@ -2,6 +2,8 @@ import { Routes } from '@angular/router';
 
 import { Almacen } from './features/almacen/almacen';
 import { Caja } from './features/caja/caja';
+import { Consumo } from './features/consumo/consumo';
+import { ConsumoCuenta } from './features/consumo/cuenta/cuenta';
 import { Contar } from './features/contar/contar';
 import { Informes } from './features/informes/informes';
 import { Vender } from './features/vender/vender';
@@ -35,6 +37,8 @@ export const routes: Routes = [
   { path: 'caja', component: Caja, title: 'Caja · Kilo12' },
   { path: 'contar', component: Contar, title: 'Contar dinero · Kilo12' },
   { path: 'informes', component: Informes, title: 'Informes · Kilo12' },
+  { path: 'consumo', component: Consumo, title: 'Consumo · Kilo12' },
+  { path: 'consumo/:cuenta', component: ConsumoCuenta, title: 'Cuenta de consumo · Kilo12' },
 
   { path: GUIA.ruta, component: Guia, title: `${GUIA.titulo} · Kilo12` },
 
