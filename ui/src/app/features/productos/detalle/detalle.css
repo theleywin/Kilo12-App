@@ -85,19 +85,11 @@ a.boton {
   }
 }
 
-/* ============================================== cabecera de la ficha */
-
-.volver {
-  display: inline-block;
-  margin-bottom: var(--e2);
-  color: var(--apagado);
-  text-decoration: none;
-  font-size: var(--texto-s);
-}
-
-.volver:hover {
-  color: var(--acento);
-}
+/* ============================================== cabecera de la ficha
+   El enlace de volver vive en `estilos/componentes.css`: lo usan esta
+   ficha y la cuenta de consumo, y los estilos de componente están
+   encapsulados, así que una copia en cada sitio es una copia que se
+   queda vieja. */
 
 .fila--titulo {
   flex-wrap: wrap;

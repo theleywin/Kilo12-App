@@ -527,6 +527,45 @@
   font-size: var(--texto-s);
 }
 
+/* ============================================ volver atrás
+   El enlace que sube un nivel desde una ficha. Lleva su flecha dentro, no
+   en el texto de cada plantilla: así ninguna se olvida de ponerla y todas
+   usan el mismo signo.
+
+   Tiene forma de pastilla con relleno al pasar por encima, porque un
+   enlace suelto de doce píxeles sobre fondo blanco no se lee como algo
+   que se pueda pulsar. */
+
+.volver {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--e1);
+  margin-bottom: var(--e3);
+  padding: var(--e1) var(--e3) var(--e1) var(--e2);
+  border: 1px solid transparent;
+  border-radius: var(--radio-pildora);
+  color: var(--apagado);
+  text-decoration: none;
+  font-size: var(--texto-s);
+  font-weight: var(--peso-medio);
+  transition:
+    background var(--transicion),
+    border-color var(--transicion),
+    color var(--transicion);
+}
+
+.volver::before {
+  content: '←';
+  font-size: var(--texto-m);
+  line-height: 1;
+}
+
+.volver:hover {
+  border-color: var(--linea);
+  background: var(--superficie);
+  color: var(--acento);
+}
+
 /* ====================================================== el modal
    Tapa la aplicación a propósito. Se usa para lo que no admite seguir a lo
    tuyo mientras pasa: contar dinero físico (Caja) y decidir qué se borra
