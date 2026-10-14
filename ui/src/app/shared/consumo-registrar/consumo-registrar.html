@@ -1,0 +1,152 @@
+<div class="velo" (click)="cerrar()"></div>
+
+<div class="modal" role="dialog" aria-modal="true" aria-labelledby="titulo-consumo">
+  <div class="modal__cabecera">
+    <span class="modal__titulo" id="titulo-consumo">{{ cuenta().nombre }} se llevó…</span>
+    <button type="button" class="boton boton--discreto" (click)="cerrar()">Cerrar</button>
+  </div>
+
+  <div class="modal__cuerpo">
+    <div class="registro__arriba">
+      <div class="campo">
+        <label for="consumo-tomado">
+          Lo tomó <span class="opcional">puede no ser quien paga</span>
+        </label>
+        <input
+          id="consumo-tomado"
+          autocomplete="off"
+          [value]="tomadoPor()"
+          (input)="tomadoPor.set($any($event.target).value)"
+        />
+      </div>
+
+      <div class="campo">
+        <label for="consumo-origen">Sale de</label>
+        <select
+          id="consumo-origen"
+          [value]="origen()"
+          (change)="origen.set($any($event.target).value)"
+        >
+          <option value="VITRINA">Vitrina</option>
+          <option value="BODEGA">Bodega</option>
+        </select>
+      </div>
+
+      <div class="campo campo--ancho">
+        <label for="consumo-buscar">Buscar producto</label>
+        <input
+          id="consumo-buscar"
+          autocomplete="off"
+          placeholder="Nombre o código…"
+          [value]="busqueda()"
+          (input)="busqueda.set($any($event.target).value)"
+          (keydown.escape)="busqueda.set('')"
+        />
+        <span class="pista">
+          Se añade uno detrás de otro y el foco vuelve aquí. Los retirados de la venta también se
+          pueden consumir.
+        </span>
+      </div>
+    </div>
+
+    @if (candidatos().length > 0) {
+      <ul class="candidatos">
+        @for (producto of candidatos(); track producto.id) {
+          <li>
+            <button type="button" class="candidato" (click)="agregar(producto)">
+              <span class="candidato__nombre">{{ producto.nombre }}</span>
+              <span class="apagado nota">{{ producto.presentacion }}</span>
+              <span class="apagado cifra nota">{{ producto.existenciaTotal }}</span>
+              <span class="cifra">{{ producto.costo }}</span>
+            </button>
+          </li>
+        }
+      </ul>
+    }
+
+    @if (carrito().length > 0) {
+      <div class="carrito">
+        @for (linea of carrito(); track linea.producto + '-' + linea.origen) {
+          <div class="carrito__linea">
+            <span class="carrito__nombre">{{ linea.nombre }}</span>
+
+            <select
+              [value]="linea.presentacion"
+              aria-label="Presentación"
+              (change)="cambiarPresentacion($index, +$any($event.target).value)"
+            >
+              @for (forma of linea.formas; track forma.id) {
+                <option [value]="forma.id">{{ forma.nombre }}</option>
+              }
+            </select>
+
+            <input
+              class="control--cifra carrito__cantidad"
+              inputmode="decimal"
+              aria-label="Cantidad"
+              [value]="linea.cantidad"
+              (input)="cambiarCantidad($index, $any($event.target).value)"
+            />
+
+            <select
+              [value]="linea.origen"
+              aria-label="De dónde sale"
+              (change)="cambiarOrigen($index, $any($event.target).value)"
+            >
+              <option value="VITRINA">Vitrina</option>
+              <option value="BODEGA">Bodega</option>
+            </select>
+
+            <button
+              type="button"
+              class="limpiar"
+              [attr.aria-label]="'Quitar ' + linea.nombre"
+              (click)="quitar($index)"
+            >
+              ×
+            </button>
+          </div>
+        }
+      </div>
+
+      <!-- Las cifras las calcula Rust: el costo es promedio ponderado y la
+           pantalla no lo sabe sumar. -->
+      @if (previsto(); as prevista) {
+        <div class="suma">
+          <div class="suma__linea">
+            <span>Suma al costo</span>
+            <strong class="cifra">{{ prevista.total }}</strong>
+          </div>
+          <div class="suma__linea suma__linea--fuerte">
+            <span>
+              {{ prevista.cuenta }} quedaría
+              <span class="apagado nota">{{ prevista.aFavor ? 'a favor' : 'debiendo' }}</span>
+            </span>
+            <strong class="cifra" [class.cifra--positiva]="prevista.aFavor">
+              {{ prevista.saldoResultante }}
+            </strong>
+          </div>
+        </div>
+      }
+    }
+
+    <div class="modal__acciones">
+      <button
+        type="button"
+        class="boton boton--discreto"
+        [disabled]="ocupado()"
+        (click)="cerrar()"
+      >
+        Cancelar
+      </button>
+      <button
+        type="button"
+        class="boton boton--destacado"
+        [disabled]="!puedeRegistrar"
+        (click)="confirmar()"
+      >
+        {{ ocupado() ? 'Cargando…' : 'Cargar a ' + cuenta().nombre }}
+      </button>
+    </div>
+  </div>
+</div>
