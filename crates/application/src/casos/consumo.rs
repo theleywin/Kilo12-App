@@ -41,10 +41,11 @@ use domain::{
     Cantidad, Dinero, IdPresentacion, IdProducto, Inventario, Movimiento, Ubicacion, UnidadBase,
 };
 
+use crate::casos::informes::{peso_de, razon};
 use crate::error::{ErrorAplicacion, Resultado};
 use crate::puertos::{
     AnulacionConsumo, ConsumoConfirmado, DescuentoConsumo, LineaConsumo, ProductoConInventario,
-    RepositorioConsumo, RepositorioProducto,
+    RepositorioConsumo, RepositorioProducto, SaldoCuenta,
 };
 
 // ==================================================== lo que llega
@@ -100,6 +101,50 @@ pub struct ConsumoHecho {
     pub cuantas_lineas: usize,
 }
 
+/// Un renglón tal como quedaría, con su importe ya calculado.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LineaPrevistaConsumo {
+    pub producto: i64,
+    pub nombre_producto: String,
+    pub nombre_presentacion: String,
+    /// `Bodega` o `Vitrina`.
+    pub origen: String,
+    pub cantidad: String,
+    pub costo_unitario: String,
+    /// Lo que este renglón sumaría a la deuda.
+    pub importe: String,
+}
+
+/// Lo que un consumo generaría, **sin registrar nada**.
+///
+/// Existe por la misma razón que la vista previa de una venta: el costo es
+/// promedio ponderado y nadie lo lleva en la cabeza, así que «¿cuánto me
+/// cuesta llevarme esto?» no se puede contestar sin preguntar. Y de paso se
+/// entera de que no hay existencia suficiente **antes** de intentarlo.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConsumoPrevisto {
+    pub cuenta: String,
+    pub tomado_por: String,
+    /// Deuda que generaría, al costo.
+    pub total: String,
+    /// Saldo en que quedaría la cuenta. Sin signo.
+    pub saldo_resultante: String,
+    /// El saldo resultante queda a favor de la cuenta.
+    pub a_favor: bool,
+    pub lineas: Vec<LineaPrevistaConsumo>,
+}
+
+/// Lo que un consumo haría, ya calculado y sin tocar nada.
+#[derive(Debug)]
+struct Calculo {
+    cuenta: crate::puertos::CuentaConsumo,
+    total: Dinero,
+    lineas: Vec<LineaConsumo>,
+    descuentos: Vec<DescuentoConsumo>,
+    /// Unidad base de cada producto, para formatear las cantidades.
+    unidades_base: BTreeMap<i64, UnidadBase>,
+}
+
 // ============================================== registrar un consumo
 
 /// Registra lo que los dueños se llevaron (RF-CON-01).
@@ -117,7 +162,76 @@ impl<'a, P: RepositorioProducto, C: RepositorioConsumo> RegistrarConsumo<'a, P, 
         }
     }
 
+    /// Dice lo que el consumo generaría **sin registrar nada**.
+    pub fn previsualizar(&self, comando: &ComandoRegistrarConsumo) -> Resultado<ConsumoPrevisto> {
+        let calculo = self.calcular(comando)?;
+
+        // El saldo que quedaría: lo que ya debe más lo que se lleva.
+        let resultante = self.saldo_de(comando.cuenta)?.sumar(calculo.total)?;
+
+        let lineas = calculo
+            .lineas
+            .iter()
+            .map(|linea| {
+                let unidades = linea.cantidad.multiplicar_por_factor(linea.factor)?;
+                let decimales = calculo
+                    .unidades_base
+                    .get(&linea.producto.0)
+                    .copied()
+                    .map_or(0, decimales_de);
+
+                Ok(LineaPrevistaConsumo {
+                    producto: linea.producto.0,
+                    nombre_producto: linea.nombre_producto.clone(),
+                    nombre_presentacion: linea.nombre_presentacion.clone(),
+                    origen: linea.origen.nombre().to_owned(),
+                    cantidad: linea.cantidad.formatear(decimales),
+                    costo_unitario: linea.costo_unitario.formatear(2),
+                    importe: linea.costo_unitario.multiplicar_por(unidades)?.formatear(2),
+                })
+            })
+            .collect::<Resultado<Vec<_>>>()?;
+
+        Ok(ConsumoPrevisto {
+            cuenta: calculo.cuenta.nombre,
+            tomado_por: comando.tomado_por.trim().to_owned(),
+            total: calculo.total.formatear(2),
+            saldo_resultante: sin_signo(resultante),
+            a_favor: resultante.es_negativo(),
+            lineas,
+        })
+    }
+
     pub fn ejecutar(&self, comando: ComandoRegistrarConsumo) -> Resultado<ConsumoHecho> {
+        let calculo = self.calcular(&comando)?;
+        let tomado_por = comando.tomado_por.trim();
+
+        // El motivo del asiento lleva la cuenta y quién lo tomó: el kárdex
+        // se lee solo (RF-INV-05) y «Consumo» a secas obligaría a cruzarlo
+        // con otra tabla para saber de quién era.
+        let id = self.consumos.registrar_consumo(&ConsumoConfirmado {
+            cuenta: calculo.cuenta.id,
+            tomado_por,
+            total_costo: calculo.total,
+            lineas: &calculo.lineas,
+            descuentos: &calculo.descuentos,
+        })?;
+
+        Ok(ConsumoHecho {
+            id,
+            cuenta: calculo.cuenta.nombre,
+            tomado_por: tomado_por.to_owned(),
+            total: calculo.total.formatear(2),
+            saldo: self.saldo_de(comando.cuenta)?.formatear(2),
+            cuantas_lineas: calculo.lineas.len(),
+        })
+    }
+
+    /// Hace todas las cuentas sin escribir nada.
+    ///
+    /// La vista previa y el registro pasan por aquí: si cada uno calculara
+    /// lo suyo, el cartel podría decir una cifra y la deuda quedar en otra.
+    fn calcular(&self, comando: &ComandoRegistrarConsumo) -> Resultado<Calculo> {
         if comando.lineas.is_empty() {
             return Err(ErrorAplicacion::ConsumoVacio);
         }
@@ -139,6 +253,7 @@ impl<'a, P: RepositorioProducto, C: RepositorioConsumo> RegistrarConsumo<'a, P, 
         // kárdex explica lo que salió de UN estante.
         let mut salidas: BTreeMap<(i64, Ubicacion), (Cantidad, Dinero)> = BTreeMap::new();
         let mut lineas = Vec::with_capacity(comando.lineas.len());
+        let mut unidades_base: BTreeMap<i64, UnidadBase> = BTreeMap::new();
         let mut total = Dinero::CERO;
 
         for pedida in &comando.lineas {
@@ -184,6 +299,8 @@ impl<'a, P: RepositorioProducto, C: RepositorioConsumo> RegistrarConsumo<'a, P, 
                 })
                 .or_insert((unidades, costo_unitario));
 
+            unidades_base.insert(pedida.producto, producto.unidad_base());
+
             lineas.push(LineaConsumo {
                 producto: IdProducto(pedida.producto),
                 presentacion: IdPresentacion(pedida.presentacion),
@@ -196,27 +313,15 @@ impl<'a, P: RepositorioProducto, C: RepositorioConsumo> RegistrarConsumo<'a, P, 
             });
         }
 
-        // El motivo del asiento lleva la cuenta y quién lo tomó: el kárdex
-        // se lee solo (RF-INV-05) y «Consumo» a secas obligaría a cruzarlo
-        // con otra tabla para saber de quién era.
         let motivo = format!("Consumo de {} · tomó {tomado_por}", cuenta.nombre);
         let descuentos = Self::armar_descuentos(&inventarios, &salidas, &motivo)?;
 
-        let id = self.consumos.registrar_consumo(&ConsumoConfirmado {
-            cuenta: cuenta.id,
-            tomado_por,
-            total_costo: total,
-            lineas: &lineas,
-            descuentos: &descuentos,
-        })?;
-
-        Ok(ConsumoHecho {
-            id,
-            cuenta: cuenta.nombre,
-            tomado_por: tomado_por.to_owned(),
-            total: total.formatear(2),
-            saldo: self.saldo_de(comando.cuenta)?.formatear(2),
-            cuantas_lineas: lineas.len(),
+        Ok(Calculo {
+            cuenta,
+            total,
+            lineas,
+            descuentos,
+            unidades_base,
         })
     }
 
@@ -463,6 +568,14 @@ pub struct CuentaEnDeuda {
     pub saldo: String,
     /// La cuenta tiene dinero a favor en vez de deber.
     pub a_favor: bool,
+    /// Qué parte de la deuda del local carga esta cuenta, sin el símbolo.
+    ///
+    /// Se calcula sobre la suma de los saldos que **deben**: una cuenta a
+    /// favor no carga nada y lleva cero. Lo calcula Rust porque la pantalla
+    /// no divide dinero (DT-1).
+    pub porcion: String,
+    /// La misma parte de 0 a 1000, para dibujar. Es geometría, no dinero.
+    pub peso: i64,
 }
 
 /// El primer nivel: el total y las cuentas.
@@ -526,6 +639,11 @@ pub struct ProductoConsumido {
     /// Unidades base, con los decimales que su unidad admite.
     pub cantidad: String,
     pub costo: String,
+    /// Largo relativo de su barra, de 0 a 1000, respecto al que más costó.
+    ///
+    /// Es geometría, no dinero: la pantalla dibuja con esto y nunca enseña
+    /// la cifra. Misma convención que las barras de Informes.
+    pub peso: i64,
     /// Con lo que se ordena, en millonésimas. No sale a la pantalla: el
     /// orden es dinero y comparar las cadenas formateadas pondría «9.00»
     /// por encima de «10.00».
@@ -547,20 +665,13 @@ impl<'a, C: RepositorioConsumo> ConsultarConsumo<'a, C> {
     pub fn panel(&self) -> Resultado<PanelConsumo> {
         let saldos = self.consumos.saldos()?;
 
+        let deuda = deuda_viva(&saldos)?;
         let mut total = Dinero::CERO;
         let mut cuentas = Vec::with_capacity(saldos.len());
 
         for saldo in saldos {
             total = total.sumar(saldo.saldo)?;
-            cuentas.push(CuentaEnDeuda {
-                id: saldo.cuenta,
-                nombre: saldo.nombre,
-                activa: saldo.activa,
-                consumido: saldo.consumido.formatear(2),
-                pagado: saldo.pagado.formatear(2),
-                saldo: sin_signo(saldo.saldo),
-                a_favor: saldo.saldo.es_negativo(),
-            });
+            cuentas.push(describir_cuenta(saldo, deuda)?);
         }
 
         Ok(PanelConsumo {
@@ -572,9 +683,10 @@ impl<'a, C: RepositorioConsumo> ConsultarConsumo<'a, C> {
 
     /// Nivel 3: los consumos y los pagos de una cuenta.
     pub fn cuenta(&self, cuenta: i64, limite: usize) -> Resultado<DetalleCuenta> {
-        let saldo = self
-            .consumos
-            .saldos()?
+        let saldos = self.consumos.saldos()?;
+        let deuda = deuda_viva(&saldos)?;
+
+        let saldo = saldos
             .into_iter()
             .find(|saldo| saldo.cuenta == cuenta)
             .ok_or(ErrorAplicacion::NoEncontrado {
@@ -611,15 +723,7 @@ impl<'a, C: RepositorioConsumo> ConsultarConsumo<'a, C> {
             .collect();
 
         Ok(DetalleCuenta {
-            cuenta: CuentaEnDeuda {
-                id: saldo.cuenta,
-                nombre: saldo.nombre,
-                activa: saldo.activa,
-                consumido: saldo.consumido.formatear(2),
-                pagado: saldo.pagado.formatear(2),
-                saldo: sin_signo(saldo.saldo),
-                a_favor: saldo.saldo.es_negativo(),
-            },
+            cuenta: describir_cuenta(saldo, deuda)?,
             consumos,
             pagos,
         })
@@ -689,6 +793,13 @@ impl<'a, C: RepositorioConsumo> ConsultarConsumo<'a, C> {
             }
         }
 
+        // El techo es lo que más costó: las barras se miden contra ello.
+        let techo = acumulado
+            .values()
+            .map(|(_, _, _, costo)| *costo)
+            .max()
+            .unwrap_or(Dinero::CERO);
+
         let mut filas: Vec<ProductoConsumido> = acumulado
             .into_iter()
             .map(
@@ -701,6 +812,7 @@ impl<'a, C: RepositorioConsumo> ConsultarConsumo<'a, C> {
                         unidad.simbolo()
                     ),
                     costo: costo.formatear(2),
+                    peso: peso_de(costo, techo),
                     orden: costo.millonesimas(),
                 },
             )
@@ -723,6 +835,42 @@ const fn decimales_de(unidad: UnidadBase) -> u32 {
     } else {
         0
     }
+}
+
+/// Describe una cuenta para la pantalla, con su parte de la deuda.
+///
+/// La construye un solo sitio: el panel y el detalle de una cuenta tienen
+/// que enseñar exactamente las mismas cifras, y dos constructores se
+/// separan en cuanto alguien añade un campo a uno.
+fn describir_cuenta(saldo: SaldoCuenta, deuda: Dinero) -> Resultado<CuentaEnDeuda> {
+    Ok(CuentaEnDeuda {
+        id: saldo.cuenta,
+        nombre: saldo.nombre,
+        activa: saldo.activa,
+        consumido: saldo.consumido.formatear(2),
+        pagado: saldo.pagado.formatear(2),
+        saldo: sin_signo(saldo.saldo),
+        a_favor: saldo.saldo.es_negativo(),
+        porcion: razon(saldo.saldo.o_cero_si_negativo(), deuda)?.formatear(1),
+        peso: peso_de(saldo.saldo, deuda),
+    })
+}
+
+/// Lo que se debe entre todas las cuentas que deben algo.
+///
+/// Es el denominador del reparto, y no es el neto: si una cuenta tiene
+/// dinero a favor, restarla haría que las otras sumaran más del cien por
+/// cien.
+fn deuda_viva(saldos: &[SaldoCuenta]) -> Resultado<Dinero> {
+    let mut deuda = Dinero::CERO;
+
+    for saldo in saldos {
+        if saldo.saldo.es_positivo() {
+            deuda = deuda.sumar(saldo.saldo)?;
+        }
+    }
+
+    Ok(deuda)
 }
 
 /// Formatea un importe sin su signo.
@@ -1384,6 +1532,135 @@ mod pruebas {
         assert_eq!(panel.cuentas[1].nombre, "Claudia");
         assert_eq!(panel.cuentas[1].saldo, "120.00");
         assert_eq!(panel.cuentas[2].saldo, "0.00", "Inés no debe nada");
+    }
+
+    // --------------------------------------------- la vista previa
+
+    #[test]
+    fn la_vista_previa_dice_lo_que_costaria_sin_registrar_nada() {
+        let (productos, consumos) = entorno();
+
+        let prevista = RegistrarConsumo::nuevo(productos.as_ref(), &consumos)
+            .previsualizar(&comando(
+                1,
+                "Yaneisy",
+                vec![linea(1, 10, "2"), linea(2, 21, "1")],
+            ))
+            .expect("previsualizar");
+
+        assert_eq!(prevista.cuenta, "Ivett");
+        assert_eq!(prevista.total, "490.02");
+        assert_eq!(prevista.saldo_resultante, "490.02");
+        assert!(!prevista.a_favor);
+        assert_eq!(prevista.lineas.len(), 2);
+        // La libra admite decimales; la lata, no.
+        assert_eq!(prevista.lineas[0].cantidad, "2.000");
+        assert_eq!(prevista.lineas[0].importe, "240.00");
+        assert_eq!(prevista.lineas[1].cantidad, "1");
+        assert_eq!(prevista.lineas[1].importe, "250.02");
+
+        // Y no ha tocado nada.
+        assert_eq!(
+            productos
+                .inventario_de(1)
+                .existencias()
+                .en(Ubicacion::Vitrina)
+                .formatear(3),
+            "100.000"
+        );
+        assert_eq!(consumos.saldo_de(1).formatear(2), "0.00");
+    }
+
+    #[test]
+    fn la_vista_previa_avisa_antes_de_intentarlo() {
+        // Es la mitad de su valor: enterarse de que no hay existencia al
+        // confirmar es enterarse tarde.
+        let (productos, consumos) = entorno();
+
+        let error = RegistrarConsumo::nuevo(productos.as_ref(), &consumos)
+            .previsualizar(&comando(1, "Ivett", vec![linea(1, 10, "500")]))
+            .expect_err("no hay 500 libras");
+
+        assert_eq!(error.codigo(), "EXISTENCIA_INSUFICIENTE");
+    }
+
+    #[test]
+    fn la_vista_previa_suma_sobre_lo_que_ya_se_debe() {
+        let (productos, consumos) = entorno();
+        consumo_de_ivett(productos.as_ref(), &consumos);
+
+        let prevista = RegistrarConsumo::nuevo(productos.as_ref(), &consumos)
+            .previsualizar(&comando(1, "Ivett", vec![linea(1, 10, "1")]))
+            .expect("previsualizar");
+
+        assert_eq!(prevista.total, "120.00", "lo que se lleva ahora");
+        assert_eq!(prevista.saldo_resultante, "610.02", "490.02 + 120.00");
+    }
+
+    #[test]
+    fn la_vista_previa_y_el_registro_dicen_la_misma_cifra() {
+        // Si cada uno calculara lo suyo, el cartel podría prometer una
+        // cosa y la deuda quedar en otra.
+        let (productos, consumos) = entorno();
+        let pedido = comando(1, "Yaneisy", vec![linea(1, 10, "2"), linea(2, 21, "1")]);
+
+        let caso = RegistrarConsumo::nuevo(productos.as_ref(), &consumos);
+        let prevista = caso.previsualizar(&pedido).expect("previsualizar");
+        let hecho = caso.ejecutar(pedido).expect("registrar");
+
+        assert_eq!(prevista.total, hecho.total);
+        assert_eq!(prevista.saldo_resultante, hecho.saldo);
+    }
+
+    // ------------------------------------------- el reparto de la deuda
+
+    #[test]
+    fn el_panel_reparte_la_deuda_entre_quienes_deben() {
+        let (productos, consumos) = entorno();
+        // Ivett 240.00, Claudia 120.00: dos tercios y un tercio.
+        RegistrarConsumo::nuevo(productos.as_ref(), &consumos)
+            .ejecutar(comando(1, "Ivett", vec![linea(1, 10, "2")]))
+            .expect("registrar");
+        RegistrarConsumo::nuevo(productos.as_ref(), &consumos)
+            .ejecutar(comando(2, "Claudia", vec![linea(1, 10, "1")]))
+            .expect("registrar");
+
+        let panel = ConsultarConsumo::nuevo(&consumos).panel().expect("panel");
+
+        assert_eq!(panel.total, "360.00");
+        assert_eq!(panel.cuentas[0].porcion, "66.7");
+        assert_eq!(panel.cuentas[0].peso, 666);
+        assert_eq!(panel.cuentas[1].porcion, "33.3");
+        assert_eq!(panel.cuentas[2].porcion, "0.0", "Inés no debe nada");
+        assert_eq!(panel.cuentas[2].peso, 0);
+    }
+
+    #[test]
+    fn una_cuenta_a_favor_no_carga_parte_de_la_deuda() {
+        // Si se restara del denominador, las otras sumarían más del cien
+        // por cien y la barra se saldría de la pantalla.
+        let (productos, consumos) = entorno();
+        RegistrarConsumo::nuevo(productos.as_ref(), &consumos)
+            .ejecutar(comando(1, "Ivett", vec![linea(1, 10, "2")]))
+            .expect("registrar");
+        LiquidarDeuda::nuevo(&consumos)
+            .ejecutar(ComandoLiquidar {
+                cuenta: 2,
+                importe: "500.00".to_owned(),
+                nota: None,
+            })
+            .expect("Claudia paga de más sin deber nada");
+
+        let panel = ConsultarConsumo::nuevo(&consumos).panel().expect("panel");
+
+        assert_eq!(
+            panel.cuentas[0].porcion, "100.0",
+            "Ivett carga toda la deuda"
+        );
+        assert_eq!(panel.cuentas[0].peso, 1000);
+        assert!(panel.cuentas[1].a_favor);
+        assert_eq!(panel.cuentas[1].porcion, "0.0");
+        assert_eq!(panel.cuentas[1].peso, 0);
     }
 
     #[test]
