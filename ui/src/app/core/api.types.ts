@@ -422,6 +422,162 @@ export interface LimpiezaDto {
   readonly bloqueados: readonly ProductoVacioDto[];
 }
 
+// ============================================ el consumo (RF-CON)
+
+/** Códigos de error propios del consumo de los dueños (DT-7). */
+export const ERROR_CONSUMO = {
+  /** La cuenta está retirada: no se le carga nada. */
+  CUENTA_CONSUMO_INACTIVA: 'CUENTA_CONSUMO_INACTIVA',
+  CONSUMO_VACIO: 'CONSUMO_VACIO',
+  CONSUMO_YA_ANULADO: 'CONSUMO_YA_ANULADO',
+  PAGO_YA_ANULADO: 'PAGO_YA_ANULADO',
+  PAGO_NO_POSITIVO: 'PAGO_NO_POSITIVO',
+} as const;
+
+/** Un renglón de lo que los dueños se llevan. */
+export interface LineaConsumoDto {
+  readonly producto: number;
+  readonly presentacion: number;
+  /** Cuántas presentaciones, no unidades base. */
+  readonly cantidad: string;
+  /** `BODEGA` o `VITRINA`. Va por renglón. */
+  readonly origen: string;
+}
+
+/** Lo que se manda al registrar o previsualizar un consumo. */
+export interface NuevoConsumoDto {
+  readonly cuenta: number;
+  /** Quién se lo llevó. Puede no ser la dueña de la cuenta. */
+  readonly tomadoPor: string;
+  readonly lineas: readonly LineaConsumoDto[];
+}
+
+/** Lo que se manda al liquidar una deuda. */
+export interface NuevaLiquidacionDto {
+  readonly cuenta: number;
+  readonly importe: string;
+  readonly nota?: string;
+}
+
+/** Lo que se manda al anular un consumo o una liquidación. */
+export interface AnulacionConsumoDto {
+  readonly id: number;
+  readonly motivo: string;
+}
+
+/** Un renglón tal como quedaría, con su importe calculado por Rust. */
+export interface LineaPrevistaConsumoDto {
+  readonly producto: number;
+  readonly nombreProducto: string;
+  readonly nombrePresentacion: string;
+  /** `Bodega` o `Vitrina`. */
+  readonly origen: string;
+  readonly cantidad: string;
+  readonly costoUnitario: string;
+  readonly importe: string;
+}
+
+/**
+ * Lo que un consumo generaría, sin registrarlo.
+ *
+ * Alimenta el carrito. El costo es promedio ponderado y nadie lo lleva en
+ * la cabeza, así que la suma se pregunta, no se calcula aquí.
+ */
+export interface ConsumoPrevistoDto {
+  readonly cuenta: string;
+  readonly tomadoPor: string;
+  readonly total: string;
+  readonly saldoResultante: string;
+  readonly aFavor: boolean;
+  readonly lineas: readonly LineaPrevistaConsumoDto[];
+}
+
+/** Lo que un consumo acabó de generar. */
+export interface ConsumoHechoDto {
+  readonly id: number;
+  readonly cuenta: string;
+  readonly tomadoPor: string;
+  readonly total: string;
+  readonly saldo: string;
+  readonly cuantasLineas: number;
+}
+
+/**
+ * Una cuenta con su saldo.
+ *
+ * El saldo llega **sin signo** y `aFavor` dice de qué lado está. Es la
+ * última de las cuatro capas que podrían recortar un negativo (RF-CON-14)
+ * y tampoco lo hace: «500.00 a favor» se lee; «-500.00» parece un error.
+ */
+export interface CuentaEnDeudaDto {
+  readonly id: number;
+  readonly nombre: string;
+  readonly activa: boolean;
+  readonly consumido: string;
+  readonly pagado: string;
+  readonly saldo: string;
+  readonly aFavor: boolean;
+  /** Parte de la deuda del local que carga, sin el símbolo. */
+  readonly porcion: string;
+  /** La misma parte de 0 a 1000. Se divide entre diez para dibujar. */
+  readonly peso: number;
+}
+
+/** El primer nivel: la deuda del local y sus cuentas. */
+export interface PanelConsumoDto {
+  readonly total: string;
+  readonly aFavor: boolean;
+  readonly cuentas: readonly CuentaEnDeudaDto[];
+}
+
+/** Un consumo tal como se lista. */
+export interface ConsumoListadoDto {
+  readonly id: number;
+  readonly tomadoPor: string;
+  readonly total: string;
+  readonly ocurridoEn: string;
+  readonly anulado: boolean;
+  readonly motivoAnulacion: string | null;
+}
+
+/** Una liquidación tal como se lista. */
+export interface PagoConsumoListadoDto {
+  readonly id: number;
+  readonly importe: string;
+  readonly nota: string | null;
+  readonly ocurridoEn: string;
+  readonly anulado: boolean;
+  readonly motivoAnulacion: string | null;
+}
+
+/** El detalle de una cuenta: lo que se llevó y lo que pagó. */
+export interface DetalleCuentaDto {
+  readonly cuenta: CuentaEnDeudaDto;
+  readonly consumos: readonly ConsumoListadoDto[];
+  readonly pagos: readonly PagoConsumoListadoDto[];
+}
+
+/** Un renglón de un consumo ya registrado. */
+export interface LineaConsumoListadaDto {
+  readonly producto: number;
+  readonly nombreProducto: string;
+  readonly nombrePresentacion: string;
+  readonly origen: string;
+  readonly cantidad: string;
+  readonly costoUnitario: string;
+  readonly importe: string;
+}
+
+/** Lo consumido de un producto: el eje que dice qué se está yendo. */
+export interface ProductoConsumidoDto {
+  readonly producto: number;
+  readonly nombre: string;
+  readonly cantidad: string;
+  readonly costo: string;
+  /** Largo de su barra, de 0 a 1000. Se divide entre diez para dibujar. */
+  readonly peso: number;
+}
+
 /** Códigos de error propios de la venta en espera (DT-7). */
 export const ERROR_VENTA_EN_ESPERA = {
   ESPERA_VACIA: 'ESPERA_VACIA',

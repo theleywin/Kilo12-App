@@ -1,11 +1,12 @@
 # Kilo12 — Diseño Técnico
 
-**Versión:** 1.5
-**Fecha:** 2026-10-13
+**Versión:** 1.6
+**Fecha:** 2026-10-14
 **Estado:** Propuesta de diseño para revisión. No se ha escrito código de aplicación todavía.
 
-**Documento base:** `requerimientos-funcionales.md` v1.6
+**Documento base:** `requerimientos-funcionales.md` v1.7
 
+**Cambios en 1.6:** nueva DT-16: el consumo de los dueños lleva puerto estrecho propio, y toda su escritura cabe en un método del adaptador porque el candado de la conexión no es reentrante. DT-10 incorpora la primera reconstrucción de tabla del proyecto —la migración 9, sobre el kárdex— con sus dos avisos para la siguiente, y el respaldo previo a migrar con `VACUUM INTO`. La tabla de DT-8 incorpora las cuatro tablas del consumo.
 **Cambios en 1.5:** DT-6 documenta por qué las rutas no se cargan de forma diferida y para qué se conserva el presupuesto de paquete, que pasa a 700 kB / 1,5 MB. Nueva DT-15: quitar un producto del catálogo son dos operaciones —borrar o desactivar— y el destino lo decide el rastro del producto, con las claves foráneas del esquema como garantía de RF-CAT-07. `RepositorioProducto` incorpora `rastro_de_producto` y `limpiar_catalogo`. `FichaProducto` incorpora `agotado`, que la interfaz no puede deducir del texto de la existencia.
 **Cambios en 1.4:** nueva DT-14: las cifras de la pantalla Ventas se calculan sobre la sesión de caja de referencia, no sobre el día del calendario. DT-5 incorpora el puerto `ConsultaVentasDeSesion` y la agregación compartida `casos/agregados.rs`. Se retira `resumen_de_hoy`.
 **Cambios en 1.3:** se incorporan la libra como unidad base, los tres métodos de pago y la tasa de cambio congelada por venta. El esquema añade el arqueo por moneda y el modo de cierre.
@@ -65,7 +66,7 @@ Estas no se negocian: vienen del documento de requerimientos y condicionan todo 
 - **Transaccional de verdad.** RNF-5 exige que una venta no pueda dejar el inventario a medias. SQLite da atomicidad real; un archivo escrito a mano, no.
 - **Un solo archivo.** Esto convierte RF-DAT-02 (respaldo) en copiar un archivo y RF-DAT-03 (restauración) en reemplazarlo. La operación más crítica del sistema resulta ser la más simple.
 - **Sin servidor ni instalación.** Coherente con R-2 y con RNF-10.
-- **Consultas.** Los informes de §6.13 de los requerimientos son agregaciones por fecha, producto, categoría y método de pago. SQL las resuelve; un almacén clave-valor obligaría a recorrer todo en memoria.
+- **Consultas.** Los informes de §6.14 de los requerimientos son agregaciones por fecha, producto, categoría y método de pago. SQL las resuelve; un almacén clave-valor obligaría a recorrer todo en memoria.
 
 **Alternativas descartadas.**
 
@@ -153,7 +154,7 @@ infrastructure ──────┘   (implementa los puertos que application d
 **Por qué.** Tres razones concretas, no ideológicas:
 
 1. **RNF-4** pide poder añadir lector de código de barras e impresora térmica sin rediseñar. Con puertos, cada periférico es un adaptador nuevo; el dominio ni se entera.
-2. **Las reglas se prueban sin base de datos.** Los casos de prueba que los requerimientos ya dejaron escritos —el arroz de §6.6, el refresco de §6.2, la comisión de §6.11— son pruebas unitarias puras, en milisegundos, sin montar nada.
+2. **Las reglas se prueban sin base de datos.** Los casos de prueba que los requerimientos ya dejaron escritos —el arroz de §6.6, el refresco de §6.2, la comisión de §6.13— son pruebas unitarias puras, en milisegundos, sin montar nada.
 3. **Cambiar de motor de persistencia** significaría escribir otro adaptador, no tocar las reglas.
 
 **Puertos pequeños.** Un puerto agrupa lo que un caso de uso necesita, no todo lo que la base sabe hacer. Las ventas en espera tienen su propio puerto, `RepositorioVentaEnEspera` (`guardar`, `listar`, `obtener`, `eliminar`), en lugar de cuatro métodos más en `RepositorioProducto`: quien lista esperas no necesita saber cerrar una caja, y un doble en memoria para las pruebas no debería implementar cuarenta métodos para usar cuatro. Su adaptador SQLite comparte la misma `BaseDatos` que el resto.
@@ -247,6 +248,9 @@ Principios aplicados:
 | `movimiento_efectivo` | Entradas y salidas de efectivo ajenas a la venta | RF-CAJ-03 |
 | `operador` | Personas que atienden la caja (sin credenciales) | RF-CAJ-09 |
 | `historial_precio` / `historial_costo` | Cambios de precio y de costo | RF-PRE-04 |
+| `cuenta_consumo` | Cuentas de consumo de los dueños, administrables | RF-CON-04 |
+| `consumo` / `consumo_linea` | Consumos con su costo **congelado** por renglón y su ubicación de origen | RF-CON-01, RF-CON-02 |
+| `pago_consumo` | Liquidaciones de deuda. **Sin sesión de caja**, a propósito | RF-CON-10, RF-CON-11 |
 | `configuracion` | Parámetros del negocio en pares clave-valor | RF-DAT-06 |
 
 **Definición de las tablas centrales**
@@ -431,6 +435,15 @@ Cumple RF-DAT-08: el usuario actualiza la aplicación y sus datos se migran solo
 
 Ejemplo: la migración 7 añade `venta_en_espera` y `venta_en_espera_linea` (RF-VTA-14) sin tocar ninguna de las seis anteriores.
 
+**La migración 9 es la primera que RECONSTRUYE una tabla**, y conviene saber por qué y qué cuesta. SQLite no permite modificar una restricción `CHECK`, así que admitir dos tipos nuevos en `movimiento.tipo` (RF-CON-03) obliga a crear la tabla nueva, copiar, borrar la vieja, renombrar y **rehacer sus índices**. El `id` se copia explícitamente: es alias de `rowid` sin `AUTOINCREMENT` y el kárdex se lee con `ORDER BY id DESC`, de modo que dejar que se reasignen cambiaría el orden del historial.
+
+Dos avisos para la próxima reconstrucción:
+
+- `movimiento` es tabla **hija**: su única clave foránea es de salida y ninguna otra tabla la referencia, así que no hace falta desactivar claves foráneas. El día que haya que reconstruir una tabla **padre** —`producto`, `venta`, `sesion_caja`— el procedimiento recomendado por SQLite exige `PRAGMA foreign_keys = OFF`, y **eso no funciona dentro de una transacción**: el ejecutor de migraciones envuelve cada una en `BEGIN…COMMIT`, así que habría que cambiar el ejecutor.
+- Cuando una migración vaya a reconstruir una tabla, **decide de una vez todos los valores nuevos del `CHECK`**. La 9 añade `CONSUMO` y `CONSUMO_ANULADO` juntos porque una segunda reconstrucción costaría lo mismo que la primera.
+
+**Respaldo previo (RF-DAT-02).** Antes de aplicar migraciones, `BaseDatos::abrir` deja una copia del estado anterior en `<base>.previo-v{N}`. Se hace con `VACUUM INTO` y **no** copiando el archivo: la conexión trabaja en modo WAL, así que la base vive en tres archivos, y copiar solo el `.db` con escrituras sin fusionar produce un respaldo que existe y no sirve — peor que no tener ninguno, porque invita a seguir adelante con confianza falsa. Se escribe con un nombre parcial y se renombra al final, de modo que un proceso interrumpido deja un `.parcial` evidente y no un respaldo truncado con el nombre del bueno. **Si la copia falla, no se migra.** Solo corre si hay migraciones pendientes y si `user_version` no es cero: en la versión 0 no hay ni tablas, porque las crea la migración 1.
+
 ---
 
 ### DT-11 — Respaldo y restauración
@@ -543,6 +556,28 @@ El historial (`HistorialVentasDto`) y la vista agrupada (`VentasPorProductoDto`)
 
 ---
 
+### DT-16 — El consumo tiene su propio puerto, y la razón es un candado
+
+**Decisión.** El consumo de los dueños (§6.10) se implementa con un puerto estrecho propio, `RepositorioConsumo`, y no con diez métodos más en `RepositorioProducto`. Sus diez métodos los usa quien tiene el catálogo delante, pero `RepositorioProducto` ya arrastra más de treinta y **cada doble de pruebas los implementa todos**: diez más engordarían todos los dobles existentes para servir a un caso de uso que no los usa. Es el criterio de «puertos pequeños» de DT-5, con los mismos precedentes: `RepositorioVentaEnEspera` y `ConsultaVentasDeSesion`.
+
+**La restricción que condiciona el diseño, y no da error de compilación.** `BaseDatos::con` y `BaseDatos::en_transaccion` toman el **mismo** `Mutex`, y `std::sync::Mutex` no es reentrante. Un método de este adaptador que llamara a `RepositorioProducto` dentro de su transacción **colgaría el programa**: no al compilar, sino de madrugada, con la caja abierta. Por eso `registrar_consumo` escribe él solo la cabecera, los renglones, el valor del inventario, la existencia y los asientos del kárdex. Es lo mismo que hace `registrar_venta`, y por el mismo motivo.
+
+La pieza que se comparte es `escribir_movimiento`, que pasa a `pub(crate)`: copiar el `INSERT` del kárdex en dos sitios garantizaría que las dos copias se separen en cuanto alguien toque una.
+
+**Un asiento por `(producto, ubicación)`.** `vender.rs` agrupa los asientos solo por producto porque la venta siempre sale de la vitrina. El consumo puede sacar de las dos en el mismo acto (RF-CON-05), y el kárdex explica saldos **por ubicación**, así que la clave de agrupación crece. Eso obliga a que `Ubicacion` admita orden, para poder ser clave de un mapa ordenado; es orden para agrupar, no jerarquía.
+
+**El saldo es una suma, no un cálculo.** `saldos` suma dos columnas enteras ya guardadas —`consumo.total_costo` y `pago_consumo.importe`— con el filtro de anulación a los **dos** lados. Se hace con **dos subconsultas y no con dos `JOIN`**: unir consumos y pagos en una sola consulta produce una fila por cada combinación —tres consumos por dos pagos son seis— y cada importe se sumaría varias veces. Es el error clásico de este tipo de informe y da una cifra que parece plausible.
+
+Por eso `consumo.total_costo` **se almacena** en lugar de derivarse, igual que `venta.costo_total`: es lo que permite que el saldo sea una suma de enteros en SQL. Derivarlo exigiría multiplicar cantidad por factor por costo, y esa aritmética no se hace en SQL.
+
+**Lo que sí sube a Rust.** El eje por producto (RF-CON-12) necesita justo esa multiplicación, así que el puerto devuelve los renglones **en crudo** —`lineas_consumidas`— y la agregación se hace en el caso de uso, igual que con `lineas_del_periodo`. Multiplicar con enteros escalados en SQL exige una división intermedia por mil que trunca milésimas. No se reutiliza `LineaDelPeriodo` con `precio: 0`: eso compila y mete una mentira en el dato.
+
+**Cuatro capas pueden recortar un saldo negativo** —dominio, adaptador, objeto de transferencia e interfaz— y ninguna debe hacerlo (RF-CON-14). `Dinero` admite negativos y `restar` no pone suelo, así que no hace falta ningún tipo nuevo; lo que hace falta es no «arreglarlo» por el camino. La prueba que lo custodia es el recorrido completo: consumir, liquidar, anular el consumo y anular la liquidación tiene que cerrar en cero exacto. Si una sola capa recortara, ese ciclo no cuadraría.
+
+**Consecuencia asumida.** El consumo no deja rastro en ninguna cifra de caja ni de venta, lo que significa que **el dinero de una liquidación es invisible para la aplicación**. Se sabe cuánto se debía y cuánto se pagó, pero ese pago no aparece en ningún arqueo ni informe de ingresos. Es correcto —no es un ingreso— y es lo que el propietario eligió; el día que ese efectivo pase por la gaveta hay que anotarlo a mano (RF-CAJ-03).
+
+---
+
 ## 4. Estructura del repositorio
 
 ```
@@ -594,7 +629,7 @@ Entidades y objetos de valor principales. Los tipos son ilustrativos del diseño
 
 1. **Arroz** (§6.6): `100 kg @ $10` → venta 40 → `100 kg @ $14` produce costo `$12.50` sobre 160 kg; la venta posterior de 50 kg deja ganancia bruta de `$275`.
 2. **Refresco** (§6.2): unidad a `$80` y six-pack a `$300` sobre costo base `$41.67`; vender un six-pack descuenta 6 unidades.
-3. **Comisión** (§6.11): venta de `$100 000` al 2 % da `$2 000`, y la ganancia neta de comisión es `$28 000`.
+3. **Comisión** (§6.13): venta de `$100 000` al 2 % da `$2 000`, y la ganancia neta de comisión es `$28 000`.
 
 ---
 
@@ -643,5 +678,8 @@ Entidades y objetos de valor principales. Los tipos son ilustrativos del diseño
 | RF-VTA-13, RF-PRS-13 (congelado) | DT-8 (columnas congeladas en `venta_linea`) |
 | RF-CAJ-08, RF-CMS-06 (inmutabilidad) | DT-8 (`sesion_caja`), DT-9 |
 | RF-DAT-08 (migraciones) | DT-10 |
+| RF-DAT-02 (respaldo previo a migrar) | DT-10 (`VACUUM INTO` antes de aplicar migraciones) |
+| RF-CAT-13/14 (quitar del catálogo) | DT-15 (dos operaciones, garantía en las claves foráneas) |
+| RF-CON-01 a RF-CON-20 (consumo de los dueños) | DT-16 (puerto `RepositorioConsumo`, escritura en un método), DT-8 (cuatro tablas), DT-10 (migración 9 reconstruye el kárdex) |
 | RF-VTA-14 (venta en espera) | DT-5 (puerto `RepositorioVentaEnEspera`), DT-8 (tablas propias), DT-9 (borrado atómico al cobrar) |
 | RF-VTA-20, RF-EST-03b (Ventas por sesión) | DT-14 (sesión de referencia), DT-5 (puerto `ConsultaVentasDeSesion`, `casos/agregados.rs`) |

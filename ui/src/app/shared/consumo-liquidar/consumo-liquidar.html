@@ -1,0 +1,71 @@
+<div class="velo" (click)="cerrado.emit()"></div>
+
+<div
+  class="modal modal--estrecho"
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="titulo-liquidar"
+>
+  <div class="modal__cabecera">
+    <span class="modal__titulo" id="titulo-liquidar">{{ cuenta().nombre }} pagó…</span>
+    <button type="button" class="boton boton--discreto" (click)="cerrado.emit()">Cerrar</button>
+  </div>
+
+  <div class="modal__cuerpo">
+    <p class="apagado">
+      {{ cuenta().nombre }} {{ cuenta().aFavor ? 'tiene a favor' : 'debe' }}
+      <strong class="cifra">{{ cuenta().saldo }}</strong>. Se puede pagar todo o una parte.
+    </p>
+
+    <div class="campo">
+      <label for="consumo-importe">Cuánto paga</label>
+      <input
+        id="consumo-importe"
+        class="control--cifra"
+        inputmode="decimal"
+        autocomplete="off"
+        [value]="importe()"
+        (input)="importe.set($any($event.target).value)"
+        (keydown.enter)="confirmar()"
+        (keydown.escape)="cerrado.emit()"
+      />
+    </div>
+
+    <div class="campo">
+      <label for="consumo-nota">Nota <span class="opcional">opcional</span></label>
+      <input
+        id="consumo-nota"
+        autocomplete="off"
+        placeholder="a cuenta, del cumpleaños…"
+        [value]="nota()"
+        (input)="nota.set($any($event.target).value)"
+        (keydown.enter)="confirmar()"
+      />
+    </div>
+
+    <span class="pista">
+      Este dinero <strong>no entra en la caja</strong>: el local recupera un costo que ya había
+      gastado, no gana nada. Si el efectivo va a la gaveta, anótalo también como entrada de
+      efectivo en Caja.
+    </span>
+
+    <div class="modal__acciones">
+      <button
+        type="button"
+        class="boton boton--discreto"
+        [disabled]="ocupado()"
+        (click)="cerrado.emit()"
+      >
+        Cancelar
+      </button>
+      <button
+        type="button"
+        class="boton boton--destacado"
+        [disabled]="!puedeLiquidar"
+        (click)="confirmar()"
+      >
+        {{ ocupado() ? 'Anotando…' : 'Anotar el pago' }}
+      </button>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,298 @@
+<section class="pagina pagina--ancha">
+  @if (error(); as fallo) {
+    <div
+      class="aviso"
+      [class.aviso--error]="!fallo.delUsuario"
+      [class.aviso--atencion]="fallo.delUsuario"
+      role="alert"
+    >
+      <strong>{{ fallo.mensaje }}</strong>
+      <span class="codigo">{{ fallo.codigo }}</span>
+    </div>
+  }
+
+  @if (detalle(); as info) {
+    <header class="cabecera-pagina">
+      <a class="volver" routerLink="/consumo">Todas las cuentas</a>
+
+      <div class="ficha">
+        <span class="avatar">
+          <app-avatar [nombre]="info.cuenta.nombre" />
+        </span>
+
+        <div class="ficha__identidad">
+          <div class="fila fila--titulo">
+            <h1>{{ info.cuenta.nombre }}</h1>
+            @if (!info.cuenta.activa) {
+              <span class="etiqueta">Cuenta retirada</span>
+            }
+          </div>
+          <p class="descripcion">
+            Se llevó <strong class="cifra">{{ info.cuenta.consumido }}</strong> y pagó
+            <strong class="cifra">{{ info.cuenta.pagado }}</strong>.
+            @if (!info.cuenta.aFavor && info.cuenta.saldo !== '0.00') {
+              Carga el {{ info.cuenta.porcion }} % de la deuda de la casa.
+            }
+          </p>
+        </div>
+
+        <div class="ficha__saldo">
+          <span class="ficha__rotulo">
+            @if (info.cuenta.aFavor) {
+              A favor
+            } @else if (info.cuenta.saldo === '0.00') {
+              Al día
+            } @else {
+              Debe
+            }
+          </span>
+          <strong class="cifra ficha__cifra" [class.cifra--positiva]="info.cuenta.aFavor">
+            {{ info.cuenta.saldo }}
+          </strong>
+        </div>
+      </div>
+
+      <div class="acciones">
+        <button
+          type="button"
+          class="boton boton--destacado"
+          [disabled]="ocupado() || !info.cuenta.activa"
+          (click)="registrando.set(info.cuenta)"
+        >
+          Consumir
+        </button>
+        <button
+          type="button"
+          class="boton boton--secundario"
+          [disabled]="ocupado() || info.cuenta.saldo === '0.00'"
+          (click)="liquidando.set(info.cuenta)"
+        >
+          Pagar
+        </button>
+      </div>
+    </header>
+
+    <!-- ========================================= el libro de la cuenta
+         Un solo eje cronológico: lo que se llevó suma, lo que pagó resta.
+         Es un estado de cuenta, que es el modelo mental de un saldo
+         corriente. -->
+    <div class="panel panel--lista">
+      <div class="panel__cabecera">
+        <span class="panel__titulo">Historial</span>
+        <span class="apagado nota">
+          {{ apuntes().length }}
+          {{ apuntes().length === 1 ? 'apunte' : 'apuntes' }} · lo más reciente arriba
+        </span>
+      </div>
+
+      <div class="tabla-envoltorio">
+        <table class="tabla">
+          <thead>
+            <tr>
+              <th>Cuándo</th>
+              <th>Qué pasó</th>
+              <th class="derecha">Movió</th>
+              <th>Estado</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (apunte of apuntes(); track clave(apunte)) {
+              <tr
+                class="fila-clicable"
+                [class.fila--inactiva]="apunte.anulado"
+                (click)="alternar(apunte)"
+              >
+                <td class="mono">{{ apunte.cuando }}</td>
+                <td>
+                  @if (apunte.que === 'consumo') {
+                    Se llevó mercancía
+                    <span class="apagado nota">· lo tomó {{ apunte.quien }}</span>
+                  } @else {
+                    Liquidó
+                    <span class="apagado nota">· {{ apunte.quien }}</span>
+                  }
+                </td>
+                <td class="derecha">
+                  <strong
+                    class="cifra"
+                    [class.cifra--positiva]="!apunte.suma && !apunte.anulado"
+                    [class.tachado]="apunte.anulado"
+                  >
+                    {{ apunte.suma ? '+' : '−' }}{{ apunte.importe }}
+                  </strong>
+                </td>
+                <td>
+                  @if (apunte.anulado) {
+                    <span class="etiqueta" [title]="apunte.motivoAnulacion ?? ''">Anulado</span>
+                  } @else if (apunte.suma) {
+                    <span class="etiqueta etiqueta--atencion">Deuda</span>
+                  } @else {
+                    <span class="etiqueta etiqueta--acento">Pago</span>
+                  }
+                </td>
+                <td class="derecha">
+                  <span class="apagado">{{ abierto() === clave(apunte) ? '▾' : '›' }}</span>
+                </td>
+              </tr>
+
+              <!-- El detalle sale DEBAJO del apunte, como las opciones de
+                   producto en Almacén y Vitrina: la fila que se pulsa no se
+                   mueve de sitio. -->
+              @if (abierto() === clave(apunte)) {
+                <tr class="fila-desplegada">
+                  <td colspan="5">
+                    <div class="detalle">
+                      @if (apunte.que === 'consumo') {
+                        @for (renglon of renglones(); track $index) {
+                          <div class="renglon">
+                            <span class="renglon__nombre">{{ renglon.nombreProducto }}</span>
+                            <span class="apagado nota">{{ renglon.nombrePresentacion }}</span>
+                            <span class="apagado nota">de {{ renglon.origen }}</span>
+                            <span class="cifra">{{ renglon.cantidad }}</span>
+                            <span class="apagado cifra nota">× {{ renglon.costoUnitario }}</span>
+                            <strong class="cifra">{{ renglon.importe }}</strong>
+                          </div>
+                        }
+                      }
+
+                      @if (apunte.anulado) {
+                        <span class="pista">
+                          Anulado: {{ apunte.motivoAnulacion }}.
+                          @if (apunte.que === 'consumo') {
+                            La mercancía volvió al sitio del que salió y la deuda bajó.
+                          } @else {
+                            La deuda subió otra vez.
+                          }
+                        </span>
+                      } @else {
+                        <div class="detalle__pie">
+                          <button
+                            type="button"
+                            class="boton boton--discreto"
+                            [disabled]="ocupado()"
+                            (click)="abrirAnulacion(apunte); $event.stopPropagation()"
+                          >
+                            {{ apunte.que === 'consumo' ? 'Anular el consumo' : 'Anular el pago' }}
+                          </button>
+                        </div>
+                      }
+                    </div>
+                  </td>
+                </tr>
+              }
+            } @empty {
+              <tr>
+                <td colspan="5">
+                  <div class="vacio">
+                    @if (cargando()) {
+                      <span class="vacio__titulo">Cargando…</span>
+                    } @else {
+                      <span class="vacio__titulo">
+                        {{ info.cuenta.nombre }} no se ha llevado nada
+                      </span>
+                      <span class="vacio__texto">
+                        Cuando se lleve algo, aparecerá aquí con lo que sumó a su deuda.
+                      </span>
+                    }
+                  </div>
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    @if (registrando(); as aQuien) {
+      <app-consumo-registrar
+        [cuenta]="aQuien"
+        (registrado)="alRegistrar()"
+        (cerrado)="registrando.set(null)"
+        (fallo)="error.set($event)"
+      />
+    }
+
+    @if (liquidando(); as quienPaga) {
+      <app-consumo-liquidar
+        [cuenta]="quienPaga"
+        (liquidado)="alLiquidar()"
+        (cerrado)="liquidando.set(null)"
+        (fallo)="error.set($event)"
+      />
+    }
+  } @else if (!cargando()) {
+    <div class="vacio">
+      <span class="vacio__titulo">Esa cuenta no existe</span>
+      <a class="boton" routerLink="/consumo">Volver a las cuentas</a>
+    </div>
+  }
+
+  <!-- ===================================================== anular -->
+  @if (anulando(); as apunte) {
+    <div class="velo" (click)="cerrarAnulacion()"></div>
+
+    <div
+      class="modal modal--estrecho"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="titulo-anular"
+    >
+      <div class="modal__cabecera">
+        <span class="modal__titulo" id="titulo-anular">
+          {{ apunte.que === 'consumo' ? 'Anular el consumo' : 'Anular la liquidación' }}
+        </span>
+        <button type="button" class="boton boton--discreto" (click)="cerrarAnulacion()">
+          Cerrar
+        </button>
+      </div>
+
+      <div class="modal__cuerpo">
+        <p class="apagado">
+          @if (apunte.que === 'consumo') {
+            La mercancía vuelve al sitio del que salió y al costo con que salió, y la deuda
+            <strong>baja</strong>. El registro no se borra: queda marcado.
+          } @else {
+            La deuda <strong>sube</strong> otra vez. Es para corregir un error de tecleo, no para
+            perdonar lo que se debe.
+          }
+        </p>
+
+        <div class="campo">
+          <label for="consumo-motivo">Por qué</label>
+          <input
+            id="consumo-motivo"
+            autocomplete="off"
+            placeholder="Se cargó a la cuenta equivocada"
+            [value]="motivo()"
+            (input)="motivo.set($any($event.target).value)"
+            (keydown.enter)="confirmarAnulacion()"
+            (keydown.escape)="cerrarAnulacion()"
+          />
+          <span class="pista">
+            Obligatorio: una anulación sin explicación no se distingue de un descuadre.
+          </span>
+        </div>
+
+        <div class="modal__acciones">
+          <button
+            type="button"
+            class="boton boton--discreto"
+            [disabled]="ocupado()"
+            (click)="cerrarAnulacion()"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            class="boton boton--peligro"
+            [disabled]="ocupado() || !motivo().trim()"
+            (click)="confirmarAnulacion()"
+          >
+            {{ ocupado() ? 'Anulando…' : 'Sí, anular' }}
+          </button>
+        </div>
+      </div>
+    </div>
+  }
+</section>

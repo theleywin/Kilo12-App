@@ -18,8 +18,14 @@ export interface Seccion {
   readonly titulo: string;
   /** Una frase que explique la pantalla a quien nunca la ha visto. */
   readonly descripcion: string;
-  /** Atajo de teclado que la abre. */
-  readonly tecla: string;
+  /**
+   * Atajo de teclado que la abre.
+   *
+   * Opcional a propósito. Los atajos son para la ruta caliente de la caja:
+   * una sección que se abre dos veces por semana no justifica quitarle la
+   * tecla a otra ni empujar a la Guía a F11.
+   */
+  readonly tecla?: string;
   readonly icono: Icono;
   readonly densidad: Densidad;
   /** Qué va a vivir aquí. Se muestra mientras la pantalla está pendiente. */
@@ -36,6 +42,7 @@ export type Icono =
   | 'caja'
   | 'contar'
   | 'informes'
+  | 'consumo'
   | 'guia';
 
 export const SECCIONES: readonly Seccion[] = [
@@ -156,6 +163,20 @@ export const SECCIONES: readonly Seccion[] = [
       'Productos más vendidos y más rentables',
       'Productos por agotarse según el mínimo y el ritmo de venta',
       'Ganancia del período, descontada la comisión',
+    ],
+  },
+  {
+    ruta: 'consumo',
+    titulo: 'Consumo',
+    descripcion: 'Lo que se llevan los dueños para su casa, y lo que deben por ello.',
+    // Sin atajo: se abre dos veces por semana, no cien al día.
+    icono: 'consumo',
+    densidad: 'amplia',
+    incluye: [
+      'Tres cuentas: Ivett, Claudia e Inés',
+      'Deuda al costo, no al precio de venta',
+      'Liquidar toda la deuda o una parte',
+      'Qué producto se está yendo en consumo',
     ],
   },
 ];

@@ -7,21 +7,24 @@
 
 use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
+use std::rc::Rc;
 
 use domain::{
     Cantidad, Dinero, EstadoSesion, Existencias, IdPresentacion, IdProducto, IdSesion,
     IdVentaEnEspera, Inventario, Movimiento, MovimientoEfectivo, Presentacion, Producto,
-    SesionCaja, UnidadBase, VentaEnEspera,
+    SesionCaja, Ubicacion, UnidadBase, VentaEnEspera,
 };
 
 use crate::error::Resultado;
 use crate::puertos::{
-    AcumuladoSesion, AnulacionConfirmada, Asiento, CambioDeCosto, CambioDePrecio, CambioRegistrado,
-    CierreConfirmado, ConsultaVentasDeSesion, CostoRegistrado, DetalleVenta, EsperaRegistrada,
-    EsperaResumida, LineaDelPeriodo, MovimientoEfectivoRegistrado, MovimientoRegistrado,
-    ProductoConInventario, RastroProducto, RepositorioProducto, RepositorioVentaEnEspera,
-    SesionRegistrada, TotalesPeriodo, VentaConfirmada, VentaDiaria, VentaHoraria, VentaPorMetodo,
-    VentaRegistrada,
+    AcumuladoSesion, AnulacionConfirmada, AnulacionConsumo, Asiento, CambioDeCosto, CambioDePrecio,
+    CambioRegistrado, CierreConfirmado, ConsultaVentasDeSesion, ConsumoConfirmado,
+    ConsumoRegistrado, CostoRegistrado, CuentaConsumo, DescuentoConsumo, DetalleVenta,
+    EsperaRegistrada, EsperaResumida, LineaConsumoRegistrada, LineaDelPeriodo,
+    MovimientoEfectivoRegistrado, MovimientoRegistrado, PagoConsumoRegistrado,
+    ProductoConInventario, RastroProducto, RepositorioConsumo, RepositorioProducto,
+    RepositorioVentaEnEspera, SaldoCuenta, SesionRegistrada, TotalesPeriodo, VentaConfirmada,
+    VentaDiaria, VentaHoraria, VentaPorMetodo, VentaRegistrada,
 };
 
 fn cantidad(texto: &str) -> Cantidad {
@@ -121,6 +124,37 @@ impl ProductosEnMemoria {
 
         drop(productos);
         self
+    }
+
+    /// Pone mercancía también en la bodega.
+    ///
+    /// `con_producto` solo surte la vitrina, y el consumo puede salir de
+    /// cualquiera de las dos.
+    pub(crate) fn con_bodega(self, id: i64, en_bodega: &str) -> Self {
+        let mut productos = self.productos.borrow_mut();
+        let fila = productos.get_mut(&id).expect("producto dado de alta");
+
+        let existencias = Existencias::nuevas(
+            cantidad(en_bodega),
+            fila.inventario.existencias().en(Ubicacion::Vitrina),
+        )
+        .expect("existencias");
+
+        fila.inventario = Inventario::nuevo(existencias, fila.inventario.valor_total())
+            .expect("inventario válido");
+
+        drop(productos);
+        self
+    }
+
+    /// Deja el inventario de un producto como se lo entregaron.
+    ///
+    /// Es lo que hace el adaptador de SQLite al escribir la existencia y el
+    /// valor dentro de su transacción.
+    pub(crate) fn fijar_inventario(&self, id: IdProducto, inventario: Inventario) {
+        if let Some(guardado) = self.productos.borrow_mut().get_mut(&id.0) {
+            guardado.inventario = inventario;
+        }
     }
 
     /// El inventario que tiene ahora un producto, para comprobar efectos.
@@ -488,6 +522,309 @@ impl ConsultaVentasDeSesion for VentasDeSesionEnMemoria {
             .get(&sesion.0)
             .cloned()
             .unwrap_or_default())
+    }
+}
+
+/// Los asientos que un consumo entregó al puerto: su identificador y, por
+/// cada estante tocado, el producto y el movimiento.
+type AsientosDeConsumo = (i64, Vec<(IdProducto, Movimiento)>);
+
+/// El consumo de los dueños, en memoria.
+///
+/// Guarda lo mismo que guardaría SQLite y calcula el saldo igual: suma de
+/// lo congelado menos lo pagado, con el filtro de anulación a los **dos**
+/// lados. Si esta cuenta se hiciera de otra forma aquí, las pruebas de los
+/// casos de uso dejarían de decir nada sobre lo que pasa de verdad.
+#[derive(Debug)]
+pub(crate) struct ConsumosEnMemoria {
+    cuentas: RefCell<Vec<CuentaConsumo>>,
+    /// Cabeceras y renglones, por identificador.
+    consumos: RefCell<BTreeMap<i64, (ConsumoRegistrado, Vec<LineaConsumoRegistrada>)>>,
+    pagos: RefCell<BTreeMap<i64, PagoConsumoRegistrado>>,
+    /// Los descuentos que recibió cada consumo, para comprobar los asientos.
+    pub(crate) asientos: RefCell<Vec<AsientosDeConsumo>>,
+    /// El catálogo sobre el que escribe, si se le dio uno.
+    ///
+    /// En SQLite, `registrar_consumo` escribe **él solo** la existencia y el
+    /// valor del inventario, porque el candado de la conexión no es
+    /// reentrante y no puede delegar en otro puerto. Aquí hace lo mismo, y
+    /// no es un detalle: sin esto, una prueba de anulación vería la
+    /// existencia intacta y pasaría en verde sin haber comprobado nada.
+    catalogo: Option<Rc<ProductosEnMemoria>>,
+    siguiente_consumo: Cell<i64>,
+    siguiente_pago: Cell<i64>,
+}
+
+impl Default for ConsumosEnMemoria {
+    fn default() -> Self {
+        Self {
+            cuentas: RefCell::new(
+                ["Ivett", "Claudia", "Inés"]
+                    .iter()
+                    .enumerate()
+                    .map(|(posicion, nombre)| CuentaConsumo {
+                        id: posicion as i64 + 1,
+                        nombre: (*nombre).to_owned(),
+                        activa: true,
+                    })
+                    .collect(),
+            ),
+            consumos: RefCell::new(BTreeMap::new()),
+            pagos: RefCell::new(BTreeMap::new()),
+            asientos: RefCell::new(Vec::new()),
+            catalogo: None,
+            siguiente_consumo: Cell::new(0),
+            siguiente_pago: Cell::new(0),
+        }
+    }
+}
+
+impl ConsumosEnMemoria {
+    /// Escribe sobre ese catálogo, como hace el adaptador de SQLite.
+    pub(crate) fn sobre(catalogo: Rc<ProductosEnMemoria>) -> Self {
+        Self {
+            catalogo: Some(catalogo),
+            ..Self::default()
+        }
+    }
+
+    /// Lleva al catálogo los saldos que el caso de uso calculó.
+    fn aplicar(&self, descuentos: &[DescuentoConsumo]) {
+        if let Some(catalogo) = &self.catalogo {
+            for descuento in descuentos {
+                catalogo.fijar_inventario(descuento.producto, descuento.inventario);
+            }
+        }
+    }
+
+    /// Retira una cuenta, como si se hubiera desactivado desde la pantalla.
+    pub(crate) fn desactivar_cuenta(&self, id: i64) {
+        for cuenta in self.cuentas.borrow_mut().iter_mut() {
+            if cuenta.id == id {
+                cuenta.activa = false;
+            }
+        }
+    }
+
+    /// El saldo de una cuenta, ya calculado.
+    pub(crate) fn saldo_de(&self, cuenta: i64) -> Dinero {
+        self.saldos()
+            .expect("saldos")
+            .into_iter()
+            .find(|saldo| saldo.cuenta == cuenta)
+            .map_or(Dinero::CERO, |saldo| saldo.saldo)
+    }
+}
+
+impl RepositorioConsumo for ConsumosEnMemoria {
+    fn cuentas(&self, incluir_inactivas: bool) -> Resultado<Vec<CuentaConsumo>> {
+        Ok(self
+            .cuentas
+            .borrow()
+            .iter()
+            .filter(|cuenta| incluir_inactivas || cuenta.activa)
+            .cloned()
+            .collect())
+    }
+
+    fn registrar_consumo(&self, confirmado: &ConsumoConfirmado<'_>) -> Resultado<i64> {
+        let id = self.siguiente_consumo.get().saturating_add(1);
+        self.siguiente_consumo.set(id);
+
+        let nombre_cuenta = self
+            .cuentas
+            .borrow()
+            .iter()
+            .find(|cuenta| cuenta.id == confirmado.cuenta)
+            .map_or_else(String::new, |cuenta| cuenta.nombre.clone());
+
+        let lineas = confirmado
+            .lineas
+            .iter()
+            .map(|linea| LineaConsumoRegistrada {
+                producto: linea.producto,
+                nombre_producto: linea.nombre_producto.clone(),
+                nombre_presentacion: linea.nombre_presentacion.clone(),
+                unidad_base: UnidadBase::Unidad,
+                origen: linea.origen,
+                cantidad: linea.cantidad,
+                factor: linea.factor,
+                costo_unitario: linea.costo_unitario,
+            })
+            .collect();
+
+        self.consumos.borrow_mut().insert(
+            id,
+            (
+                ConsumoRegistrado {
+                    id,
+                    cuenta: confirmado.cuenta,
+                    nombre_cuenta,
+                    tomado_por: confirmado.tomado_por.to_owned(),
+                    total_costo: confirmado.total_costo,
+                    ocurrido_en: "2026-10-14 12:00:00".to_owned(),
+                    anulado_en: None,
+                    motivo_anulacion: None,
+                },
+                lineas,
+            ),
+        );
+
+        self.aplicar(confirmado.descuentos);
+
+        self.asientos.borrow_mut().push((
+            id,
+            confirmado
+                .descuentos
+                .iter()
+                .map(|descuento| (descuento.producto, descuento.movimiento.clone()))
+                .collect(),
+        ));
+
+        Ok(id)
+    }
+
+    fn consumo(
+        &self,
+        id: i64,
+    ) -> Resultado<Option<(ConsumoRegistrado, Vec<LineaConsumoRegistrada>)>> {
+        Ok(self.consumos.borrow().get(&id).cloned())
+    }
+
+    fn anular_consumo(&self, anulacion: &AnulacionConsumo<'_>) -> Resultado<()> {
+        if let Some((consumo, _)) = self.consumos.borrow_mut().get_mut(&anulacion.consumo) {
+            consumo.anulado_en = Some("2026-10-14 13:00:00".to_owned());
+            consumo.motivo_anulacion = Some(anulacion.motivo.clone());
+        }
+
+        self.aplicar(anulacion.reversas);
+
+        self.asientos.borrow_mut().push((
+            anulacion.consumo,
+            anulacion
+                .reversas
+                .iter()
+                .map(|reversa| (reversa.producto, reversa.movimiento.clone()))
+                .collect(),
+        ));
+
+        Ok(())
+    }
+
+    fn registrar_pago(&self, cuenta: i64, importe: Dinero, nota: Option<&str>) -> Resultado<i64> {
+        let id = self.siguiente_pago.get().saturating_add(1);
+        self.siguiente_pago.set(id);
+
+        self.pagos.borrow_mut().insert(
+            id,
+            PagoConsumoRegistrado {
+                id,
+                cuenta,
+                importe,
+                nota: nota.map(str::to_owned),
+                ocurrido_en: "2026-10-14 12:30:00".to_owned(),
+                anulado_en: None,
+                motivo_anulacion: None,
+            },
+        );
+
+        Ok(id)
+    }
+
+    fn pago(&self, id: i64) -> Resultado<Option<PagoConsumoRegistrado>> {
+        Ok(self.pagos.borrow().get(&id).cloned())
+    }
+
+    fn anular_pago(&self, id: i64, motivo: &str) -> Resultado<()> {
+        if let Some(pago) = self.pagos.borrow_mut().get_mut(&id) {
+            pago.anulado_en = Some("2026-10-14 13:30:00".to_owned());
+            pago.motivo_anulacion = Some(motivo.to_owned());
+        }
+        Ok(())
+    }
+
+    fn saldos(&self) -> Resultado<Vec<SaldoCuenta>> {
+        let consumos = self.consumos.borrow();
+        let pagos = self.pagos.borrow();
+
+        self.cuentas
+            .borrow()
+            .iter()
+            .map(|cuenta| {
+                // Los anulados no cuentan, ni de un lado ni del otro.
+                let mut consumido = Dinero::CERO;
+                for (registrado, _) in consumos.values() {
+                    if registrado.cuenta == cuenta.id && registrado.anulado_en.is_none() {
+                        consumido = consumido.sumar(registrado.total_costo)?;
+                    }
+                }
+
+                let mut pagado = Dinero::CERO;
+                for pago in pagos.values() {
+                    if pago.cuenta == cuenta.id && pago.anulado_en.is_none() {
+                        pagado = pagado.sumar(pago.importe)?;
+                    }
+                }
+
+                Ok(SaldoCuenta {
+                    cuenta: cuenta.id,
+                    nombre: cuenta.nombre.clone(),
+                    activa: cuenta.activa,
+                    consumido,
+                    pagado,
+                    // Sin recortar: si queda negativo, la cuenta tiene
+                    // dinero a favor y eso es un estado legítimo.
+                    saldo: consumido.restar(pagado)?,
+                })
+            })
+            .collect()
+    }
+
+    fn consumos_de_cuenta(&self, cuenta: i64, limite: usize) -> Resultado<Vec<ConsumoRegistrado>> {
+        Ok(self
+            .consumos
+            .borrow()
+            .values()
+            .rev()
+            .filter(|(registrado, _)| registrado.cuenta == cuenta)
+            .take(limite)
+            .map(|(registrado, _)| registrado.clone())
+            .collect())
+    }
+
+    fn pagos_de_cuenta(&self, cuenta: i64, limite: usize) -> Resultado<Vec<PagoConsumoRegistrado>> {
+        Ok(self
+            .pagos
+            .borrow()
+            .values()
+            .rev()
+            .filter(|pago| pago.cuenta == cuenta)
+            .take(limite)
+            .cloned()
+            .collect())
+    }
+
+    fn lineas_consumidas(
+        &self,
+        cuenta: Option<i64>,
+        _desde: Option<&str>,
+        _hasta: Option<&str>,
+    ) -> Resultado<Vec<LineaConsumoRegistrada>> {
+        let mut lineas = Vec::new();
+
+        for (registrado, renglones) in self.consumos.borrow().values() {
+            // Lo anulado no cuenta: la mercancía volvió.
+            if registrado.anulado_en.is_some() {
+                continue;
+            }
+            if cuenta.is_some_and(|pedida| pedida != registrado.cuenta) {
+                continue;
+            }
+
+            lineas.extend(renglones.iter().cloned());
+        }
+
+        Ok(lineas)
     }
 }
 

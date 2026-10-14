@@ -1,0 +1,248 @@
+/* Casi todo viene del sistema (estilos/). Aquí solo lo propio del panel:
+   la deuda de la casa con su reparto y las tarjetas de las propietarias.
+
+   El historial no está en esta hoja porque no está en esta página: vive en
+   `/consumo/:cuenta`. Tres libros de apuntes a la vez caben, pero no
+   convienen — lo que se viene a ver aquí es el saldo. */
+
+.nota {
+  font-size: var(--texto-s);
+}
+
+/* ======================================= la deuda de la casa
+   Es la cifra por la que se entra, así que ocupa el sitio de un titular:
+   banda propia, cifra grande y el reparto debajo. */
+
+.casa {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--e1);
+  margin-top: var(--e4);
+  padding: var(--e5) var(--e5) var(--e4);
+  border: 1px solid var(--linea);
+  border-top: 3px solid var(--acento);
+  border-radius: var(--radio-l);
+  background: var(--superficie);
+}
+
+/* A favor cambia el color del filo superior, no el de la cifra: el verde
+   de la cifra ya lo pone `.cifra--positiva` y dos verdes compiten. */
+.casa--a-favor {
+  border-top-color: var(--destaque);
+}
+
+.casa__rotulo {
+  font-size: var(--texto-xs);
+  font-weight: var(--peso-medio);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--apagado);
+}
+
+.casa__total {
+  font-size: var(--texto-3xl);
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+}
+
+.casa__nota {
+  font-size: var(--texto-s);
+  color: var(--apagado);
+}
+
+/* El reparto. Cada parte crece según el `peso` que mandó Rust, de 0 a
+   1000, usado como `flex-grow`: la proporción sale exacta sin que la
+   pantalla divida un solo importe — el ancho lo reparte el navegador. */
+.casa__reparto {
+  display: flex;
+  gap: 3px;
+  width: 100%;
+  max-width: 520px;
+  height: 8px;
+  margin-top: var(--e3);
+}
+
+.casa__parte {
+  border-radius: var(--radio-pildora);
+  background: var(--acento);
+}
+
+/* Cada parte un poco más clara que la anterior: son tres cuentas, así que
+   distinguirlas no necesita tres colores de marca, basta el peso visual. */
+.casa__parte:nth-child(2) {
+  opacity: 0.66;
+}
+
+.casa__parte:nth-child(3) {
+  opacity: 0.4;
+}
+
+.casa__leyenda {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--e4);
+  margin-top: var(--e2);
+}
+
+.casa__clave {
+  display: flex;
+  align-items: center;
+  gap: var(--e1);
+  font-size: var(--texto-s);
+  color: var(--apagado);
+}
+
+.casa__punto {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radio-pildora);
+  background: var(--acento);
+}
+
+.casa__clave:nth-child(2) .casa__punto {
+  opacity: 0.66;
+}
+
+.casa__clave:nth-child(3) .casa__punto {
+  opacity: 0.4;
+}
+
+/* ================================== las tarjetas de las propietarias */
+
+.cuentas {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--e4);
+  margin-top: var(--e4);
+}
+
+.duena {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e2);
+  padding: var(--e4);
+  border: 1px solid var(--linea);
+  border-radius: var(--radio-m);
+  background: var(--fondo);
+}
+
+.duena--retirada {
+  background: var(--superficie);
+}
+
+.duena__arriba {
+  display: flex;
+  align-items: center;
+  gap: var(--e3);
+}
+
+/* El círculo del retrato.
+
+   El dibujo lo pone `app-avatar` —tres retratos distintos, hechos a mano en
+   SVG— y hereda este `color`. Las tres llevan el mismo tono a propósito:
+   son iguales, y teñir cada una insinuaría una jerarquía que no existe. Lo
+   que las distingue es la cara. */
+.avatar {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  flex: 0 0 46px;
+  border-radius: var(--radio-pildora);
+  background: var(--acento-suave);
+  color: var(--acento);
+}
+
+.duena--retirada .avatar {
+  background: var(--superficie-fuerte);
+  color: var(--apagado);
+}
+
+.duena__identidad {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.duena__nombre {
+  display: flex;
+  align-items: center;
+  gap: var(--e2);
+  font-size: var(--texto-l);
+  font-weight: var(--peso-fuerte);
+}
+
+.duena__estado {
+  font-size: var(--texto-s);
+  color: var(--apagado);
+}
+
+.duena__saldo {
+  font-size: var(--texto-3xl);
+  line-height: 1.05;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Un saldo en cero no es una cifra que mirar: se apaga para que las que sí
+   tienen deuda destaquen solas. */
+.duena__saldo--cero {
+  color: var(--apagado);
+}
+
+.duena__cuentas {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--e3);
+  padding-bottom: var(--e2);
+  border-bottom: 1px solid var(--linea-suave);
+}
+
+/* Las tres cosas que se hacen con una cuenta. En una fila porque son tres
+   y caben; en columna si la tarjeta se estrecha. */
+.duena__acciones {
+  display: flex;
+  gap: var(--e2);
+}
+
+.duena__acciones .boton {
+  flex: 1;
+  padding-left: var(--e2);
+  padding-right: var(--e2);
+}
+
+/* ============================================= qué se está yendo */
+
+.se-va {
+  margin-top: var(--e5);
+}
+
+/* La columna de la barra se come el espacio que sobra y desaparece en
+   pantallas estrechas: es un apoyo visual, no un dato. */
+.barra-columna {
+  width: 34%;
+}
+
+.fila-barra {
+  height: 8px;
+  border-radius: var(--radio-pildora);
+  background: var(--superficie-fuerte);
+  overflow: hidden;
+}
+
+.fila-barra__relleno {
+  height: 100%;
+  background: var(--destaque);
+}
+
+@media (max-width: 820px) {
+  .barra-columna {
+    display: none;
+  }
+
+  .duena__acciones {
+    flex-direction: column;
+  }
+}

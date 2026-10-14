@@ -9,7 +9,7 @@
 use domain::{
     Cantidad, Cobro, Comision, Dinero, Existencias, IdPresentacion, IdProducto, IdSesion,
     IdVentaEnEspera, Inventario, MetodoPago, Movimiento, MovimientoEfectivo, Producto,
-    ResumenCierre, SesionCaja, Venta, VentaEnEspera,
+    ResumenCierre, SesionCaja, Ubicacion, UnidadBase, Venta, VentaEnEspera,
 };
 
 use crate::error::Resultado;
@@ -551,6 +551,218 @@ pub trait ConsultaVentasDeSesion {
     /// cobraron. Las anuladas nunca aparecen: la mercancía volvió y el
     /// dinero se devolvió.
     fn lineas_de_sesion(&self, sesion: IdSesion) -> Resultado<Vec<LineaDelPeriodo>>;
+}
+
+// ================================================ el consumo (RF-CON)
+
+/// Una cuenta de consumo tal como está guardada.
+///
+/// Son los dueños del local. Viven en una tabla y no en un `CHECK` con tres
+/// nombres: añadir o retirar una persona no puede exigir una migración,
+/// porque las personas no son esquema.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CuentaConsumo {
+    pub id: i64,
+    pub nombre: String,
+    pub activa: bool,
+}
+
+/// Un renglón de consumo listo para guardar, con todo congelado.
+///
+/// Los nombres viajan copiados y el costo congelado, por el mismo motivo
+/// que en una venta (RF-VTA-13): la deuda que se acuerda hoy no puede
+/// moverse porque mañana suba el arroz.
+///
+/// `origen` va por línea: se puede coger el aceite de la vitrina y el arroz
+/// de la bodega en el mismo acto.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LineaConsumo {
+    pub producto: IdProducto,
+    pub presentacion: IdPresentacion,
+    pub nombre_producto: String,
+    pub nombre_presentacion: String,
+    pub origen: Ubicacion,
+    /// Cuántas presentaciones, no unidades base.
+    pub cantidad: Cantidad,
+    /// Unidades base que lleva cada presentación.
+    pub factor: Cantidad,
+    pub costo_unitario: Dinero,
+}
+
+/// Lo que un consumo le quita a un producto en una ubicación.
+///
+/// Mismo papel que [`DescuentoVenta`]: el saldo que queda y el asiento que
+/// lo explica, juntos, porque escribir uno sin el otro deja el inventario
+/// sin coartada (RF-INV-03).
+#[derive(Debug, Clone)]
+pub struct DescuentoConsumo {
+    pub producto: IdProducto,
+    pub inventario: Inventario,
+    pub movimiento: Movimiento,
+}
+
+/// Un consumo listo para guardar, con sus cuentas hechas.
+#[derive(Debug)]
+pub struct ConsumoConfirmado<'a> {
+    pub cuenta: i64,
+    /// Quien se llevó la mercancía. Puede no ser la dueña de la cuenta.
+    pub tomado_por: &'a str,
+    /// Deuda que genera, al costo. Llega calculada: la infraestructura no
+    /// hace aritmética de dinero.
+    pub total_costo: Dinero,
+    pub lineas: &'a [LineaConsumo],
+    /// Un asiento por `(producto, origen)`, no uno por línea.
+    pub descuentos: &'a [DescuentoConsumo],
+}
+
+/// Datos con que se anula un consumo (RF-CON-16).
+#[derive(Debug)]
+pub struct AnulacionConsumo<'a> {
+    pub consumo: i64,
+    pub motivo: String,
+    /// Reingresos a su ubicación de origen, con su asiento de reversa.
+    pub reversas: &'a [DescuentoConsumo],
+}
+
+/// Un consumo tal como está guardado.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConsumoRegistrado {
+    pub id: i64,
+    pub cuenta: i64,
+    pub nombre_cuenta: String,
+    pub tomado_por: String,
+    /// Costo congelado. No se recalcula al leerlo.
+    pub total_costo: Dinero,
+    pub ocurrido_en: String,
+    /// Con fecha, el consumo dejó de contar para el saldo.
+    pub anulado_en: Option<String>,
+    pub motivo_anulacion: Option<String>,
+}
+
+/// Un renglón de un consumo ya guardado.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LineaConsumoRegistrada {
+    pub producto: IdProducto,
+    pub nombre_producto: String,
+    pub nombre_presentacion: String,
+    /// Unidad base del producto, para saber con cuántos decimales se
+    /// enseña la cantidad. No se deduce del factor: una presentación
+    /// «Libra» tiene factor 1 —entero— y aun así se lleva `2.500`.
+    pub unidad_base: UnidadBase,
+    pub origen: Ubicacion,
+    pub cantidad: Cantidad,
+    pub factor: Cantidad,
+    pub costo_unitario: Dinero,
+}
+
+/// Una liquidación tal como está guardada.
+///
+/// No lleva sesión de caja a propósito: liquidar no es un ingreso. El
+/// negocio ya gastó ese dinero al comprar la mercancía, así que el pago
+/// recupera un costo y no gana nada.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PagoConsumoRegistrado {
+    pub id: i64,
+    pub cuenta: i64,
+    pub importe: Dinero,
+    pub nota: Option<String>,
+    pub ocurrido_en: String,
+    pub anulado_en: Option<String>,
+    pub motivo_anulacion: Option<String>,
+}
+
+/// El saldo de una cuenta, sumado por la base.
+///
+/// Es una suma de dos columnas enteras ya guardadas, con el filtro de
+/// anulación a los **dos** lados. Nada se recalcula de los costos de hoy.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SaldoCuenta {
+    pub cuenta: i64,
+    pub nombre: String,
+    pub activa: bool,
+    /// Lo consumido sin anular.
+    pub consumido: Dinero,
+    /// Lo pagado sin anular.
+    pub pagado: Dinero,
+    /// Consumido menos pagado. **Puede ser negativo**: la cuenta tiene
+    /// dinero a favor, y eso no se recorta ni se esconde.
+    pub saldo: Dinero,
+}
+
+/// Acceso al consumo de los dueños (RF-CON).
+///
+/// Es un puerto aparte y no un puñado más de métodos en
+/// [`RepositorioProducto`], que ya arrastra más de treinta: quien liquida
+/// una deuda no necesita saber cerrar una caja, y su doble de pruebas no
+/// debería tener que fingir cuarenta métodos para usar diez (DT-5).
+///
+/// **Su adaptador comparte la misma base que el resto, y eso impone algo que
+/// no es evidente:** el candado de la conexión no es reentrante, así que un
+/// método de este puerto **no puede llamar a otro puerto** dentro de su
+/// transacción sin colgar el programa. Por eso `registrar_consumo` escribe
+/// él solo la cabecera, los renglones, el valor del inventario, la
+/// existencia y los asientos. Es lo mismo que hace `registrar_venta`.
+pub trait RepositorioConsumo {
+    /// Las cuentas de consumo, por orden de creación.
+    fn cuentas(&self, incluir_inactivas: bool) -> Resultado<Vec<CuentaConsumo>>;
+
+    /// Guarda un consumo entero y devuelve su identificador.
+    ///
+    /// Cabecera, renglones, saldos y asientos entran en la misma operación:
+    /// medio consumo registrado deja el inventario mintiendo (RNF-5).
+    fn registrar_consumo(&self, confirmado: &ConsumoConfirmado<'_>) -> Resultado<i64>;
+
+    /// Devuelve un consumo con sus renglones.
+    fn consumo(
+        &self,
+        id: i64,
+    ) -> Resultado<Option<(ConsumoRegistrado, Vec<LineaConsumoRegistrada>)>>;
+
+    /// Marca un consumo como anulado y devuelve la mercancía.
+    ///
+    /// Las dos cosas van juntas: un consumo marcado sin devolver la
+    /// mercancía deja la existencia mintiendo, y devolverla sin marcarlo
+    /// cobraría dos veces la misma deuda.
+    fn anular_consumo(&self, anulacion: &AnulacionConsumo<'_>) -> Resultado<()>;
+
+    /// Anota una liquidación y devuelve su identificador.
+    fn registrar_pago(&self, cuenta: i64, importe: Dinero, nota: Option<&str>) -> Resultado<i64>;
+
+    /// Devuelve una liquidación por su identificador.
+    fn pago(&self, id: i64) -> Resultado<Option<PagoConsumoRegistrado>>;
+
+    /// Marca una liquidación como anulada.
+    ///
+    /// Sube el saldo otra vez: es la otra dirección del mismo eje que
+    /// anular un consumo, que lo baja.
+    fn anular_pago(&self, id: i64, motivo: &str) -> Resultado<()>;
+
+    /// El saldo de cada cuenta, incluidas las inactivas que aún deben algo.
+    fn saldos(&self) -> Resultado<Vec<SaldoCuenta>>;
+
+    /// Consumos de una cuenta, del más reciente al más antiguo. Los
+    /// anulados también: están para verse.
+    fn consumos_de_cuenta(&self, cuenta: i64, limite: usize) -> Resultado<Vec<ConsumoRegistrado>>;
+
+    /// Liquidaciones de una cuenta, de la más reciente a la más antigua.
+    fn pagos_de_cuenta(&self, cuenta: i64, limite: usize) -> Resultado<Vec<PagoConsumoRegistrado>>;
+
+    /// Renglones consumidos, **sin agregar**.
+    ///
+    /// Se devuelven en crudo a propósito, igual que `lineas_del_periodo`:
+    /// agrupar por producto exige multiplicar cantidad por factor y por
+    /// costo, y esa cuenta no se hace en SQL (DT-5). Una división entera
+    /// por el camino perdería milésimas, que es justo el redondeo que todo
+    /// el dominio se toma el trabajo de evitar.
+    ///
+    /// `cuenta` en blanco trae las tres. Las fechas, en blanco, no acotan.
+    /// Los consumos anulados nunca aparecen.
+    fn lineas_consumidas(
+        &self,
+        cuenta: Option<i64>,
+        desde: Option<&str>,
+        hasta: Option<&str>,
+    ) -> Resultado<Vec<LineaConsumoRegistrada>>;
 }
 
 /// Una venta en espera tal como está guardada.

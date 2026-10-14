@@ -1230,6 +1230,10 @@ impl RepositorioProducto for RepositorioProductoSqlite {
                 "venta_pago",
                 "venta_linea",
                 "venta",
+                "consumo_linea",
+                "consumo",
+                "pago_consumo",
+                "cuenta_consumo",
                 "movimiento_efectivo",
                 "sesion_caja",
                 "movimiento",
@@ -1390,7 +1394,13 @@ fn leer_venta(fila: &Row<'_>) -> ResultadoInfra<VentaRegistrada> {
 /// Guarda el saldo resultante junto al movimiento, en lugar de derivarlo al
 /// leer: así el historial se lee de arriba abajo sin rehacer la aritmética
 /// de todos los movimientos anteriores (RF-INV-05).
-fn escribir_movimiento(
+/// Escribe un asiento del kárdex con el saldo que dejó.
+///
+/// Es `pub(crate)` porque el adaptador del consumo escribe sus propios
+/// asientos dentro de su transacción: no puede llamar a este repositorio
+/// —el candado de la conexión no es reentrante— y copiar el `INSERT`
+/// garantizaría que las dos copias se separen en cuanto alguien toque una.
+pub(crate) fn escribir_movimiento(
     tx: &Transaction<'_>,
     producto_id: i64,
     movimiento: &Movimiento,

@@ -8,7 +8,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use infrastructure::{
-    BaseDatos, RepositorioProductoSqlite, RepositorioVentaEnEsperaSqlite, ResultadoInfra,
+    BaseDatos, RepositorioConsumoSqlite, RepositorioProductoSqlite, RepositorioVentaEnEsperaSqlite,
+    ResultadoInfra,
 };
 
 /// Dependencias vivas mientras la aplicación se ejecuta.
@@ -18,6 +19,10 @@ pub struct Estado {
     /// Comparte la conexión con el de productos: cobrar una venta en espera
     /// la borra en la misma transacción que registra la venta (RNF-5).
     repositorio_venta_en_espera: RepositorioVentaEnEsperaSqlite,
+    /// También comparte la conexión: un consumo escribe la deuda, la
+    /// existencia y los asientos del kárdex en una sola transacción, y el
+    /// candado de la conexión no es reentrante (DT-16).
+    repositorio_consumo: RepositorioConsumoSqlite,
 }
 
 impl Estado {
@@ -32,7 +37,8 @@ impl Estado {
 
         Ok(Self {
             repositorio_producto: RepositorioProductoSqlite::nuevo(Arc::clone(&base)),
-            repositorio_venta_en_espera: RepositorioVentaEnEsperaSqlite::nuevo(base),
+            repositorio_venta_en_espera: RepositorioVentaEnEsperaSqlite::nuevo(Arc::clone(&base)),
+            repositorio_consumo: RepositorioConsumoSqlite::nuevo(base),
         })
     }
 
@@ -42,5 +48,9 @@ impl Estado {
 
     pub const fn repositorio_venta_en_espera(&self) -> &RepositorioVentaEnEsperaSqlite {
         &self.repositorio_venta_en_espera
+    }
+
+    pub const fn repositorio_consumo(&self) -> &RepositorioConsumoSqlite {
+        &self.repositorio_consumo
     }
 }

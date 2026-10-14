@@ -312,6 +312,151 @@ const MIGRACIONES: &[&str] = &[
     CREATE INDEX idx_historial_costo_producto
         ON historial_costo(producto_id, id);
     "#,
+    // 9 — El consumo de los dueños (RF-CON).
+    //
+    // Los dueños se llevan mercancía para su casa. No es una venta —no
+    // entra dinero— ni una merma —no se perdió nada—: el valor sale del
+    // inventario y se convierte en una deuda al costo contra la cuenta que
+    // lo cargó. El negocio no es más pobre, tiene otra cosa.
+    //
+    // ## Por qué esta migración reconstruye `movimiento`
+    //
+    // Es la PRIMERA reconstrucción de tabla del proyecto, y toca la más
+    // delicada: el kárdex. Hace falta porque un consumo es una salida de
+    // existencia y tiene que dejar asiento (RF-INV-03), lo que exige dos
+    // valores nuevos en `movimiento.tipo`. SQLite no permite modificar un
+    // `CHECK`, así que la tabla se rehace.
+    //
+    // No se cuela como `MERMA` a propósito: la merma del turno se calcula
+    // filtrando `tipo = 'MERMA'` por ventana de tiempo, de modo que cada
+    // consumo falsearía el arqueo diciendo que el local perdió mercancía
+    // que en realidad tiene apuntada como deuda.
+    //
+    // Los DOS valores entran de golpe —`CONSUMO` y `CONSUMO_ANULADO`—
+    // porque una segunda reconstrucción costaría lo mismo que esta.
+    //
+    // `movimiento` es tabla hija: su única clave foránea es de salida
+    // (`producto_id`) y ninguna otra tabla la referencia, así que no hay
+    // que desactivar claves foráneas —cosa que además sería imposible,
+    // porque `PRAGMA foreign_keys` no hace nada dentro de una transacción
+    // y cada migración corre dentro de una—.
+    //
+    // El `id` se copia EXPLÍCITAMENTE: es alias de `rowid` sin
+    // `AUTOINCREMENT`, y el kárdex se lee con `ORDER BY id DESC`. Dejar que
+    // se reasignen cambiaría el orden del historial.
+    r#"
+    CREATE TABLE movimiento_nuevo (
+        id                 INTEGER PRIMARY KEY,
+        producto_id        INTEGER NOT NULL REFERENCES producto(id),
+        tipo               TEXT    NOT NULL CHECK (tipo IN
+                                   ('ENTRADA','VENTA','TRASPASO','MERMA',
+                                    'AJUSTE','DEVOLUCION','CONSUMO',
+                                    'CONSUMO_ANULADO')),
+        origen             TEXT    CHECK (origen  IN ('BODEGA','VITRINA')),
+        destino            TEXT    CHECK (destino IN ('BODEGA','VITRINA')),
+        cantidad           INTEGER NOT NULL CHECK (cantidad > 0),
+        costo_unitario     INTEGER NOT NULL CHECK (costo_unitario >= 0),
+        bodega_resultante  INTEGER NOT NULL CHECK (bodega_resultante  >= 0),
+        vitrina_resultante INTEGER NOT NULL CHECK (vitrina_resultante >= 0),
+        motivo             TEXT,
+        ocurrido_en        TEXT    NOT NULL
+    );
+
+    INSERT INTO movimiento_nuevo
+        (id, producto_id, tipo, origen, destino, cantidad, costo_unitario,
+         bodega_resultante, vitrina_resultante, motivo, ocurrido_en)
+    SELECT id, producto_id, tipo, origen, destino, cantidad, costo_unitario,
+           bodega_resultante, vitrina_resultante, motivo, ocurrido_en
+      FROM movimiento;
+
+    DROP TABLE movimiento;
+    ALTER TABLE movimiento_nuevo RENAME TO movimiento;
+
+    CREATE INDEX idx_movimiento_producto ON movimiento(producto_id, id);
+
+    -- Las cuentas de consumo. Es una tabla y no un `CHECK` con tres
+    -- nombres: añadir o retirar una persona no puede exigir una migración,
+    -- porque las personas no son esquema. Una cuenta con historial no se
+    -- borra, se desactiva, igual que un producto.
+    CREATE TABLE cuenta_consumo (
+        id     INTEGER PRIMARY KEY,
+        nombre TEXT    NOT NULL UNIQUE,
+        activa INTEGER NOT NULL DEFAULT 1 CHECK (activa IN (0,1))
+    );
+
+    INSERT INTO cuenta_consumo (nombre) VALUES ('Ivett'), ('Claudia'), ('Inés');
+
+    -- La cabecera del consumo.
+    --
+    -- `tomado_por` es texto libre y no una referencia a la cuenta: quien se
+    -- lleva la mercancía puede no ser la dueña de la cuenta que la paga. Es
+    -- un dato, no una credencial, igual que `sesion_caja.operador` (R-3).
+    --
+    -- `total_costo` se guarda en vez de derivarse. No es comodidad: es lo
+    -- que permite que el saldo de una cuenta sea una suma de dos columnas
+    -- enteras en SQL. Derivarlo exigiría multiplicar cantidad por factor
+    -- por costo, y esa aritmética no se hace en SQL en este proyecto.
+    -- Mismo criterio que `venta.costo_total`.
+    CREATE TABLE consumo (
+        id               INTEGER PRIMARY KEY,
+        cuenta_id        INTEGER NOT NULL REFERENCES cuenta_consumo(id),
+        tomado_por       TEXT    NOT NULL,
+        -- Costo total congelado, en millonésimas.
+        total_costo      INTEGER NOT NULL CHECK (total_costo >= 0),
+        ocurrido_en      TEXT    NOT NULL,
+        -- Un consumo anulado deja de contar para el saldo y se queda por su
+        -- rastro, igual que una venta anulada (RF-VTA-15).
+        anulado_en       TEXT,
+        motivo_anulacion TEXT
+    );
+
+    -- Los renglones, con todo congelado como en `venta_linea` (RF-VTA-13):
+    -- si mañana sube el costo del arroz, la deuda que se acordó hoy sigue
+    -- diciendo lo que decía hoy.
+    --
+    -- `origen` va por LÍNEA y no por consumo: se puede coger el aceite de
+    -- la vitrina y el arroz de la bodega en el mismo acto.
+    CREATE TABLE consumo_linea (
+        id                  INTEGER PRIMARY KEY,
+        consumo_id          INTEGER NOT NULL REFERENCES consumo(id),
+        producto_id         INTEGER NOT NULL REFERENCES producto(id),
+        presentacion_id     INTEGER NOT NULL REFERENCES presentacion(id),
+        nombre_producto     TEXT    NOT NULL,
+        nombre_presentacion TEXT    NOT NULL,
+        origen              TEXT    NOT NULL CHECK (origen IN ('BODEGA','VITRINA')),
+        -- Milésimas de presentaciones, como `venta_linea.cantidad`.
+        cantidad            INTEGER NOT NULL CHECK (cantidad > 0),
+        -- Unidades base que lleva cada presentación.
+        factor              INTEGER NOT NULL CHECK (factor > 0),
+        costo_unitario      INTEGER NOT NULL CHECK (costo_unitario >= 0)
+    );
+
+    -- Las liquidaciones.
+    --
+    -- NO llevan sesión de caja a propósito: liquidar no es un ingreso. El
+    -- negocio ya gastó ese dinero cuando compró la mercancía, así que el
+    -- pago recupera un costo y no gana nada. Meterlo en las cifras de venta
+    -- del turno sería inflar ingresos que no existen. Si alguna vez el
+    -- dinero entra físicamente a la gaveta, se anota a mano como entrada de
+    -- efectivo (RF-CAJ-03).
+    --
+    -- Un pago anulado sube el saldo otra vez: es la otra dirección del
+    -- mismo eje que un consumo anulado, que lo baja.
+    CREATE TABLE pago_consumo (
+        id               INTEGER PRIMARY KEY,
+        cuenta_id        INTEGER NOT NULL REFERENCES cuenta_consumo(id),
+        importe          INTEGER NOT NULL CHECK (importe > 0),
+        nota             TEXT,
+        ocurrido_en      TEXT    NOT NULL,
+        anulado_en       TEXT,
+        motivo_anulacion TEXT
+    );
+
+    CREATE INDEX idx_consumo_cuenta       ON consumo(cuenta_id, id);
+    CREATE INDEX idx_consumo_linea_cabeza ON consumo_linea(consumo_id);
+    CREATE INDEX idx_consumo_linea_prod   ON consumo_linea(producto_id);
+    CREATE INDEX idx_pago_consumo_cuenta  ON pago_consumo(cuenta_id, id);
+    "#,
 ];
 
 /// Lleva el esquema a la última versión.
