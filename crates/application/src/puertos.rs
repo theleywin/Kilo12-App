@@ -73,6 +73,64 @@ pub struct CambioRegistrado {
     pub cambiado_en: String,
 }
 
+/// Una revaluación de inventario, lista para anotarse.
+///
+/// El costo no se almacena —se deriva del valor entre la existencia
+/// (RF-COS-02)—, así que fijarlo a mano mueve el valor del inventario. Eso
+/// crea o destruye valor que nadie compró, y por tanto se anota.
+///
+/// Viajan las cifras de las dos puntas y la existencia del momento porque
+/// **ninguna se puede reconstruir después**: la existencia cambia con cada
+/// venta, y el valor viejo lo pisa esta misma operación.
+#[derive(Debug, Clone)]
+pub struct CambioDeCosto {
+    pub anterior: Dinero,
+    pub nuevo: Dinero,
+    /// Existencia total sobre la que se repartió el valor.
+    pub existencia: Cantidad,
+    pub valor_anterior: Dinero,
+    pub valor_nuevo: Dinero,
+}
+
+/// Una revaluación ya registrada, con su fecha.
+#[derive(Debug, Clone)]
+pub struct CostoRegistrado {
+    pub id: i64,
+    pub anterior: Dinero,
+    pub nuevo: Dinero,
+    pub existencia: Cantidad,
+    pub valor_anterior: Dinero,
+    pub valor_nuevo: Dinero,
+    pub cambiado_en: String,
+}
+
+/// Lo que un producto ha dejado escrito fuera de su propia ficha.
+///
+/// Es lo que decide si se puede borrar de verdad o solo retirar de la venta
+/// (RF-CAT-07). Un producto sin rastro no le debe nada a nadie: borrarlo no
+/// deja un hueco en ninguna parte. Uno que vendió tiene renglones de venta
+/// que lo apuntan y un kárdex que explica su existencia, y eso no se tira.
+///
+/// Las tres cifras van juntas porque las tres impiden lo mismo por motivos
+/// distintos, y conviene poder decirle a quien mira la pantalla **cuál** de
+/// los tres le está frenando.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RastroProducto {
+    /// Renglones de ventas ya cobradas que lo llevan.
+    pub ventas: i64,
+    /// Asientos del kárdex a su nombre.
+    pub movimientos: i64,
+    /// Renglones de ventas en espera: ventas empezadas y sin cobrar.
+    pub esperas: i64,
+}
+
+impl RastroProducto {
+    /// Nunca se movió: no hay nada que conservar de él.
+    pub const fn esta_limpio(&self) -> bool {
+        self.ventas == 0 && self.movimientos == 0 && self.esperas == 0
+    }
+}
+
 /// Lo que una venta le quita a un producto.
 ///
 /// Viajan juntos el saldo que queda y el asiento que lo explica: escribir
@@ -324,11 +382,51 @@ pub trait RepositorioProducto {
     /// Devuelve el historial de precios de un producto (RF-PRE-04).
     fn historial_precios(&self, id: IdProducto) -> Resultado<Vec<CambioRegistrado>>;
 
+    /// Fija el valor del inventario de un producto y anota la revaluación.
+    ///
+    /// Las dos cosas van juntas y son indivisibles, por el mismo motivo que
+    /// un saldo va con su asiento: un valor de inventario que cambió sin
+    /// dejar rastro es dinero que apareció y nadie puede explicar.
+    ///
+    /// **No toca la existencia.** Una revaluación no mueve mercancía, así
+    /// que tampoco escribe en el kárdex.
+    fn revalorar_producto(
+        &self,
+        id: IdProducto,
+        inventario: &Inventario,
+        cambio: &CambioDeCosto,
+    ) -> Resultado<()>;
+
+    /// Devuelve las revaluaciones de un producto, de la más reciente a la
+    /// más antigua.
+    fn historial_costos(&self, id: IdProducto) -> Resultado<Vec<CostoRegistrado>>;
+
     /// Lista los productos del catálogo.
     ///
     /// `incluir_inactivos` decide si aparecen los productos desactivados,
     /// que siguen existiendo por su historial (RF-CAT-06).
     fn listar(&self, incluir_inactivos: bool) -> Resultado<Vec<ProductoConInventario>>;
+
+    /// Cuenta lo que un producto ha dejado escrito fuera de su ficha.
+    fn rastro_de_producto(&self, id: IdProducto) -> Resultado<RastroProducto>;
+
+    /// Quita del catálogo: borra unos productos y retira otros.
+    ///
+    /// Las dos listas entran en la **misma** operación: una limpieza que se
+    /// aplica a medias deja el catálogo en un estado que nadie pidió, y
+    /// quien pulsó el botón no tiene forma de saber por dónde se quedó
+    /// (RNF-5).
+    ///
+    /// Borrar es definitivo y solo vale para lo que nunca se movió. Que eso
+    /// se cumpla **no depende de esta llamada**: las claves foráneas de
+    /// `venta_linea`, `movimiento` y `venta_en_espera_linea` apuntan al
+    /// producto, así que la base rechaza el borrado de cualquiera que tenga
+    /// rastro. Es RF-CAT-07 impuesto por el esquema y no por un `if` que
+    /// alguien puede olvidarse de escribir.
+    ///
+    /// Retirar es `activo = 0`: el producto desaparece de Vender, Vitrina,
+    /// Almacén e informes, y conserva entero su historial (RF-CAT-06).
+    fn limpiar_catalogo(&self, borrar: &[IdProducto], retirar: &[IdProducto]) -> Resultado<()>;
 
     /// Asienta un movimiento y deja la existencia como quedó después.
     ///
