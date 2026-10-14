@@ -26,6 +26,11 @@ use application::casos::{
     PagoPedido, ProductoVendible, VentaDetallada, VentaHecha, VentaListada, VentaPrevista,
 };
 use application::casos::{
+    ComandoAnularConsumo, ComandoLiquidar, ComandoRegistrarConsumo, ConsumoHecho, ConsumoListado,
+    ConsumoPrevisto, CuentaEnDeuda, DetalleCuenta, LineaConsumoListada, LineaConsumoPedida,
+    LineaPrevistaConsumo, PagoListado, PanelConsumo, ProductoConsumido,
+};
+use application::casos::{
     ComandoDejarEnEspera, LineaRetomada, VentaEnEsperaListada, VentaRetomada,
 };
 use application::casos::{FilaVendida, VentasPorProducto};
@@ -709,6 +714,361 @@ impl From<Limpieza> for LimpiezaDto {
             se_borran: limpieza.se_borran.into_iter().map(Into::into).collect(),
             se_retiran: limpieza.se_retiran.into_iter().map(Into::into).collect(),
             bloqueados: limpieza.bloqueados.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+// ============================================ el consumo (RF-CON)
+
+/// Un renglón de lo que los dueños se llevan.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LineaConsumoDto {
+    pub producto: i64,
+    pub presentacion: i64,
+    /// Cuántas presentaciones, no unidades base.
+    pub cantidad: String,
+    /// `BODEGA` o `VITRINA`. Va por renglón: se puede coger el aceite de
+    /// la vitrina y el arroz de la bodega en el mismo acto.
+    pub origen: String,
+}
+
+impl From<LineaConsumoDto> for LineaConsumoPedida {
+    fn from(dto: LineaConsumoDto) -> Self {
+        Self {
+            producto: dto.producto,
+            presentacion: dto.presentacion,
+            cantidad: dto.cantidad,
+            origen: dto.origen,
+        }
+    }
+}
+
+/// Lo que llega de la pantalla al registrar un consumo (RF-CON-01).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NuevoConsumoDto {
+    pub cuenta: i64,
+    /// Quién se lo llevó. Puede no ser la dueña de la cuenta.
+    pub tomado_por: String,
+    pub lineas: Vec<LineaConsumoDto>,
+}
+
+impl From<NuevoConsumoDto> for ComandoRegistrarConsumo {
+    fn from(dto: NuevoConsumoDto) -> Self {
+        Self {
+            cuenta: dto.cuenta,
+            tomado_por: dto.tomado_por,
+            lineas: dto.lineas.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+/// Lo que llega al liquidar una deuda (RF-CON-10).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NuevaLiquidacionDto {
+    pub cuenta: i64,
+    pub importe: String,
+    #[serde(default)]
+    pub nota: Option<String>,
+}
+
+impl From<NuevaLiquidacionDto> for ComandoLiquidar {
+    fn from(dto: NuevaLiquidacionDto) -> Self {
+        Self {
+            cuenta: dto.cuenta,
+            importe: dto.importe,
+            nota: dto.nota,
+        }
+    }
+}
+
+/// Lo que llega al anular un consumo o una liquidación.
+///
+/// Sirve para las dos porque las dos piden lo mismo: qué se anula y por
+/// qué. Lo que distingue una de otra es el comando que la recibe.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnulacionConsumoDto {
+    pub id: i64,
+    pub motivo: String,
+}
+
+impl From<AnulacionConsumoDto> for ComandoAnularConsumo {
+    fn from(dto: AnulacionConsumoDto) -> Self {
+        Self {
+            id: dto.id,
+            motivo: dto.motivo,
+        }
+    }
+}
+
+/// Lo que un consumo acaba de generar.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConsumoHechoDto {
+    pub id: i64,
+    pub cuenta: String,
+    pub tomado_por: String,
+    pub total: String,
+    /// Saldo de la cuenta después de cargarlo.
+    pub saldo: String,
+    pub cuantas_lineas: usize,
+}
+
+impl From<ConsumoHecho> for ConsumoHechoDto {
+    fn from(hecho: ConsumoHecho) -> Self {
+        Self {
+            id: hecho.id,
+            cuenta: hecho.cuenta,
+            tomado_por: hecho.tomado_por,
+            total: hecho.total,
+            saldo: hecho.saldo,
+            cuantas_lineas: hecho.cuantas_lineas,
+        }
+    }
+}
+
+/// Una cuenta con su saldo.
+///
+/// El saldo viaja **sin signo** y con la bandera `a_favor` al lado. Es la
+/// tercera de las cuatro capas que podrían recortar un negativo
+/// (RF-CON-14), y no lo hace: el signo no se pierde, cambia de sitio. Un
+/// «-500.00» en pantalla se lee como un error de cálculo; «500.00 a favor»
+/// se lee como lo que es.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CuentaEnDeudaDto {
+    pub id: i64,
+    pub nombre: String,
+    pub activa: bool,
+    pub consumido: String,
+    pub pagado: String,
+    pub saldo: String,
+    pub a_favor: bool,
+    /// Parte de la deuda del local que carga esta cuenta, sin el símbolo.
+    pub porcion: String,
+    /// La misma parte de 0 a 1000. La pantalla divide entre diez para
+    /// dibujar: es geometría, no dinero.
+    pub peso: i64,
+}
+
+impl From<CuentaEnDeuda> for CuentaEnDeudaDto {
+    fn from(cuenta: CuentaEnDeuda) -> Self {
+        Self {
+            id: cuenta.id,
+            nombre: cuenta.nombre,
+            activa: cuenta.activa,
+            consumido: cuenta.consumido,
+            pagado: cuenta.pagado,
+            saldo: cuenta.saldo,
+            a_favor: cuenta.a_favor,
+            porcion: cuenta.porcion,
+            peso: cuenta.peso,
+        }
+    }
+}
+
+/// El primer nivel del desglose: el total del local y sus cuentas.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PanelConsumoDto {
+    pub total: String,
+    pub a_favor: bool,
+    pub cuentas: Vec<CuentaEnDeudaDto>,
+}
+
+impl From<PanelConsumo> for PanelConsumoDto {
+    fn from(panel: PanelConsumo) -> Self {
+        Self {
+            total: panel.total,
+            a_favor: panel.a_favor,
+            cuentas: panel.cuentas.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+/// Un consumo tal como se lista.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConsumoListadoDto {
+    pub id: i64,
+    pub tomado_por: String,
+    pub total: String,
+    pub ocurrido_en: String,
+    pub anulado: bool,
+    pub motivo_anulacion: Option<String>,
+}
+
+impl From<ConsumoListado> for ConsumoListadoDto {
+    fn from(listado: ConsumoListado) -> Self {
+        Self {
+            id: listado.id,
+            tomado_por: listado.tomado_por,
+            total: listado.total,
+            ocurrido_en: listado.ocurrido_en,
+            anulado: listado.anulado,
+            motivo_anulacion: listado.motivo_anulacion,
+        }
+    }
+}
+
+/// Una liquidación tal como se lista.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PagoConsumoListadoDto {
+    pub id: i64,
+    pub importe: String,
+    pub nota: Option<String>,
+    pub ocurrido_en: String,
+    pub anulado: bool,
+    pub motivo_anulacion: Option<String>,
+}
+
+impl From<PagoListado> for PagoConsumoListadoDto {
+    fn from(listado: PagoListado) -> Self {
+        Self {
+            id: listado.id,
+            importe: listado.importe,
+            nota: listado.nota,
+            ocurrido_en: listado.ocurrido_en,
+            anulado: listado.anulado,
+            motivo_anulacion: listado.motivo_anulacion,
+        }
+    }
+}
+
+/// El segundo nivel: una cuenta con lo que se llevó y lo que pagó.
+///
+/// Las dos listas van separadas y no fundidas en una línea de tiempo: con
+/// saldo corriente un pago no se ata a consumos concretos (RF-CON-10), así
+/// que mezclarlos sugeriría una correspondencia que no existe.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DetalleCuentaDto {
+    pub cuenta: CuentaEnDeudaDto,
+    pub consumos: Vec<ConsumoListadoDto>,
+    pub pagos: Vec<PagoConsumoListadoDto>,
+}
+
+impl From<DetalleCuenta> for DetalleCuentaDto {
+    fn from(detalle: DetalleCuenta) -> Self {
+        Self {
+            cuenta: detalle.cuenta.into(),
+            consumos: detalle.consumos.into_iter().map(Into::into).collect(),
+            pagos: detalle.pagos.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+/// Un renglón tal como quedaría, con su importe ya calculado.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LineaPrevistaConsumoDto {
+    pub producto: i64,
+    pub nombre_producto: String,
+    pub nombre_presentacion: String,
+    pub origen: String,
+    pub cantidad: String,
+    pub costo_unitario: String,
+    pub importe: String,
+}
+
+impl From<LineaPrevistaConsumo> for LineaPrevistaConsumoDto {
+    fn from(linea: LineaPrevistaConsumo) -> Self {
+        Self {
+            producto: linea.producto,
+            nombre_producto: linea.nombre_producto,
+            nombre_presentacion: linea.nombre_presentacion,
+            origen: linea.origen,
+            cantidad: linea.cantidad,
+            costo_unitario: linea.costo_unitario,
+            importe: linea.importe,
+        }
+    }
+}
+
+/// Lo que un consumo generaría, sin registrar nada.
+///
+/// Alimenta el carrito: el costo es promedio ponderado y nadie lo lleva en
+/// la cabeza, así que «¿cuánto cuesta llevarme esto?» hay que preguntarlo.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConsumoPrevistoDto {
+    pub cuenta: String,
+    pub tomado_por: String,
+    pub total: String,
+    pub saldo_resultante: String,
+    pub a_favor: bool,
+    pub lineas: Vec<LineaPrevistaConsumoDto>,
+}
+
+impl From<ConsumoPrevisto> for ConsumoPrevistoDto {
+    fn from(prevista: ConsumoPrevisto) -> Self {
+        Self {
+            cuenta: prevista.cuenta,
+            tomado_por: prevista.tomado_por,
+            total: prevista.total,
+            saldo_resultante: prevista.saldo_resultante,
+            a_favor: prevista.a_favor,
+            lineas: prevista.lineas.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+/// Un renglón de un consumo: el nivel más fino del desglose.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LineaConsumoListadaDto {
+    pub producto: i64,
+    pub nombre_producto: String,
+    pub nombre_presentacion: String,
+    pub origen: String,
+    pub cantidad: String,
+    pub costo_unitario: String,
+    /// Lo que ese renglón sumó a la deuda.
+    pub importe: String,
+}
+
+impl From<LineaConsumoListada> for LineaConsumoListadaDto {
+    fn from(linea: LineaConsumoListada) -> Self {
+        Self {
+            producto: linea.producto,
+            nombre_producto: linea.nombre_producto,
+            nombre_presentacion: linea.nombre_presentacion,
+            origen: linea.origen,
+            cantidad: linea.cantidad,
+            costo_unitario: linea.costo_unitario,
+            importe: linea.importe,
+        }
+    }
+}
+
+/// Lo consumido de un producto: el eje que dice qué se está yendo.
+///
+/// No lleva el campo con que se ordena. Ya llega ordenado de Rust, y
+/// mandar la clave de orden invitaría a reordenar en la pantalla
+/// comparando cadenas formateadas, donde «9.00» va por encima de «10.00».
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProductoConsumidoDto {
+    pub producto: i64,
+    pub nombre: String,
+    pub cantidad: String,
+    pub costo: String,
+    /// Largo de su barra, de 0 a 1000. La pantalla divide entre diez.
+    pub peso: i64,
+}
+
+impl From<ProductoConsumido> for ProductoConsumidoDto {
+    fn from(fila: ProductoConsumido) -> Self {
+        Self {
+            producto: fila.producto,
+            nombre: fila.nombre,
+            cantidad: fila.cantidad,
+            costo: fila.costo,
+            peso: fila.peso,
         }
     }
 }
@@ -2159,5 +2519,141 @@ mod pruebas {
                 "delUsuario": true,
             })
         );
+    }
+
+    // ------------------------------------------- el consumo (RF-CON)
+
+    #[test]
+    fn un_consumo_llega_con_su_cuenta_y_quien_lo_tomo() {
+        let comando: ComandoRegistrarConsumo = serde_json::from_value::<NuevoConsumoDto>(json!({
+            "cuenta": 1,
+            "tomadoPor": "Yaneisy",
+            "lineas": [
+                { "producto": 1, "presentacion": 10, "cantidad": "2", "origen": "VITRINA" },
+                { "producto": 2, "presentacion": 21, "cantidad": "1", "origen": "BODEGA" },
+            ],
+        }))
+        .expect("la interfaz manda un JSON válido")
+        .into();
+
+        assert_eq!(comando.cuenta, 1);
+        assert_eq!(comando.tomado_por, "Yaneisy");
+        // El origen va por renglón: dos estantes en el mismo acto.
+        assert_eq!(comando.lineas[0].origen, "VITRINA");
+        assert_eq!(comando.lineas[1].origen, "BODEGA");
+        assert_eq!(comando.lineas[1].cantidad, "1");
+    }
+
+    #[test]
+    fn liquidar_admite_la_nota_en_blanco_o_ausente() {
+        let sin_nota: ComandoLiquidar = serde_json::from_value::<NuevaLiquidacionDto>(
+            json!({ "cuenta": 1, "importe": "200.00" }),
+        )
+        .expect("sin nota es válido")
+        .into();
+
+        assert_eq!(sin_nota.nota, None);
+        assert_eq!(sin_nota.importe, "200.00");
+    }
+
+    /// La tercera de las cuatro capas que podrían recortar un saldo
+    /// negativo (RF-CON-14). No lo hace: el signo no se pierde, viaja
+    /// aparte en `aFavor`.
+    #[test]
+    fn el_saldo_a_favor_cruza_la_frontera_sin_recortarse() {
+        let dto = PanelConsumoDto::from(PanelConsumo {
+            total: "80.00".to_owned(),
+            a_favor: true,
+            cuentas: vec![CuentaEnDeuda {
+                id: 1,
+                nombre: "Ivett".to_owned(),
+                activa: true,
+                consumido: "120.00".to_owned(),
+                pagado: "200.00".to_owned(),
+                saldo: "80.00".to_owned(),
+                a_favor: true,
+                porcion: "0.0".to_owned(),
+                peso: 0,
+            }],
+        });
+
+        assert_eq!(
+            serde_json::to_value(dto).expect("serializar"),
+            json!({
+                "total": "80.00",
+                "aFavor": true,
+                "cuentas": [{
+                    "id": 1,
+                    "nombre": "Ivett",
+                    "activa": true,
+                    "consumido": "120.00",
+                    "pagado": "200.00",
+                    "saldo": "80.00",
+                    "aFavor": true,
+                    "porcion": "0.0",
+                    "peso": 0,
+                }],
+            })
+        );
+    }
+
+    #[test]
+    fn el_eje_por_producto_no_manda_su_clave_de_orden() {
+        // Llega ya ordenado de Rust. Mandar la clave invitaría a reordenar
+        // en la pantalla comparando cadenas, donde «9.00» va por encima de
+        // «10.00».
+        let dto = ProductoConsumidoDto::from(ProductoConsumido {
+            producto: 1,
+            nombre: "Arroz blanco".to_owned(),
+            cantidad: "5.000 lb".to_owned(),
+            costo: "600.00".to_owned(),
+            peso: 1000,
+            orden: 600_000_000,
+        });
+
+        assert_eq!(
+            serde_json::to_value(dto).expect("serializar"),
+            json!({
+                "producto": 1,
+                "nombre": "Arroz blanco",
+                "cantidad": "5.000 lb",
+                "costo": "600.00",
+                "peso": 1000,
+            })
+        );
+    }
+
+    #[test]
+    fn un_consumo_anulado_llega_marcado_con_su_motivo() {
+        let dto = DetalleCuentaDto::from(DetalleCuenta {
+            cuenta: CuentaEnDeuda {
+                id: 1,
+                nombre: "Ivett".to_owned(),
+                activa: true,
+                consumido: "0.00".to_owned(),
+                pagado: "0.00".to_owned(),
+                saldo: "0.00".to_owned(),
+                a_favor: false,
+                porcion: "0.0".to_owned(),
+                peso: 0,
+            },
+            consumos: vec![ConsumoListado {
+                id: 7,
+                tomado_por: "Yaneisy".to_owned(),
+                total: "240.00".to_owned(),
+                ocurrido_en: "2026-10-14 12:00:00".to_owned(),
+                anulado: true,
+                motivo_anulacion: Some("Era de Claudia".to_owned()),
+            }],
+            pagos: vec![],
+        });
+
+        let json = serde_json::to_value(dto).expect("serializar");
+        assert_eq!(json["consumos"][0]["anulado"], json!(true));
+        assert_eq!(
+            json["consumos"][0]["motivoAnulacion"],
+            json!("Era de Claudia")
+        );
+        assert_eq!(json["consumos"][0]["tomadoPor"], json!("Yaneisy"));
     }
 }
