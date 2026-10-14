@@ -53,7 +53,7 @@ un archivo en el equipo y **nunca sale de ahí**.
 
 | Capa | Herramienta | Por qué |
 |---|---|---|
-| Núcleo | **Rust** | Aritmética entera exacta. El dinero nunca se representa con decimales flotantes. |
+| Núcleo | **Rust** | Super rápido, y muy bonito el lenguaje |
 | Interfaz | **Angular** | Pantallas rápidas y tipadas. |
 | Escritorio | **Tauri** | Usa el motor web del sistema: el instalador pesa unos pocos megabytes. |
 | Datos | **SQLite** | Un solo archivo, sin instalar nada aparte. |
