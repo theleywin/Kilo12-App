@@ -310,8 +310,11 @@ fn vaciar_la_aplicacion_se_lleva_las_esperas() {
 fn una_base_nueva_nace_con_las_tablas_de_espera() {
     let entorno = Entorno::en_memoria();
 
-    assert_eq!(entorno.version(), 7);
-    assert_eq!(migraciones::version_esperada(), 7);
+    // Sube con cada migración nueva. La comprobación no es decorativa:
+    // `version_esperada` es lo que rechaza un respaldo hecho por una
+    // versión posterior (RF-DAT-07), y tiene que cuadrar con el esquema.
+    assert_eq!(entorno.version(), 8);
+    assert_eq!(migraciones::version_esperada(), 8);
     assert_eq!(entorno.filas("venta_en_espera"), 0);
     assert_eq!(entorno.filas("venta_en_espera_linea"), 0);
 }
@@ -323,6 +326,13 @@ fn la_migracion_se_aplica_sobre_una_base_de_la_version_anterior() {
 
     // Una base con datos, devuelta al esquema 6: el que tiene quien
     // actualiza desde la versión anterior.
+    //
+    // Se quita TODO lo que vino después de la 6, no solo el `user_version`.
+    // Una base de la versión 6 de verdad no tiene nada de lo posterior, y
+    // dejar una tabla suelta no probaría la migración: probaría que
+    // re-aplicarla sobre sí misma falla, que es otra cosa.
+    //
+    // Cada migración nueva añade aquí lo suyo.
     {
         let entorno = Entorno::sobre(BaseDatos::abrir(&ruta).expect("abrir la base en disco"));
         entorno.refresco();
@@ -330,8 +340,11 @@ fn la_migracion_se_aplica_sobre_una_base_de_la_version_anterior() {
             .base
             .con(|conexion| {
                 conexion.execute_batch(
+                    // De la 7: la venta en espera.
                     "DROP TABLE venta_en_espera_linea;
                      DROP TABLE venta_en_espera;
+                     -- De la 8: el historial de revaluaciones.
+                     DROP TABLE historial_costo;
                      PRAGMA user_version = 6;",
                 )?;
                 Ok(())
@@ -342,7 +355,7 @@ fn la_migracion_se_aplica_sobre_una_base_de_la_version_anterior() {
     // Al abrirla se migra sola y los datos siguen ahí.
     let id = {
         let entorno = Entorno::sobre(BaseDatos::abrir(&ruta).expect("reabrir y migrar"));
-        assert_eq!(entorno.version(), 7);
+        assert_eq!(entorno.version(), 8);
         assert_eq!(entorno.en_vitrina(), "20");
 
         let ficha = ConsultarProducto::nuevo(&entorno.productos)
