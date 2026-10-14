@@ -8,11 +8,13 @@ import {
   CierreCalculadoDto,
   CobroCalculadoDto,
   ConteoCalculadoDto,
+  CostoListadoDto,
   EstadoCajaDto,
   HistorialVentasDto,
   InformeDto,
   ErrorDto,
   FichaProductoDto,
+  LimpiezaDto,
   MargenDto,
   Moneda,
   MovimientoDto,
@@ -20,11 +22,14 @@ import {
   NuevaMermaDto,
   NuevaVentaDto,
   NuevaVentaEnEsperaDto,
+  NuevoCostoDto,
   NuevoProductoDto,
   LineaVentaDto,
   NuevoTraspasoDto,
   PagoDto,
+  RevaluacionDto,
   ProductoDto,
+  ProductoVacioDto,
   ProductoVendibleDto,
   SimulacionDto,
   SesionListadaDto,
@@ -327,6 +332,76 @@ export class Kilo12Api {
   /** Devuelve cómo ha ido cambiando el precio de un producto. */
   consultarHistorialPrecios(producto: number): Promise<CambioPrecioDto[]> {
     return invoke<CambioPrecioDto[]>('consultar_historial_precios', { producto });
+  }
+
+  // ------------------------------------------- el costo (revaluación)
+
+  /**
+   * Enseña cómo quedaría una revaluación **sin guardar nada**.
+   *
+   * Alimenta el cartel de confirmación, y no pide clave a propósito: las
+   * cifras que están en juego hay que verlas antes de teclearla. Las
+   * calcula Rust, como todas: aquí no se multiplica dinero.
+   */
+  previsualizarCosto(producto: number, costo: string): Promise<RevaluacionDto> {
+    return invoke<RevaluacionDto>('previsualizar_costo', { producto, costo });
+  }
+
+  /**
+   * Fija a mano el costo de un producto. **Revalora el inventario.**
+   *
+   * El costo no se almacena: se deriva del valor entre la existencia
+   * (RF-COS-02). Cambiarlo mueve el valor del inventario, que es la cifra
+   * que de verdad existe, y por eso pide la clave de mantenimiento. La
+   * comprueba Rust, no esta pantalla: validar solo aquí sería un cerrojo
+   * que se abre con las herramientas de desarrollo.
+   */
+  cambiarCosto(cambio: NuevoCostoDto): Promise<RevaluacionDto> {
+    return invoke<RevaluacionDto>('cambiar_costo', { cambio });
+  }
+
+  /** Devuelve las revaluaciones de costo de un producto. */
+  consultarHistorialCostos(producto: number): Promise<CostoListadoDto[]> {
+    return invoke<CostoListadoDto[]>('consultar_historial_costos', { producto });
+  }
+
+  // ------------------------------- quitar del catálogo (RF-CAT-06/07/13)
+
+  /**
+   * Dice qué pasaría al quitar este producto, sin tocar nada.
+   *
+   * Hay que preguntarlo antes de abrir el cartel: lo que viene puede ser un
+   * borrado definitivo o un retiro reversible, y la pregunta no es la misma.
+   */
+  previsualizarQuitarProducto(producto: number): Promise<ProductoVacioDto> {
+    return invoke<ProductoVacioDto>('previsualizar_quitar_producto', { producto });
+  }
+
+  /**
+   * Quita un producto del catálogo y devuelve lo que hizo.
+   *
+   * Solo si está en cero. Si nunca se movió lo borra; si vendió lo retira de
+   * la venta conservando su historial (RF-CAT-06, RF-CAT-07). Quién va a cada
+   * lado lo decide Rust al confirmar, no esta pantalla.
+   */
+  quitarProducto(producto: number): Promise<ProductoVacioDto> {
+    return invoke<ProductoVacioDto>('quitar_producto', { producto });
+  }
+
+  /** Reúne los productos sin mercancía, repartidos por destino. */
+  previsualizarLimpieza(): Promise<LimpiezaDto> {
+    return invoke<LimpiezaDto>('previsualizar_limpieza');
+  }
+
+  /**
+   * Limpia de una vez las etiquetas de productos vacíos (RF-CAT-13).
+   *
+   * No se le mandan identificadores a propósito: la lista se recalcula en
+   * Rust al confirmar, así que lo que entre tanto dejó de estar vacío no se
+   * toca aunque saliera en el cartel.
+   */
+  limpiarCatalogo(): Promise<LimpiezaDto> {
+    return invoke<LimpiezaDto>('limpiar_catalogo');
   }
 
   /**

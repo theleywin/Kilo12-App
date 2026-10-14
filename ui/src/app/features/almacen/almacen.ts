@@ -1,8 +1,9 @@
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 
 import { AlmacenDto, ErrorDto, MovimientoDto, ProductoDto } from '../../core/api.types';
 import { comoError, Kilo12Api } from '../../core/kilo12-api';
+import { filtrarProductos } from '../../shared/buscar/buscar';
 
 /** Número decimal con hasta seis decimales. */
 const DECIMAL = /^\d+(\.\d{1,6})?$/;
@@ -36,6 +37,24 @@ export class Almacen {
   protected readonly kardex = signal<MovimientoDto[]>([]);
   protected readonly cargandoKardex = signal(false);
 
+  /**
+   * Lo que se escribe en el buscador.
+   *
+   * Filtra por nombre o por código. Con el almacén lleno, bajar la rueda
+   * hasta encontrar un producto es más lento que teclear tres letras.
+   */
+  protected readonly busqueda = signal('');
+
+  /** Los productos que pasan el filtro, en el orden en que llegaron. */
+  protected readonly productos = computed(() =>
+    filtrarProductos(this.almacen()?.productos ?? [], this.busqueda()),
+  );
+
+  /** Se buscó algo y no hay nada que se parezca. */
+  protected readonly sinResultados = computed(
+    () => this.busqueda().trim().length > 0 && this.productos().length === 0,
+  );
+
   protected readonly formularioMerma = this.fb.nonNullable.group({
     cantidad: ['', [Validators.required, Validators.pattern(DECIMAL)]],
     motivo: ['', Validators.required],
@@ -61,6 +80,24 @@ export class Almacen {
     } finally {
       this.cargando.set(false);
     }
+  }
+
+  /**
+   * Abre las opciones del producto en su propia fila, o las cierra si ya
+   * estaban abiertas.
+   *
+   * El formulario de merma se vacía al cambiar de producto: una cantidad y
+   * un motivo escritos para el arroz y dejados ahí al pulsar el aceite son
+   * una baja del producto equivocado a un clic de distancia.
+   */
+  protected async alternar(producto: ProductoDto): Promise<void> {
+    if (this.seleccionado()?.id === producto.id) {
+      this.cerrarHistorial();
+      return;
+    }
+
+    this.formularioMerma.reset();
+    await this.verHistorial(producto);
   }
 
   protected async verHistorial(producto: ProductoDto): Promise<void> {

@@ -9,10 +9,11 @@ use std::sync::Arc;
 
 use application::casos::vender::CLAVE_TASA;
 use application::casos::{
-    AbrirCaja, AnularVenta, BorrarTodo, CerrarCaja, ComandoAbrirCaja, ComandoAnularVenta,
-    ComandoCerrarCaja, ComandoMoverEfectivo, ComandoVender, ConsultarCaja, ConsultarInforme,
-    ConsultarVenta, ConsultarVentas, HistorialCajas, LineaPedida, MoverEfectivo, PagoPedido,
-    Vender, CLAVE_MANTENIMIENTO,
+    AbrirCaja, AnularVenta, BorrarTodo, CambiarCosto, CerrarCaja, ComandoAbrirCaja,
+    ComandoAnularVenta, ComandoCambiarCosto, ComandoCerrarCaja, ComandoMoverEfectivo,
+    ComandoVender, ConsultarCaja, ConsultarHistorialCostos, ConsultarInforme, ConsultarVenta,
+    ConsultarVentas, HistorialCajas, LineaPedida, MoverEfectivo, PagoPedido, Vender,
+    CLAVE_MANTENIMIENTO,
 };
 use application::casos::{
     AgregarPresentacion, CambiarPrecio, ComandoAgregarPresentacion, ComandoCambiarPrecio,
@@ -2198,4 +2199,179 @@ fn no_se_cobra_una_presentacion_desactivada() {
     // La lata suelta sigue a la venta, y es la primera venta registrada.
     let hecha = vender_uno(&repositorio, producto, unidad).expect("cobrar");
     assert_eq!(hecha.folio, 1);
+}
+
+// ============================ revaluación del costo (CambiarCosto)
+//
+// Fijar un costo a mano es mover `producto.valor_total`, porque el costo no
+// se almacena: se deriva del valor entre la existencia (RF-COS-02). Estas
+// pruebas atraviesan la migración nueva y la transacción que escribe el
+// valor y su anotación a la vez.
+
+#[test]
+fn fijar_el_costo_mueve_el_valor_y_lo_deja_anotado() {
+    let repositorio = repositorio_en_memoria();
+    // 50 lb que costaron 120: valor 6 000.
+    let producto = alta_con_mercancia(&repositorio);
+    assert_eq!(unico(&repositorio).costo, "120.00");
+
+    let hecha = CambiarCosto::nuevo(&repositorio)
+        .ejecutar(ComandoCambiarCosto {
+            producto,
+            costo: "150.00".to_owned(),
+            clave: CLAVE_MANTENIMIENTO.to_owned(),
+        })
+        .expect("revalorar");
+
+    assert_eq!(hecha.valor_anterior, "6000.00");
+    assert_eq!(hecha.valor_nuevo, "7500.00");
+    assert_eq!(hecha.diferencia, "1500.00");
+
+    // El catálogo lo lee ya cambiado desde la base.
+    let ficha = unico(&repositorio);
+    assert_eq!(ficha.costo, "150.00");
+    // Y la existencia no se movió: revalorar no mueve mercancía.
+    assert_eq!(ficha.en_almacen, "50.000");
+
+    // La anotación salió en la misma operación.
+    let historial = ConsultarHistorialCostos::nuevo(&repositorio)
+        .ejecutar(producto)
+        .expect("historial");
+    assert_eq!(historial.len(), 1);
+    assert_eq!(historial[0].anterior, "120.00");
+    assert_eq!(historial[0].nuevo, "150.00");
+    assert_eq!(historial[0].existencia, "50.000");
+    assert_eq!(historial[0].valor_anterior, "6000.00");
+    assert_eq!(historial[0].valor_nuevo, "7500.00");
+    assert!(historial[0].subio);
+}
+
+#[test]
+fn la_revaluacion_no_deja_asiento_en_el_kardex() {
+    let repositorio = repositorio_en_memoria();
+    let producto = alta_con_mercancia(&repositorio);
+    let antes = kardex(&repositorio, producto).len();
+
+    CambiarCosto::nuevo(&repositorio)
+        .ejecutar(ComandoCambiarCosto {
+            producto,
+            costo: "150.00".to_owned(),
+            clave: CLAVE_MANTENIMIENTO.to_owned(),
+        })
+        .expect("revalorar");
+
+    // El kárdex explica saldos de existencia, y aquí el saldo no cambió.
+    assert_eq!(kardex(&repositorio, producto).len(), antes);
+}
+
+#[test]
+fn con_la_clave_mala_la_base_se_queda_igual() {
+    let repositorio = repositorio_en_memoria();
+    let producto = alta_con_mercancia(&repositorio);
+
+    let error = CambiarCosto::nuevo(&repositorio)
+        .ejecutar(ComandoCambiarCosto {
+            producto,
+            costo: "150.00".to_owned(),
+            clave: "0000".to_owned(),
+        })
+        .expect_err("la clave no es esa");
+
+    assert_eq!(error.codigo(), "CLAVE_INCORRECTA");
+    assert_eq!(unico(&repositorio).costo, "120.00");
+    assert!(ConsultarHistorialCostos::nuevo(&repositorio)
+        .ejecutar(producto)
+        .expect("historial")
+        .is_empty());
+}
+
+#[test]
+fn el_costo_congelado_de_una_venta_vieja_no_se_mueve() {
+    let repositorio = repositorio_en_memoria();
+    let producto = alta_con_mercancia(&repositorio);
+
+    // Se baja a la vitrina y se vende una libra al costo de 120.
+    Traspasar::nuevo(&repositorio)
+        .ejecutar(ComandoTraspasar {
+            producto,
+            cantidad: "10".to_owned(),
+            origen: "BODEGA".to_owned(),
+        })
+        .expect("bajar a vitrina");
+    AbrirCaja::nuevo(&repositorio)
+        .ejecutar(ComandoAbrirCaja {
+            operador: "Ana".to_owned(),
+            fondo_inicial: "0.00".to_owned(),
+        })
+        .expect("abrir caja");
+
+    let presentacion = ConsultarProducto::nuevo(&repositorio)
+        .ejecutar(producto)
+        .expect("ficha")
+        .presentaciones[0]
+        .id;
+    let hecha = vender_uno(&repositorio, producto, presentacion).expect("cobrar");
+
+    let antes = ConsultarVenta::nuevo(&repositorio)
+        .ejecutar(1)
+        .expect("venta");
+
+    // Ahora se revalora el inventario hacia arriba.
+    CambiarCosto::nuevo(&repositorio)
+        .ejecutar(ComandoCambiarCosto {
+            producto,
+            costo: "400.00".to_owned(),
+            clave: CLAVE_MANTENIMIENTO.to_owned(),
+        })
+        .expect("revalorar");
+
+    // La venta de antes sigue diciendo exactamente lo mismo (RF-VTA-13):
+    // su costo se congeló al cobrar y no lo mueve nada.
+    let despues = ConsultarVenta::nuevo(&repositorio)
+        .ejecutar(1)
+        .expect("venta");
+    assert_eq!(despues.costo_total, antes.costo_total);
+    assert_eq!(despues.ganancia, antes.ganancia);
+    assert_eq!(hecha.folio, 1);
+}
+
+#[test]
+fn un_producto_agotado_no_se_puede_revalorar() {
+    let repositorio = repositorio_en_memoria();
+    let producto = RegistrarProducto::nuevo(&repositorio)
+        .ejecutar(alta("Arroz blanco"))
+        .expect("registrar")
+        .0;
+
+    let error = CambiarCosto::nuevo(&repositorio)
+        .ejecutar(ComandoCambiarCosto {
+            producto,
+            costo: "150.00".to_owned(),
+            clave: CLAVE_MANTENIMIENTO.to_owned(),
+        })
+        .expect_err("sin existencia no hay costo");
+
+    assert_eq!(error.codigo(), "SIN_EXISTENCIA_PARA_COSTO");
+}
+
+#[test]
+fn el_borrado_total_se_lleva_el_historial_de_costos() {
+    let repositorio = repositorio_en_memoria();
+    let producto = alta_con_mercancia(&repositorio);
+
+    CambiarCosto::nuevo(&repositorio)
+        .ejecutar(ComandoCambiarCosto {
+            producto,
+            costo: "150.00".to_owned(),
+            clave: CLAVE_MANTENIMIENTO.to_owned(),
+        })
+        .expect("revalorar");
+
+    // Sin incluir `historial_costo` en el borrado, la clave foránea contra
+    // `producto` impediría vaciar el catálogo.
+    BorrarTodo::nuevo(&repositorio)
+        .ejecutar(CLAVE_MANTENIMIENTO)
+        .expect("borrar todo");
+
+    assert!(catalogo(&repositorio).is_empty());
 }

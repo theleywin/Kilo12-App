@@ -16,11 +16,12 @@ use domain::{
 
 use crate::error::Resultado;
 use crate::puertos::{
-    AcumuladoSesion, AnulacionConfirmada, Asiento, CambioDePrecio, CambioRegistrado,
-    CierreConfirmado, ConsultaVentasDeSesion, DetalleVenta, EsperaRegistrada, EsperaResumida,
-    LineaDelPeriodo, MovimientoEfectivoRegistrado, MovimientoRegistrado, ProductoConInventario,
-    RepositorioProducto, RepositorioVentaEnEspera, SesionRegistrada, TotalesPeriodo,
-    VentaConfirmada, VentaDiaria, VentaHoraria, VentaPorMetodo, VentaRegistrada,
+    AcumuladoSesion, AnulacionConfirmada, Asiento, CambioDeCosto, CambioDePrecio, CambioRegistrado,
+    CierreConfirmado, ConsultaVentasDeSesion, CostoRegistrado, DetalleVenta, EsperaRegistrada,
+    EsperaResumida, LineaDelPeriodo, MovimientoEfectivoRegistrado, MovimientoRegistrado,
+    ProductoConInventario, RastroProducto, RepositorioProducto, RepositorioVentaEnEspera,
+    SesionRegistrada, TotalesPeriodo, VentaConfirmada, VentaDiaria, VentaHoraria, VentaPorMetodo,
+    VentaRegistrada,
 };
 
 fn cantidad(texto: &str) -> Cantidad {
@@ -44,6 +45,12 @@ pub(crate) struct ProductosEnMemoria {
     ventas: RefCell<Vec<VentaRegistrada>>,
     /// La espera que llevaba la última venta registrada, tal cual llegó.
     pub(crate) espera_cobrada: RefCell<Option<Option<IdVentaEnEspera>>>,
+    /// Revaluaciones anotadas, de la más antigua a la más reciente.
+    pub(crate) revaluaciones: RefCell<Vec<(IdProducto, CambioDeCosto)>>,
+    /// Lo que cada producto ha dejado escrito fuera de su ficha.
+    rastros: RefCell<BTreeMap<i64, RastroProducto>>,
+    /// Limpiezas pedidas, como `(borrar, retirar)`.
+    pub(crate) limpiezas: RefCell<Vec<(Vec<IdProducto>, Vec<IdProducto>)>>,
     folio: Cell<i64>,
 }
 
@@ -98,6 +105,31 @@ impl ProductosEnMemoria {
             },
         );
         self
+    }
+
+    /// Fija el valor invertido de un producto ya dado de alta.
+    ///
+    /// `con_producto` lo deja en cero, y con valor cero el costo también es
+    /// cero. Para probar cualquier cosa que mire el costo hace falta que el
+    /// inventario valga algo.
+    pub(crate) fn con_valor(self, id: i64, valor: &str) -> Self {
+        let mut productos = self.productos.borrow_mut();
+        let fila = productos.get_mut(&id).expect("producto dado de alta");
+
+        fila.inventario = Inventario::nuevo(fila.inventario.existencias(), dinero(valor))
+            .expect("inventario válido");
+
+        drop(productos);
+        self
+    }
+
+    /// El inventario que tiene ahora un producto, para comprobar efectos.
+    pub(crate) fn inventario_de(&self, id: i64) -> Inventario {
+        self.productos
+            .borrow()
+            .get(&id)
+            .expect("producto dado de alta")
+            .inventario
     }
 
     /// Deja una caja abierta, para poder cobrar.
@@ -193,6 +225,22 @@ impl ProductosEnMemoria {
     pub(crate) fn quitar_producto(&self, id: i64) {
         self.productos.borrow_mut().remove(&id);
     }
+
+    /// Fija lo que un producto ha dejado escrito fuera de su ficha.
+    ///
+    /// En SQLite son tres `COUNT(*)`; aquí se dictan, que es lo que permite
+    /// probar la clasificación sin montar ventas enteras.
+    pub(crate) fn con_rastro(self, id: i64, ventas: i64, movimientos: i64, esperas: i64) -> Self {
+        self.rastros.borrow_mut().insert(
+            id,
+            RastroProducto {
+                ventas,
+                movimientos,
+                esperas,
+            },
+        );
+        self
+    }
 }
 
 impl RepositorioProducto for ProductosEnMemoria {
@@ -244,6 +292,36 @@ impl RepositorioProducto for ProductosEnMemoria {
             .collect())
     }
 
+    fn rastro_de_producto(&self, id: IdProducto) -> Resultado<RastroProducto> {
+        Ok(self
+            .rastros
+            .borrow()
+            .get(&id.0)
+            .copied()
+            .unwrap_or_default())
+    }
+
+    /// Borra y retira de verdad, como haría SQLite.
+    ///
+    /// Se implementa en lugar de un `unreachable!` porque lo que hay que
+    /// poder comprobar de estos casos de uso es justo el efecto: quién
+    /// desapareció y quién se quedó escondido.
+    fn limpiar_catalogo(&self, borrar: &[IdProducto], retirar: &[IdProducto]) -> Resultado<()> {
+        self.limpiezas
+            .borrow_mut()
+            .push((borrar.to_vec(), retirar.to_vec()));
+
+        for id in retirar {
+            self.desactivar_producto(id.0);
+        }
+
+        for id in borrar {
+            self.quitar_producto(id.0);
+        }
+
+        Ok(())
+    }
+
     fn configuracion(&self, _clave: &str) -> Resultado<Option<String>> {
         Ok(None)
     }
@@ -265,6 +343,47 @@ impl RepositorioProducto for ProductosEnMemoria {
 
     fn historial_precios(&self, _: IdProducto) -> Resultado<Vec<CambioRegistrado>> {
         unreachable!("historial_precios no se usa en estas pruebas")
+    }
+
+    /// Guarda el valor nuevo y anota la revaluación, como haría SQLite.
+    ///
+    /// Aquí sí se implementa de verdad en lugar de con `unreachable!`: lo
+    /// que hay que poder comprobar de este caso de uso es justo que el
+    /// valor del inventario quedó donde debía y que la anotación salió.
+    fn revalorar_producto(
+        &self,
+        id: IdProducto,
+        inventario: &Inventario,
+        cambio: &CambioDeCosto,
+    ) -> Resultado<()> {
+        let mut productos = self.productos.borrow_mut();
+        let fila = productos.get_mut(&id.0).expect("producto dado de alta");
+        fila.inventario = *inventario;
+        drop(productos);
+
+        self.revaluaciones.borrow_mut().push((id, cambio.clone()));
+        Ok(())
+    }
+
+    fn historial_costos(&self, id: IdProducto) -> Resultado<Vec<CostoRegistrado>> {
+        // Las anotadas, de la más reciente a la más antigua, como la base.
+        Ok(self
+            .revaluaciones
+            .borrow()
+            .iter()
+            .rev()
+            .filter(|(producto, _)| *producto == id)
+            .enumerate()
+            .map(|(posicion, (_, cambio))| CostoRegistrado {
+                id: posicion as i64 + 1,
+                anterior: cambio.anterior,
+                nuevo: cambio.nuevo,
+                existencia: cambio.existencia,
+                valor_anterior: cambio.valor_anterior,
+                valor_nuevo: cambio.valor_nuevo,
+                cambiado_en: "2026-10-04 12:00:00".to_owned(),
+            })
+            .collect())
     }
 
     fn registrar_movimiento(&self, _: IdProducto, _: &Inventario, _: &Movimiento) -> Resultado<()> {

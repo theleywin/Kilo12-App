@@ -7,11 +7,11 @@ use std::sync::Arc;
 
 use application::error::Resultado;
 use application::puertos::{
-    AcumuladoSesion, AnulacionConfirmada, Asiento, CambioDePrecio, CambioRegistrado,
-    CierreConfirmado, ConsultaVentasDeSesion, DetalleVenta, LineaDelPeriodo, LineaRegistrada,
-    MovimientoEfectivoRegistrado, MovimientoRegistrado, PagoRegistrado, ProductoConInventario,
-    RepositorioProducto, SesionRegistrada, TotalesPeriodo, VentaConfirmada, VentaDiaria,
-    VentaHoraria, VentaPorMetodo, VentaRegistrada,
+    AcumuladoSesion, AnulacionConfirmada, Asiento, CambioDeCosto, CambioDePrecio, CambioRegistrado,
+    CierreConfirmado, ConsultaVentasDeSesion, CostoRegistrado, DetalleVenta, LineaDelPeriodo,
+    LineaRegistrada, MovimientoEfectivoRegistrado, MovimientoRegistrado, PagoRegistrado,
+    ProductoConInventario, RastroProducto, RepositorioProducto, SesionRegistrada, TotalesPeriodo,
+    VentaConfirmada, VentaDiaria, VentaHoraria, VentaPorMetodo, VentaRegistrada,
 };
 use domain::{
     ArqueoMoneda, Cantidad, Comision, Dinero, ErrorDominio, EstadoSesion, Existencias,
@@ -300,6 +300,83 @@ impl RepositorioProducto for RepositorioProductoSqlite {
         Ok(historial)
     }
 
+    fn revalorar_producto(
+        &self,
+        id: IdProducto,
+        inventario: &Inventario,
+        cambio: &CambioDeCosto,
+    ) -> Resultado<()> {
+        self.base.en_transaccion(|tx| {
+            // El valor y su anotación se escriben juntos o no se escribe
+            // ninguno de los dos: un inventario que vale otra cosa sin que
+            // conste por qué es dinero sin coartada.
+            //
+            // Solo `valor_total`. La existencia no se toca: revalorar no
+            // mueve mercancía.
+            let actualizadas = tx.execute(
+                "UPDATE producto SET valor_total = ?2 WHERE id = ?1",
+                params![id.0, inventario.valor_total().millonesimas()],
+            )?;
+
+            if actualizadas == 0 {
+                return Err(ErrorInfra::DatoCorrupto(format!(
+                    "se intentó revalorar el producto {} y no existe",
+                    id.0
+                )));
+            }
+
+            tx.execute(
+                "INSERT INTO historial_costo
+                   (producto_id, anterior, nuevo, existencia,
+                    valor_anterior, valor_nuevo, cambiado_en)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, datetime('now', 'localtime'))",
+                params![
+                    id.0,
+                    cambio.anterior.millonesimas(),
+                    cambio.nuevo.millonesimas(),
+                    cambio.existencia.milesimas(),
+                    cambio.valor_anterior.millonesimas(),
+                    cambio.valor_nuevo.millonesimas(),
+                ],
+            )?;
+
+            Ok(())
+        })?;
+
+        Ok(())
+    }
+
+    fn historial_costos(&self, id: IdProducto) -> Resultado<Vec<CostoRegistrado>> {
+        let historial = self.base.con(|conexion| {
+            let mut consulta = conexion.prepare(
+                "SELECT id, anterior, nuevo, existencia,
+                        valor_anterior, valor_nuevo, cambiado_en
+                   FROM historial_costo
+                  WHERE producto_id = ?1
+                  ORDER BY id DESC",
+            )?;
+
+            let mut filas = consulta.query(params![id.0])?;
+            let mut historial = Vec::new();
+
+            while let Some(fila) = filas.next()? {
+                historial.push(CostoRegistrado {
+                    id: fila.get(0)?,
+                    anterior: Dinero::desde_millonesimas(fila.get(1)?),
+                    nuevo: Dinero::desde_millonesimas(fila.get(2)?),
+                    existencia: Cantidad::desde_milesimas(fila.get(3)?),
+                    valor_anterior: Dinero::desde_millonesimas(fila.get(4)?),
+                    valor_nuevo: Dinero::desde_millonesimas(fila.get(5)?),
+                    cambiado_en: fila.get(6)?,
+                });
+            }
+
+            Ok(historial)
+        })?;
+
+        Ok(historial)
+    }
+
     fn listar(&self, incluir_inactivos: bool) -> Resultado<Vec<ProductoConInventario>> {
         let productos = self.base.con(|conexion| {
             let filtro = if incluir_inactivos {
@@ -323,6 +400,71 @@ impl RepositorioProducto for RepositorioProductoSqlite {
         })?;
 
         Ok(productos)
+    }
+
+    fn rastro_de_producto(&self, id: IdProducto) -> Resultado<RastroProducto> {
+        let rastro = self.base.con(|conexion| {
+            let contar = |de: &str| -> ResultadoInfra<i64> {
+                Ok(conexion.query_row(
+                    &format!("SELECT COUNT(*) FROM {de} WHERE producto_id = ?1"),
+                    params![id.0],
+                    |fila| fila.get(0),
+                )?)
+            };
+
+            Ok(RastroProducto {
+                ventas: contar("venta_linea")?,
+                movimientos: contar("movimiento")?,
+                esperas: contar("venta_en_espera_linea")?,
+            })
+        })?;
+
+        Ok(rastro)
+    }
+
+    fn limpiar_catalogo(&self, borrar: &[IdProducto], retirar: &[IdProducto]) -> Resultado<()> {
+        self.base.en_transaccion(|tx| {
+            // Retirar primero, que es lo reversible. Si un borrado de más
+            // abajo lo impide una clave foránea, la transacción entera se
+            // deshace y el catálogo queda exactamente como estaba.
+            for id in retirar {
+                tx.execute(
+                    "UPDATE producto SET activo = 0 WHERE id = ?1",
+                    params![id.0],
+                )?;
+            }
+
+            for id in borrar {
+                // De dentro hacia fuera, como en el borrón completo: cada
+                // tabla antes que aquella a la que apunta.
+                //
+                // `movimiento`, `venta_linea` y `venta_en_espera_linea` NO
+                // están en la lista a propósito. Son las tres que apuntan
+                // al producto y que no se tiran nunca, así que si el
+                // producto tiene alguna, el `DELETE` de abajo falla por
+                // clave foránea y todo esto se deshace. Eso es RF-CAT-07
+                // impuesto por el esquema: lo que el caso de uso decidió
+                // antes es una cortesía para dar un mensaje decente, no la
+                // garantía.
+                for tabla in [
+                    "historial_costo",
+                    "historial_precio",
+                    "existencia",
+                    "presentacion",
+                ] {
+                    tx.execute(
+                        &format!("DELETE FROM {tabla} WHERE producto_id = ?1"),
+                        params![id.0],
+                    )?;
+                }
+
+                tx.execute("DELETE FROM producto WHERE id = ?1", params![id.0])?;
+            }
+
+            Ok(())
+        })?;
+
+        Ok(())
     }
 
     fn registrar_venta(&self, confirmada: &VentaConfirmada<'_>) -> Resultado<i64> {
@@ -1091,6 +1233,7 @@ impl RepositorioProducto for RepositorioProductoSqlite {
                 "movimiento_efectivo",
                 "sesion_caja",
                 "movimiento",
+                "historial_costo",
                 "historial_precio",
                 "existencia",
                 "presentacion",

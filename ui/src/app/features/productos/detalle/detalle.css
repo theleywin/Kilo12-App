@@ -127,3 +127,89 @@ a.boton {
   color: var(--acento);
   font-size: var(--texto-m);
 }
+
+/* ======================================= el cartel de cambiar el costo
+   Cambiar el costo mueve el valor del inventario, así que no se presenta
+   como un campo más: se presenta como lo que es, una advertencia con una
+   cifra que la gente no espera y una clave que hay que teclear.
+
+   No se cierra haciendo clic fuera a propósito. Un cartel que se va solo
+   invita a confirmarlo sin leerlo. */
+
+.cartel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e3);
+  margin-top: var(--e4);
+  padding: var(--e4);
+  border: 1px solid var(--rojo);
+  border-left-width: 3px;
+  border-radius: var(--radio-s);
+  background: var(--rojo-suave);
+}
+
+.cartel__titulo {
+  font-size: var(--texto-l);
+}
+
+.cartel__texto {
+  max-width: 68ch;
+  font-size: var(--texto-m);
+  line-height: 1.55;
+}
+
+.cartel__campos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--e4);
+  align-items: flex-end;
+}
+
+.cartel__campos .campo {
+  min-width: 200px;
+}
+
+.cartel__acciones {
+  display: flex;
+  gap: var(--e2);
+  justify-content: flex-end;
+  padding-top: var(--e2);
+}
+
+/* Las cifras de las dos puntas, sin cabecera: no es una tabla de datos,
+   es una comparación de cuatro números. */
+.tabla--cartel {
+  width: auto;
+  background: var(--fondo);
+  border: 1px solid var(--linea);
+  border-radius: var(--radio-s);
+}
+
+.tabla--cartel th {
+  position: static;
+  background: transparent;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: var(--texto-m);
+  font-weight: var(--peso-normal);
+  color: var(--tinta);
+  border-bottom: 0;
+  white-space: normal;
+}
+
+.tabla--cartel td {
+  background: transparent;
+  border-bottom: 0;
+}
+
+.tabla--cartel .nota {
+  display: block;
+  font-size: var(--texto-xs);
+}
+
+@media (max-width: 720px) {
+  .cartel__campos .campo {
+    min-width: 0;
+    flex: 1 1 100%;
+  }
+}

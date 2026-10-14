@@ -23,6 +23,7 @@ import {
   VentaPrevistaDto,
 } from '../../core/api.types';
 import { comoError, Kilo12Api } from '../../core/kilo12-api';
+import { plegar } from '../../shared/buscar/buscar';
 import { antiguedad } from './antiguedad';
 import {
   apartadoDe,
@@ -36,15 +37,6 @@ import {
 
 /** Número decimal con hasta seis decimales. */
 const DECIMAL = /^\d+(\.\d{1,6})?$/;
-
-/** Quita acentos y mayúsculas para buscar como se teclea con prisa. */
-function plegar(texto: string): string {
-  return texto
-    .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .trim();
-}
 
 /** Cada cuánto se refresca la antigüedad de las ventas en espera. */
 const REFRESCO_ANTIGUEDAD = 30_000;

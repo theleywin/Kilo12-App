@@ -61,6 +61,70 @@
   cursor: pointer;
 }
 
+/* ========================================== buscador pegado arriba
+   Quien se desplaza es `.lienzo` del armazón, así que basta con `sticky`
+   aquí: la barra se queda a la vista mientras se recorre la tabla y se va
+   con el panel cuando el panel sale de pantalla. */
+
+.barra-busqueda {
+  position: sticky;
+  top: 0;
+  /* Por encima de las filas que pasan por debajo, y de la cabecera de la
+     tabla, que es un hermano posterior. */
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: var(--e3);
+  padding: var(--e3) var(--e4);
+  border-bottom: 1px solid var(--linea);
+  background: var(--superficie);
+}
+
+.buscador {
+  flex: 1;
+  min-width: 0;
+  max-width: 360px;
+}
+
+/* ========================================= las opciones, en su fila
+   El detalle se abre debajo del producto pulsado. La barra de acento a la
+   izquierda lo ata visualmente a su fila: sin ella, con la tabla llena, no
+   se sabe de quién son las opciones que estás mirando. */
+
+.fila-detalle > td {
+  padding: 0;
+  background: var(--superficie);
+  box-shadow: inset 3px 0 0 var(--acento);
+}
+
+/* El detalle no se ilumina al pasar por encima: no es una fila pulsable.
+   Gana por especificidad a `.tabla tbody tr:hover td`. */
+.tabla tbody tr.fila-detalle:hover > td {
+  background: var(--superficie);
+}
+
+.detalle {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e4);
+  padding: var(--e4);
+}
+
+.detalle__cabecera {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--e3);
+  flex-wrap: wrap;
+}
+
+/* La tabla del kárdex, dentro del detalle, se apoya sobre el fondo para
+   despegarse de la superficie del panel que la contiene. */
+.detalle .tabla-envoltorio {
+  border: 1px solid var(--linea-suave);
+  border-radius: var(--radio-s);
+}
+
 .envolver {
   flex-wrap: wrap;
   justify-content: space-between;

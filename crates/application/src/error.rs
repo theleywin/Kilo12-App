@@ -31,6 +31,12 @@ pub enum ErrorAplicacion {
     TasaNoConfigurada,
     /// La clave de mantenimiento no coincide.
     ClaveIncorrecta,
+    /// Se intentó quitar del catálogo un producto que todavía tiene
+    /// mercancía (RF-CAT-07).
+    ProductoConExistencia,
+    /// Se intentó quitar del catálogo un producto que está en una venta en
+    /// espera, o sea, en una venta empezada y sin cobrar (RF-CAT-14).
+    ProductoEnVentaEnEspera,
 }
 
 impl ErrorAplicacion {
@@ -47,6 +53,8 @@ impl ErrorAplicacion {
             Self::CantidadInicialRequerida => "CANTIDAD_INICIAL_REQUERIDA",
             Self::TasaNoConfigurada => "TASA_NO_CONFIGURADA",
             Self::ClaveIncorrecta => "CLAVE_INCORRECTA",
+            Self::ProductoConExistencia => "PRODUCTO_CON_EXISTENCIA",
+            Self::ProductoEnVentaEnEspera => "PRODUCTO_EN_VENTA_EN_ESPERA",
         }
     }
 
@@ -83,6 +91,14 @@ impl fmt::Display for ErrorAplicacion {
             Self::CantidadInicialRequerida => f.write_str(
                 "Indica cuánta mercancía entra: el costo se calcula sobre la existencia, \
                  así que sin cantidad no hay dónde guardarlo",
+            ),
+            Self::ProductoConExistencia => f.write_str(
+                "Todavía queda mercancía de este producto. Un producto sale del catálogo \
+                 cuando su existencia es cero: véndela o dale de baja por merma, y vuelve",
+            ),
+            Self::ProductoEnVentaEnEspera => f.write_str(
+                "Este producto está en una venta en espera: una venta empezada y sin cobrar. \
+                 Cóbrala o descártala antes de quitarlo del catálogo",
             ),
             Self::SkuAgotado(base) => {
                 write!(

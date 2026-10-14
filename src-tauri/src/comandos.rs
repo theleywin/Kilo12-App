@@ -16,10 +16,11 @@ use application::casos::{
     ContarEfectivo, HistorialCajas, MoverEfectivo,
 };
 use application::casos::{
-    AgregarPresentacion, CambiarPrecio, ConsultarAlmacen, ConsultarHistorialPrecios,
-    ConsultarKardex, ConsultarProducto, ConsultarVitrina, DesactivarPresentacion, EditarProducto,
-    FijarObjetivoVitrina, ListarProductos, MarcarPredeterminada, OrdenCatalogo, RegistrarEntrada,
-    RegistrarMerma, RegistrarProducto, SimularMovimiento, Traspasar,
+    AgregarPresentacion, CambiarCosto, CambiarPrecio, ConsultarAlmacen, ConsultarHistorialCostos,
+    ConsultarHistorialPrecios, ConsultarKardex, ConsultarProducto, ConsultarVitrina,
+    DesactivarPresentacion, EditarProducto, FijarObjetivoVitrina, LimpiarCatalogo, ListarProductos,
+    MarcarPredeterminada, OrdenCatalogo, QuitarDelCatalogo, RegistrarEntrada, RegistrarMerma,
+    RegistrarProducto, SimularMovimiento, Traspasar,
 };
 use application::casos::{
     CalcularCobro, CatalogoDeVenta, ConsultarTasa, ConsultarVenta, ConsultarVentas,
@@ -34,10 +35,11 @@ use domain::{Dinero, Moneda, Porcentaje};
 use tauri::State;
 
 use crate::dto::{
-    AlmacenDto, CambioPrecioDto, CambioPrecioListadoDto, ConsultaSimulacionDto, EdicionProductoDto,
-    ErrorDto, FichaProductoDto, MargenDto, MovimientoDto, NuevaEntradaDto, NuevaMermaDto,
-    NuevaPresentacionDto, NuevoProductoDto, NuevoTraspasoDto, ObjetivoVitrinaDto, ProductoDto,
-    ReferenciaPresentacionDto, SimulacionDto, VitrinaDto,
+    AlmacenDto, CambioPrecioDto, CambioPrecioListadoDto, ConsultaSimulacionDto, CostoListadoDto,
+    EdicionProductoDto, ErrorDto, FichaProductoDto, LimpiezaDto, MargenDto, MovimientoDto,
+    NuevaEntradaDto, NuevaMermaDto, NuevaPresentacionDto, NuevoCostoDto, NuevoProductoDto,
+    NuevoTraspasoDto, ObjetivoVitrinaDto, ProductoDto, ProductoVacioDto, ReferenciaPresentacionDto,
+    RevaluacionDto, SimulacionDto, VitrinaDto,
 };
 use crate::dto::{
     AnulacionDto, AperturaCajaDto, CierreCajaDto, CierreCalculadoDto, ConteoCalculadoDto,
@@ -425,6 +427,110 @@ pub fn marcar_predeterminada(
 ) -> Result<(), ErrorDto> {
     let caso = MarcarPredeterminada::nuevo(estado.repositorio_producto());
     caso.ejecutar(referencia.into()).map_err(ErrorDto::from)
+}
+
+/// Enseña cómo quedaría una revaluación **sin guardar nada**.
+///
+/// Alimenta el cartel de confirmación. No pide clave a propósito: las
+/// cifras que están en juego hay que verlas ANTES de teclearla.
+#[tauri::command]
+pub fn previsualizar_costo(
+    estado: State<'_, Estado>,
+    producto: i64,
+    costo: String,
+) -> Result<RevaluacionDto, ErrorDto> {
+    let caso = CambiarCosto::nuevo(estado.repositorio_producto());
+    caso.previsualizar(producto, &costo)
+        .map(RevaluacionDto::from)
+        .map_err(ErrorDto::from)
+}
+
+/// Fija a mano el costo de un producto revalorando su inventario.
+///
+/// El costo no se almacena: se deriva del valor entre la existencia
+/// (RF-COS-02). Así que esto **mueve el valor del inventario**, y por eso
+/// pide la clave de mantenimiento. La clave se comprueba **en Rust**, no en
+/// la pantalla: el comando queda expuesto a la interfaz, y una validación
+/// que solo vive en JavaScript se salta abriendo las herramientas de
+/// desarrollo.
+#[tauri::command]
+pub fn cambiar_costo(
+    estado: State<'_, Estado>,
+    cambio: NuevoCostoDto,
+) -> Result<RevaluacionDto, ErrorDto> {
+    let caso = CambiarCosto::nuevo(estado.repositorio_producto());
+    caso.ejecutar(cambio.into())
+        .map(RevaluacionDto::from)
+        .map_err(ErrorDto::from)
+}
+
+/// Devuelve las revaluaciones de costo de un producto.
+#[tauri::command]
+pub fn consultar_historial_costos(
+    estado: State<'_, Estado>,
+    producto: i64,
+) -> Result<Vec<CostoListadoDto>, ErrorDto> {
+    let caso = ConsultarHistorialCostos::nuevo(estado.repositorio_producto());
+    caso.ejecutar(producto)
+        .map(|cambios| cambios.into_iter().map(CostoListadoDto::from).collect())
+        .map_err(ErrorDto::from)
+}
+
+// ======================================= quitar del catálogo (RF-CAT-06/07)
+
+/// Dice qué pasaría al quitar este producto del catálogo, **sin tocar nada**.
+///
+/// Hace falta antes de confirmar, no después: lo que viene puede ser un
+/// borrado definitivo o un retiro reversible, y eso cambia la pregunta que
+/// se le hace al usuario.
+#[tauri::command]
+pub fn previsualizar_quitar_producto(
+    estado: State<'_, Estado>,
+    producto: i64,
+) -> Result<ProductoVacioDto, ErrorDto> {
+    let caso = QuitarDelCatalogo::nuevo(estado.repositorio_producto());
+    caso.previsualizar(producto)
+        .map(ProductoVacioDto::from)
+        .map_err(ErrorDto::from)
+}
+
+/// Quita un producto del catálogo y devuelve lo que hizo (RF-CAT-06, RF-CAT-07).
+///
+/// Solo si está en cero. El que nunca se movió se borra; el que vendió se
+/// retira de la venta y conserva su historial. Quién va a cada lado lo
+/// decide Rust al confirmar, no la pantalla: entre el cartel y el clic pudo
+/// entrar mercancía.
+#[tauri::command]
+pub fn quitar_producto(
+    estado: State<'_, Estado>,
+    producto: i64,
+) -> Result<ProductoVacioDto, ErrorDto> {
+    let caso = QuitarDelCatalogo::nuevo(estado.repositorio_producto());
+    caso.ejecutar(producto)
+        .map(ProductoVacioDto::from)
+        .map_err(ErrorDto::from)
+}
+
+/// Reúne los productos sin mercancía repartidos por destino (RF-CAT-13).
+#[tauri::command]
+pub fn previsualizar_limpieza(estado: State<'_, Estado>) -> Result<LimpiezaDto, ErrorDto> {
+    let caso = LimpiarCatalogo::nuevo(estado.repositorio_producto());
+    caso.previsualizar()
+        .map(LimpiezaDto::from)
+        .map_err(ErrorDto::from)
+}
+
+/// Limpia de una vez las etiquetas de productos vacíos (RF-CAT-13).
+///
+/// La lista se vuelve a calcular aquí dentro: la pantalla no manda
+/// identificadores, así que no puede pedir el borrado de algo que entre
+/// tanto dejó de estar vacío.
+#[tauri::command]
+pub fn limpiar_catalogo(estado: State<'_, Estado>) -> Result<LimpiezaDto, ErrorDto> {
+    let caso = LimpiarCatalogo::nuevo(estado.repositorio_producto());
+    caso.ejecutar()
+        .map(LimpiezaDto::from)
+        .map_err(ErrorDto::from)
 }
 
 /// Devuelve cómo ha ido cambiando el precio de un producto (RF-PRE-04).

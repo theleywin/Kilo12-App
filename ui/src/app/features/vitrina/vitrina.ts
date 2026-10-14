@@ -1,8 +1,9 @@
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 
 import { ErrorDto, LineaVitrinaDto, MovimientoDto, VitrinaDto } from '../../core/api.types';
 import { comoError, Kilo12Api } from '../../core/kilo12-api';
+import { filtrarProductos } from '../../shared/buscar/buscar';
 
 /** Número decimal con hasta seis decimales. */
 const DECIMAL = /^\d+(\.\d{1,6})?$/;
@@ -37,6 +38,24 @@ export class Vitrina {
   protected readonly seleccionado = signal<LineaVitrinaDto | null>(null);
   protected readonly kardex = signal<MovimientoDto[]>([]);
   protected readonly cargandoKardex = signal(false);
+
+  /**
+   * Lo que se escribe en el buscador.
+   *
+   * Filtra por nombre o por código. Con la vitrina llena, bajar la rueda
+   * hasta encontrar un producto es más lento que teclear tres letras.
+   */
+  protected readonly busqueda = signal('');
+
+  /** Los productos que pasan el filtro, en el orden en que llegaron. */
+  protected readonly productos = computed(() =>
+    filtrarProductos(this.vitrina()?.productos ?? [], this.busqueda()),
+  );
+
+  /** Se buscó algo y no hay nada que se parezca. */
+  protected readonly sinResultados = computed(
+    () => this.busqueda().trim().length > 0 && this.productos().length === 0,
+  );
 
   /**
    * Cuánto se va a bajar de cada producto.
@@ -247,6 +266,28 @@ export class Vitrina {
     } finally {
       this.ocupado.set(false);
     }
+  }
+
+  /**
+   * Abre las opciones del producto en su propia fila, o las cierra si ya
+   * estaban abiertas.
+   *
+   * Las casillas se vacían al cambiar de producto. No es un detalle
+   * estético: «traer 5» escrito para el arroz y dejado ahí al pulsar el
+   * aceite es un traspaso de la cantidad equivocada a un clic de
+   * distancia. Con el panel al pie de la tabla casi no se veía; con las
+   * opciones dentro de la fila, se ve y se pulsa.
+   */
+  protected async alternar(producto: LineaVitrinaDto): Promise<void> {
+    if (this.seleccionado()?.id === producto.id) {
+      this.cerrarHistorial();
+      return;
+    }
+
+    this.aTraer.set('');
+    this.aDevolver.set('');
+    this.formularioMerma.reset();
+    await this.verHistorial(producto);
   }
 
   protected async verHistorial(producto: LineaVitrinaDto): Promise<void> {

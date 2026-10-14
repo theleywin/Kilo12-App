@@ -4,6 +4,7 @@ pub(crate) mod agregados;
 pub mod anular_venta;
 pub mod caja;
 pub mod calcular_cobro;
+pub mod cambiar_costo;
 pub mod catalogo_venta;
 pub mod consultar_almacen;
 pub mod consultar_historial_precios;
@@ -14,6 +15,7 @@ pub mod consultar_vitrina;
 pub mod editar_producto;
 pub mod fijar_objetivo_vitrina;
 pub mod informes;
+pub mod limpiar_catalogo;
 pub mod listar_productos;
 pub mod mantenimiento;
 pub mod previsualizar_venta;
@@ -35,6 +37,9 @@ pub use caja::{
     ResumenEconomico, SesionDeReferencia, SesionListada,
 };
 pub use calcular_cobro::{CalcularCobro, CobroCalculado};
+pub use cambiar_costo::{
+    CambiarCosto, CambioDeCostoListado, ComandoCambiarCosto, ConsultarHistorialCostos, Revaluacion,
+};
 pub use catalogo_venta::{CatalogoDeVenta, PresentacionVendible, ProductoVendible};
 pub use consultar_almacen::{ConsultarAlmacen, ResumenAlmacen};
 pub use consultar_historial_precios::{CambioDePrecioListado, ConsultarHistorialPrecios};
@@ -55,6 +60,7 @@ pub use informes::{
     ComparativaDiaria, ConsultarInforme, Informe, PorcionMetodo, ProductoEnInforme, ProductoParado,
     ProductoPorAgotarse, PuntoDiario, PuntoHorario, ResumenPeriodo,
 };
+pub use limpiar_catalogo::{Destino, LimpiarCatalogo, Limpieza, ProductoVacio, QuitarDelCatalogo};
 pub use listar_productos::{ListarProductos, OrdenCatalogo, ProductoListado};
 pub use mantenimiento::{BorrarTodo, CLAVE_MANTENIMIENTO};
 pub use previsualizar_venta::{LineaPrevista, PrevisualizarVenta, VentaPrevista};

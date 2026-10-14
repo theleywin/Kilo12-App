@@ -53,6 +53,13 @@ pub struct FichaProducto {
     pub stock_minimo: String,
     pub objetivo_vitrina: String,
     pub existencia_total: String,
+    /// No queda nada, ni en almacén ni en vitrina.
+    ///
+    /// Viaja como bandera y no se deduce del texto de `existencia_total`:
+    /// ese llega con los decimales de su unidad, así que un producto a
+    /// granel en cero dice «0.000» y uno por unidades dice «0». Comparar
+    /// cadenas en la pantalla acertaría con la mitad de los productos.
+    pub agotado: bool,
     pub presentaciones: Vec<PresentacionDetallada>,
 }
 
@@ -80,6 +87,9 @@ impl<'a, R: RepositorioProducto> ConsultarProducto<'a, R> {
             })?;
 
         let costo = inventario.costo_unitario().ok();
+        let total = inventario
+            .cantidad_total()
+            .unwrap_or(domain::Cantidad::CERO);
 
         // Las anómalas las detecta el dominio comparando precios por unidad
         // base entre presentaciones (RF-PRS-12).
@@ -110,12 +120,8 @@ impl<'a, R: RepositorioProducto> ConsultarProducto<'a, R> {
             costo: costo.map_or_else(|| SIN_DATO.to_owned(), |c| c.formatear(2)),
             stock_minimo: formatear_cantidad(producto.stock_minimo(), &producto),
             objetivo_vitrina: formatear_cantidad(producto.objetivo_vitrina(), &producto),
-            existencia_total: formatear_cantidad(
-                inventario
-                    .cantidad_total()
-                    .unwrap_or(domain::Cantidad::CERO),
-                &producto,
-            ),
+            existencia_total: formatear_cantidad(total, &producto),
+            agotado: total.es_cero(),
             presentaciones,
         })
     }

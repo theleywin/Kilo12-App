@@ -1,9 +1,10 @@
 # Kilo12 — Requerimientos Funcionales
 
-**Versión:** 1.5
-**Fecha:** 2026-09-28
+**Versión:** 1.6
+**Fecha:** 2026-10-13
 **Estado:** Alcance funcional cerrado. Todas las decisiones de modelo de datos están resueltas.
 
+**Cambios en 1.6:** se especifica **quitar un producto del catálogo** (RF-CAT-13), que hasta ahora solo existía como la prohibición de RF-CAT-07. No es una operación sino dos, elegidas según el historial del producto: se borra lo que nunca se movió y se desactiva lo que vendió. Se añade la limpieza de todos los productos sin existencia a la vez, con confirmación que separa los dos grupos, y la protección de los que figuran en una venta en espera (RF-CAT-14).
 **Cambios en 1.5:** las cifras de la pantalla Ventas se refieren a la **sesión de caja de referencia** (la abierta o, si no hay ninguna, la última cerrada) y no al día del calendario (RF-VTA-20). El desglose por presentación (RF-EST-03b) se ofrece en Ventas para esa sesión, con una fila por presentación y sin subtotal por producto.
 **Cambios en 1.4:** se incorpora la **libra** como unidad base y se sustituye la moneda única por tres métodos de pago —efectivo en pesos, transferencia y efectivo en dólares—, con tasa de cambio, arqueo por moneda y dos modos de cierre. Nuevo módulo §6.11 — Divisa y tasa de cambio.
 **Cambios en 1.3:** se declaran las plataformas objetivo, que hasta ahora no estaban especificadas: Windows como principal y macOS como secundaria (RNF-8 a RNF-10).
@@ -148,11 +149,16 @@ Todo lo demás es secundario. Si un requerimiento no sirve a una de esas cinco p
 | RF-CAT-10 | El sistema debe permitir asociar una imagen local al producto para facilitar su identificación visual. | C |
 | RF-CAT-11 | El sistema debe permitir importar y exportar el catálogo en formato CSV. | S |
 | RF-CAT-12 | El sistema debe permitir registrar un código de barras por **presentación** como dato, aun cuando no exista lector conectado, dado que el paquete y la unidad suelta tienen códigos distintos. | C |
+| RF-CAT-13 | El sistema debe permitir **quitar del catálogo un producto sin existencia**, y debe hacerlo de una de dos formas según su historial: borrarlo definitivamente si nunca registró ventas ni movimientos, o desactivarlo si los registró (RF-CAT-06, RF-CAT-07). El sistema debe ofrecer además una limpieza de todos los productos sin existencia a la vez, con una confirmación previa que enumere, **separados**, los que se borran y los que se desactivan. | M |
+| RF-CAT-14 | El sistema debe impedir quitar del catálogo un producto que figure en una venta en espera (RF-VTA-14), tanto individualmente como en la limpieza completa, e informar del motivo. | M |
 
 **Criterios de aceptación destacados**
 
 - RF-CAT-03: al registrar movimiento de un producto a granel, el sistema acepta `1.250` kg; al hacerlo de un producto por unidad, rechaza `1.5` y exige un entero.
 - RF-CAT-09: buscar `"azucar"` encuentra `"Azúcar morena"`.
+- RF-CAT-13: un producto dado de alta que nunca se vendió y está en cero se borra, y su SKU vuelve a estar disponible. Un producto que se vendió hasta agotarse no se borra: se desactiva, y sus ventas siguen apareciendo en los informes.
+- RF-CAT-13: un producto con existencia mayor que cero no se puede quitar del catálogo por ninguna de las dos vías.
+- RF-CAT-14: un producto en cero que figura en una venta en espera aparece en la confirmación como no tocable, con el número de esperas que lo llevan, y la limpieza no lo modifica.
 
 ---
 

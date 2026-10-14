@@ -276,6 +276,42 @@ const MIGRACIONES: &[&str] = &[
         UNIQUE (espera_id, orden)
     );
     "#,
+    // 8 — Historial de revaluaciones de inventario.
+    //
+    // El costo no se almacena: se deriva de `producto.valor_total` entre la
+    // existencia (RF-COS-02). Así que fijar un costo a mano es mover el
+    // valor del inventario, y eso crea o destruye valor que nadie compró.
+    //
+    // Va en su propia tabla y NO en el kárdex, por dos razones. La de
+    // diseño: el kárdex explica saldos de existencia, y una revaluación no
+    // mueve ni una unidad. La de esquema: `movimiento.cantidad` exige
+    // `> 0`, así que un asiento sin cantidad no cabe.
+    //
+    // Es el mismo motivo por el que `historial_precio` existe aparte: el
+    // costo de ayer no se deduce del de hoy, y si no se anota al cambiarlo
+    // se pierde para siempre.
+    //
+    // Se guardan las dos cifras de las dos puntas —costo y valor, antes y
+    // después— y la existencia sobre la que se aplicó. Ninguna de las tres
+    // se puede reconstruir después: la existencia se mueve con cada venta.
+    r#"
+    CREATE TABLE historial_costo (
+        id             INTEGER PRIMARY KEY,
+        producto_id    INTEGER NOT NULL REFERENCES producto(id),
+        -- Costo por unidad base, en millonésimas.
+        anterior       INTEGER NOT NULL CHECK (anterior >= 0),
+        nuevo          INTEGER NOT NULL CHECK (nuevo >= 0),
+        -- Existencia total en el momento de revalorar, en milésimas.
+        -- Mayor que cero: sin existencia no hay costo que fijar.
+        existencia     INTEGER NOT NULL CHECK (existencia > 0),
+        valor_anterior INTEGER NOT NULL CHECK (valor_anterior >= 0),
+        valor_nuevo    INTEGER NOT NULL CHECK (valor_nuevo >= 0),
+        cambiado_en    TEXT    NOT NULL
+    );
+
+    CREATE INDEX idx_historial_costo_producto
+        ON historial_costo(producto_id, id);
+    "#,
 ];
 
 /// Lleva el esquema a la última versión.

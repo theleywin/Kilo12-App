@@ -15,11 +15,11 @@ use application::casos::{
     SesionDeReferencia, SesionListada,
 };
 use application::casos::{
-    CambioDePrecioListado, ComandoAgregarPresentacion, ComandoCambiarPrecio, ComandoEditarProducto,
-    ComandoFijarObjetivo, ComandoPresentacion, ComandoRegistrarEntrada, ComandoRegistrarMerma,
-    ComandoRegistrarProducto, ComandoSimular, ComandoTraspasar, FichaProducto, LineaKardex,
-    LineaVitrina, PresentacionDetallada, ProductoListado, ResumenAlmacen, ResumenVitrina,
-    Simulacion,
+    CambioDeCostoListado, CambioDePrecioListado, ComandoAgregarPresentacion, ComandoCambiarCosto,
+    ComandoCambiarPrecio, ComandoEditarProducto, ComandoFijarObjetivo, ComandoPresentacion,
+    ComandoRegistrarEntrada, ComandoRegistrarMerma, ComandoRegistrarProducto, ComandoSimular,
+    ComandoTraspasar, FichaProducto, Limpieza, LineaKardex, LineaVitrina, PresentacionDetallada,
+    ProductoListado, ProductoVacio, ResumenAlmacen, ResumenVitrina, Revaluacion, Simulacion,
 };
 use application::casos::{
     CobroCalculado, ComandoVender, HistorialVentas, LineaPedida, LineaVendida, PagoHecho,
@@ -444,6 +444,9 @@ pub struct FichaProductoDto {
     pub stock_minimo: String,
     pub objetivo_vitrina: String,
     pub existencia_total: String,
+    /// No queda nada. Viaja como bandera porque `existencia_total` llega con
+    /// los decimales de su unidad: a granel el cero es «0.000».
+    pub agotado: bool,
     pub presentaciones: Vec<PresentacionDto>,
 }
 
@@ -461,6 +464,7 @@ impl From<FichaProducto> for FichaProductoDto {
             stock_minimo: ficha.stock_minimo,
             objetivo_vitrina: ficha.objetivo_vitrina,
             existencia_total: ficha.existencia_total,
+            agotado: ficha.agotado,
             presentaciones: ficha
                 .presentaciones
                 .into_iter()
@@ -548,6 +552,163 @@ impl From<ReferenciaPresentacionDto> for ComandoPresentacion {
         Self {
             producto: dto.producto,
             presentacion: dto.presentacion,
+        }
+    }
+}
+
+/// Un costo nuevo para un producto, con la clave que lo autoriza.
+///
+/// Se llama `Nuevo…` como el resto de las **entradas** (`NuevaEntradaDto`,
+/// `NuevaMermaDto`) y no `CambioCostoDto`, para que no pase lo que ya pasó
+/// con el precio: en Rust `CambioPrecioDto` es la entrada del comando y en
+/// la interfaz hay una interfaz del mismo nombre que es la salida del
+/// historial. Dos cosas distintas con el mismo nombre y nada que lo detecte.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NuevoCostoDto {
+    pub producto: i64,
+    /// Costo nuevo por unidad base.
+    pub costo: String,
+    /// Clave de mantenimiento. La comprueba Rust, no la pantalla.
+    pub clave: String,
+}
+
+impl From<NuevoCostoDto> for ComandoCambiarCosto {
+    fn from(dto: NuevoCostoDto) -> Self {
+        Self {
+            producto: dto.producto,
+            costo: dto.costo,
+            clave: dto.clave,
+        }
+    }
+}
+
+/// Lo que una revaluación haría, o lo que acaba de hacer.
+///
+/// Lleva las dos puntas del costo **y las del valor del inventario**: la
+/// cifra que el cartel tiene que enseñar no es el costo nuevo, que ya lo
+/// escribió el usuario, sino cuánto se mueve el valor del negocio.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RevaluacionDto {
+    pub producto: i64,
+    pub nombre: String,
+    pub unidad_base: String,
+    pub existencia: String,
+    pub costo_anterior: String,
+    pub costo_nuevo: String,
+    pub valor_anterior: String,
+    pub valor_nuevo: String,
+    pub diferencia: String,
+    pub sube: bool,
+}
+
+impl From<Revaluacion> for RevaluacionDto {
+    fn from(revaluacion: Revaluacion) -> Self {
+        Self {
+            producto: revaluacion.producto,
+            nombre: revaluacion.nombre,
+            unidad_base: revaluacion.unidad_base,
+            existencia: revaluacion.existencia,
+            costo_anterior: revaluacion.costo_anterior,
+            costo_nuevo: revaluacion.costo_nuevo,
+            valor_anterior: revaluacion.valor_anterior,
+            valor_nuevo: revaluacion.valor_nuevo,
+            diferencia: revaluacion.diferencia,
+            sube: revaluacion.sube,
+        }
+    }
+}
+
+/// Una revaluación ya ocurrida.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CostoListadoDto {
+    pub id: i64,
+    pub anterior: String,
+    pub nuevo: String,
+    pub existencia: String,
+    pub valor_anterior: String,
+    pub valor_nuevo: String,
+    pub diferencia: String,
+    pub subio: bool,
+    pub cambiado_en: String,
+}
+
+impl From<CambioDeCostoListado> for CostoListadoDto {
+    fn from(cambio: CambioDeCostoListado) -> Self {
+        Self {
+            id: cambio.id,
+            anterior: cambio.anterior,
+            nuevo: cambio.nuevo,
+            existencia: cambio.existencia,
+            valor_anterior: cambio.valor_anterior,
+            valor_nuevo: cambio.valor_nuevo,
+            diferencia: cambio.diferencia,
+            subio: cambio.subio,
+            cambiado_en: cambio.cambiado_en,
+        }
+    }
+}
+
+/// Un producto sin mercancía, con lo que se haría con él (RF-CAT-13).
+///
+/// `destino` viaja como código y no como texto para la pantalla: `BORRAR`,
+/// `RETIRAR` o `BLOQUEADO`. La frase que lee el usuario la escribe la
+/// interfaz, igual que con los códigos de error (DT-7).
+///
+/// Las cifras del rastro van incluidas porque son la explicación: «se retira
+/// porque tiene 142 ventas» se puede discutir, y «se retira» a secas solo se
+/// puede obedecer.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProductoVacioDto {
+    pub id: i64,
+    pub sku: String,
+    pub nombre: String,
+    /// `BORRAR`, `RETIRAR` o `BLOQUEADO`.
+    pub destino: String,
+    pub ventas: i64,
+    pub movimientos: i64,
+    pub esperas: i64,
+    /// Ya estaba retirado de la venta.
+    pub retirado: bool,
+}
+
+impl From<ProductoVacio> for ProductoVacioDto {
+    fn from(vacio: ProductoVacio) -> Self {
+        Self {
+            id: vacio.id,
+            sku: vacio.sku,
+            nombre: vacio.nombre,
+            destino: vacio.destino.como_texto().to_owned(),
+            ventas: vacio.ventas,
+            movimientos: vacio.movimientos,
+            esperas: vacio.esperas,
+            retirado: vacio.retirado,
+        }
+    }
+}
+
+/// Lo que una limpieza del catálogo haría, o lo que acaba de hacer.
+///
+/// Los tres grupos viajan separados a propósito: el cartel de confirmación
+/// tiene que enseñar qué se va para siempre, qué solo se esconde y qué no se
+/// toca. Un único montón obligaría a la pantalla a clasificarlo otra vez.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LimpiezaDto {
+    pub se_borran: Vec<ProductoVacioDto>,
+    pub se_retiran: Vec<ProductoVacioDto>,
+    pub bloqueados: Vec<ProductoVacioDto>,
+}
+
+impl From<Limpieza> for LimpiezaDto {
+    fn from(limpieza: Limpieza) -> Self {
+        Self {
+            se_borran: limpieza.se_borran.into_iter().map(Into::into).collect(),
+            se_retiran: limpieza.se_retiran.into_iter().map(Into::into).collect(),
+            bloqueados: limpieza.bloqueados.into_iter().map(Into::into).collect(),
         }
     }
 }
