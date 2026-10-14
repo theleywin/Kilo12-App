@@ -1,0 +1,203 @@
+<section class="pagina pagina--ancha">
+  <header class="cabecera-pagina">
+    <h1>Consumo</h1>
+    <p class="descripcion">
+      Lo que se llevan los dueños para su casa. Suma deuda <strong>al costo</strong>, no al precio:
+      el local recupera lo que le costó. No entra en la caja ni cuenta como merma.
+    </p>
+  </header>
+
+  @if (error(); as fallo) {
+    <div
+      class="aviso"
+      [class.aviso--error]="!fallo.delUsuario"
+      [class.aviso--atencion]="fallo.delUsuario"
+      role="alert"
+    >
+      <strong>{{ fallo.mensaje }}</strong>
+      <span class="codigo">{{ fallo.codigo }}</span>
+    </div>
+  }
+
+  @if (panel(); as resumen) {
+    <!-- ============================================== la deuda de la casa
+         Es la cifra por la que se entra aquí, así que ocupa el sitio de un
+         titular. La barra de debajo la reparte entre las tres cuentas: las
+         proporciones las calcula Rust, aquí solo se dibuja. -->
+    <div class="casa" [class.casa--a-favor]="resumen.aFavor">
+      <span class="casa__rotulo">
+        {{ resumen.aFavor ? 'A favor de la casa' : 'Deuda de la casa' }}
+      </span>
+
+      <strong class="cifra casa__total">{{ resumen.total }}</strong>
+
+      @if (!resumen.aFavor && resumen.total !== '0.00') {
+        <div class="casa__reparto" role="img" aria-label="Reparto de la deuda entre las cuentas">
+          @for (cuenta of resumen.cuentas; track cuenta.id) {
+            @if (cuenta.peso > 0) {
+              <span
+                class="casa__parte"
+                [style.flex-grow]="cuenta.peso"
+                [title]="cuenta.nombre + ' · ' + cuenta.porcion + ' %'"
+              ></span>
+            }
+          }
+        </div>
+
+        <div class="casa__leyenda">
+          @for (cuenta of resumen.cuentas; track cuenta.id) {
+            @if (cuenta.peso > 0) {
+              <span class="casa__clave">
+                <span class="casa__punto"></span>
+                {{ cuenta.nombre }} · {{ cuenta.porcion }} %
+              </span>
+            }
+          }
+        </div>
+      } @else if (resumen.total === '0.00') {
+        <span class="casa__nota">Nadie debe nada ahora mismo.</span>
+      }
+    </div>
+
+    <!-- ====================================== las tres propietarias
+         Una tarjeta cada una, con su inicial, su saldo y las tres cosas que
+         se hacen: cargar, cobrar y mirar. Los botones viven dentro de la
+         tarjeta de la persona sobre la que actúan, así que no hay forma de
+         equivocarse de cuenta. -->
+    <div class="cuentas">
+      @for (cuenta of resumen.cuentas; track cuenta.id) {
+        <article class="duena" [class.duena--retirada]="!cuenta.activa">
+          <div class="duena__arriba">
+            <span class="avatar">
+              <app-avatar [nombre]="cuenta.nombre" />
+            </span>
+
+            <div class="duena__identidad">
+              <span class="duena__nombre">
+                {{ cuenta.nombre }}
+                @if (!cuenta.activa) {
+                  <span class="etiqueta">Retirada</span>
+                }
+              </span>
+              <span class="duena__estado">
+                @if (cuenta.aFavor) {
+                  tiene a favor
+                } @else if (cuenta.saldo === '0.00') {
+                  al día
+                } @else {
+                  debe · {{ cuenta.porcion }} % del total
+                }
+              </span>
+            </div>
+          </div>
+
+          <strong
+            class="cifra duena__saldo"
+            [class.cifra--positiva]="cuenta.aFavor"
+            [class.duena__saldo--cero]="cuenta.saldo === '0.00'"
+          >
+            {{ cuenta.saldo }}
+          </strong>
+
+          <div class="duena__cuentas">
+            <span class="apagado nota">se llevó {{ cuenta.consumido }}</span>
+            <span class="apagado nota">pagó {{ cuenta.pagado }}</span>
+          </div>
+
+          <div class="duena__acciones">
+            <button
+              type="button"
+              class="boton boton--destacado"
+              [disabled]="!cuenta.activa"
+              (click)="registrando.set(cuenta)"
+            >
+              Consumir
+            </button>
+            <button
+              type="button"
+              class="boton boton--secundario"
+              [disabled]="cuenta.saldo === '0.00'"
+              (click)="liquidando.set(cuenta)"
+            >
+              Pagar
+            </button>
+            <button type="button" class="boton boton--discreto" (click)="verHistorial(cuenta)">
+              Historial
+            </button>
+          </div>
+        </article>
+      }
+    </div>
+
+    <!-- ========================================= qué se está yendo
+         Se queda aquí y no en la página de una cuenta porque mira las tres
+         a la vez: es la pregunta que no contestan los saldos. -->
+    <div class="panel panel--lista se-va">
+      <div class="panel__cabecera">
+        <span class="panel__titulo">Qué se está yendo</span>
+        <span class="apagado nota">las tres cuentas · al costo · de mayor a menor</span>
+      </div>
+
+      <div class="tabla-envoltorio">
+        <table class="tabla">
+          <thead>
+            <tr>
+              <th>Producto</th>
+              <th class="derecha">Se llevaron</th>
+              <th class="derecha">Al costo</th>
+              <th class="barra-columna"></th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (fila of porProducto(); track fila.producto) {
+              <tr>
+                <td>{{ fila.nombre }}</td>
+                <td class="derecha cifra apagado">{{ fila.cantidad }}</td>
+                <td class="derecha cifra">{{ fila.costo }}</td>
+                <td class="barra-columna">
+                  <div class="fila-barra">
+                    <div class="fila-barra__relleno" [style.width.%]="fila.peso / 10"></div>
+                  </div>
+                </td>
+              </tr>
+            } @empty {
+              <tr>
+                <td colspan="4">
+                  <div class="vacio">
+                    <span class="vacio__titulo">Todavía no se ha ido nada</span>
+                    <span class="vacio__texto">
+                      Cuando alguien se lleve algo, aquí se verá qué producto se va más.
+                    </span>
+                  </div>
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
+  } @else if (!cargando()) {
+    <div class="vacio">
+      <span class="vacio__titulo">No se pudo leer el consumo</span>
+      <button type="button" class="boton" (click)="recargar()">Volver a intentar</button>
+    </div>
+  }
+
+  @if (registrando(); as aQuien) {
+    <app-consumo-registrar
+      [cuenta]="aQuien"
+      (registrado)="alRegistrar()"
+      (cerrado)="registrando.set(null)"
+      (fallo)="error.set($event)"
+    />
+  }
+
+  @if (liquidando(); as quienPaga) {
+    <app-consumo-liquidar
+      [cuenta]="quienPaga"
+      (liquidado)="alLiquidar()"
+      (cerrado)="liquidando.set(null)"
+      (fallo)="error.set($event)"
+    />
+  }
+</section>
