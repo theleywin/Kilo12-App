@@ -313,8 +313,8 @@ fn una_base_nueva_nace_con_las_tablas_de_espera() {
     // Sube con cada migración nueva. La comprobación no es decorativa:
     // `version_esperada` es lo que rechaza un respaldo hecho por una
     // versión posterior (RF-DAT-07), y tiene que cuadrar con el esquema.
-    assert_eq!(entorno.version(), 8);
-    assert_eq!(migraciones::version_esperada(), 8);
+    assert_eq!(entorno.version(), 9);
+    assert_eq!(migraciones::version_esperada(), 9);
     assert_eq!(entorno.filas("venta_en_espera"), 0);
     assert_eq!(entorno.filas("venta_en_espera_linea"), 0);
 }
@@ -345,7 +345,49 @@ fn la_migracion_se_aplica_sobre_una_base_de_la_version_anterior() {
                      DROP TABLE venta_en_espera;
                      -- De la 8: el historial de revaluaciones.
                      DROP TABLE historial_costo;
+                     -- De la 9: el consumo de los dueños.
+                     DROP TABLE consumo_linea;
+                     DROP TABLE consumo;
+                     DROP TABLE pago_consumo;
+                     DROP TABLE cuenta_consumo;
                      PRAGMA user_version = 6;",
+                )?;
+
+                // La 9 no solo añade tablas: RECONSTRUYE `movimiento` para
+                // que su `CHECK` admita el consumo. Un `DROP TABLE` no
+                // puede deshacer eso, así que hay que devolver la tabla a
+                // su forma de la versión 8 —con el `CHECK` de entonces— o
+                // la prueba estaría migrando sobre un esquema que ya tiene
+                // aplicado lo que dice estar probando.
+                conexion.execute_batch(
+                    "CREATE TABLE movimiento_v8 (
+                         id                 INTEGER PRIMARY KEY,
+                         producto_id        INTEGER NOT NULL REFERENCES producto(id),
+                         tipo               TEXT    NOT NULL CHECK (tipo IN
+                                            ('ENTRADA','VENTA','TRASPASO','MERMA',
+                                             'AJUSTE','DEVOLUCION')),
+                         origen             TEXT    CHECK (origen  IN ('BODEGA','VITRINA')),
+                         destino            TEXT    CHECK (destino IN ('BODEGA','VITRINA')),
+                         cantidad           INTEGER NOT NULL CHECK (cantidad > 0),
+                         costo_unitario     INTEGER NOT NULL CHECK (costo_unitario >= 0),
+                         bodega_resultante  INTEGER NOT NULL CHECK (bodega_resultante  >= 0),
+                         vitrina_resultante INTEGER NOT NULL CHECK (vitrina_resultante >= 0),
+                         motivo             TEXT,
+                         ocurrido_en        TEXT    NOT NULL
+                     );
+
+                     INSERT INTO movimiento_v8
+                         (id, producto_id, tipo, origen, destino, cantidad,
+                          costo_unitario, bodega_resultante, vitrina_resultante,
+                          motivo, ocurrido_en)
+                     SELECT id, producto_id, tipo, origen, destino, cantidad,
+                            costo_unitario, bodega_resultante, vitrina_resultante,
+                            motivo, ocurrido_en
+                       FROM movimiento;
+
+                     DROP TABLE movimiento;
+                     ALTER TABLE movimiento_v8 RENAME TO movimiento;
+                     CREATE INDEX idx_movimiento_producto ON movimiento(producto_id, id);",
                 )?;
                 Ok(())
             })
@@ -355,7 +397,7 @@ fn la_migracion_se_aplica_sobre_una_base_de_la_version_anterior() {
     // Al abrirla se migra sola y los datos siguen ahí.
     let id = {
         let entorno = Entorno::sobre(BaseDatos::abrir(&ruta).expect("reabrir y migrar"));
-        assert_eq!(entorno.version(), 8);
+        assert_eq!(entorno.version(), 9);
         assert_eq!(entorno.en_vitrina(), "20");
 
         let ficha = ConsultarProducto::nuevo(&entorno.productos)
