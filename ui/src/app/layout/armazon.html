@@ -15,7 +15,9 @@
           >
             <app-icono [nombre]="seccion.icono" />
             <span class="enlace__titulo">{{ seccion.titulo }}</span>
-            <kbd class="tecla">{{ seccion.tecla }}</kbd>
+            @if (seccion.tecla) {
+              <kbd class="tecla">{{ seccion.tecla }}</kbd>
+            }
           </a>
         </li>
       }
