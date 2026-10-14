@@ -1,0 +1,133 @@
+/* Casi todo viene del sistema (estilos/). Aquí solo la ficha de la cabecera
+   y el detalle desplegado de un apunte. */
+
+.nota {
+  font-size: var(--texto-s);
+}
+
+/* ============================================ la ficha de la cuenta */
+
+.ficha {
+  display: flex;
+  align-items: center;
+  gap: var(--e4);
+  margin-top: var(--e2);
+}
+
+/* El mismo retrato que en el panel, más grande: aquí es la cabecera de la
+   persona, no una tarjeta en una rejilla. El dibujo lo pone `app-avatar` y
+   hereda este `color`. */
+.avatar {
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  flex: 0 0 58px;
+  border-radius: var(--radio-pildora);
+  background: var(--acento-suave);
+  color: var(--acento);
+}
+
+.ficha__identidad {
+  flex: 1;
+  min-width: 0;
+}
+
+.ficha__identidad h1 {
+  margin: 0;
+}
+
+.ficha__identidad .descripcion {
+  margin-top: var(--e1);
+}
+
+/* El saldo, a la derecha y con el filo de acento: es la cifra por la que
+   se entra a esta página. */
+.ficha__saldo {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  padding: var(--e2) var(--e4);
+  border-left: 3px solid var(--acento);
+  border-radius: var(--radio-s);
+  background: var(--superficie);
+}
+
+.ficha__rotulo {
+  font-size: var(--texto-xs);
+  font-weight: var(--peso-medio);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--apagado);
+}
+
+.ficha__cifra {
+  font-size: var(--texto-2xl);
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.acciones {
+  display: flex;
+  gap: var(--e2);
+  margin-top: var(--e4);
+}
+
+/* Lo anulado se queda a la vista, tachado: borrarlo escondería que alguien
+   se equivocó, y eso es justo lo que el registro tiene que contar. */
+.tachado {
+  text-decoration: line-through;
+  color: var(--apagado);
+}
+
+/* ======================================= el detalle de un apunte */
+
+.fila-desplegada td {
+  padding: 0;
+  background: var(--superficie);
+}
+
+.detalle {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e1);
+  padding: var(--e3) var(--e4);
+}
+
+.renglon {
+  display: grid;
+  grid-template-columns: 1fr auto auto 80px 110px 100px;
+  gap: var(--e3);
+  align-items: baseline;
+  padding: var(--e1) 0;
+}
+
+.renglon__nombre {
+  font-weight: var(--peso-medio);
+}
+
+.renglon .cifra {
+  text-align: right;
+}
+
+.detalle__pie {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: var(--e2);
+  border-top: 1px solid var(--linea);
+}
+
+.modal--estrecho {
+  width: min(460px, calc(100vw - var(--e5) * 2));
+}
+
+@media (max-width: 820px) {
+  .ficha {
+    flex-wrap: wrap;
+  }
+
+  .renglon {
+    grid-template-columns: 1fr;
+    gap: var(--e1);
+  }
+}
