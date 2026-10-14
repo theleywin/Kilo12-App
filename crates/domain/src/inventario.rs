@@ -126,6 +126,47 @@ impl Inventario {
         })
     }
 
+    /// Fija un costo unitario nuevo, recalculando el valor del inventario.
+    ///
+    /// Es una **revaluación**, y conviene llamarla por su nombre. El costo
+    /// no es un campo que se pueda editar: es un valor derivado (regla 1 de
+    /// este módulo). Así que para que el costo pase a ser otro hay que
+    /// mover la única cifra que sí se almacena:
+    ///
+    /// ```text
+    /// valor_total = costo_unitario × existencia_total
+    /// ```
+    ///
+    /// Eso significa que **el valor del inventario cambia**. Subir el costo
+    /// de cien libras de 120 a 150 añade tres mil pesos de valor que nadie
+    /// compró. No es un efecto secundario que se pueda evitar: es la misma
+    /// operación mirada desde el otro lado, y por eso quien la ofrezca
+    /// tiene que dejarla anotada.
+    ///
+    /// **La existencia no se toca.** Esta operación no mueve ni una
+    /// unidad, así que no deja asiento en el kárdex: el kárdex explica
+    /// saldos, y aquí el saldo no cambia.
+    ///
+    /// Sin existencia se niega: el costo se deriva dividiendo entre la
+    /// existencia, y sin nada que dividir no hay costo que fijar. Guardar
+    /// un valor con existencia cero dejaría un producto que no tiene nada y
+    /// vale algo, que es el descuadre que este módulo entero evita.
+    pub fn revalorar(&self, costo_unitario: Dinero) -> Result<Self, ErrorDominio> {
+        if costo_unitario.es_negativo() {
+            return Err(ErrorDominio::DineroNegativo);
+        }
+
+        let cantidad = self.cantidad_total()?;
+        if cantidad.es_cero() {
+            return Err(ErrorDominio::SinExistenciaParaCosto);
+        }
+
+        Ok(Self {
+            existencias: self.existencias,
+            valor_total: costo_unitario.multiplicar_por(cantidad)?,
+        })
+    }
+
     /// Registra una salida: venta, merma o ajuste en contra.
     ///
     /// Descuenta la existencia de la ubicación y resta del valor lo que esa
@@ -233,5 +274,122 @@ impl Inventario {
             valor_total: self.valor_total,
         };
         Ok((inventario, diferencia))
+    }
+}
+
+#[cfg(test)]
+mod pruebas_revaluacion {
+    use super::*;
+
+    fn cantidad(texto: &str) -> Cantidad {
+        texto.parse().expect("cantidad válida")
+    }
+
+    fn dinero(texto: &str) -> Dinero {
+        texto.parse().expect("importe válido")
+    }
+
+    /// Cien libras en vitrina que costaron 120 cada una.
+    fn con_existencia(vitrina: &str, valor: &str) -> Inventario {
+        Inventario::nuevo(
+            Existencias::nuevas(Cantidad::CERO, cantidad(vitrina)).expect("existencias"),
+            dinero(valor),
+        )
+        .expect("inventario")
+    }
+
+    #[test]
+    fn fijar_el_costo_mueve_el_valor_del_inventario() {
+        let antes = con_existencia("100", "12000.00");
+        assert_eq!(antes.costo_unitario().unwrap().formatear(2), "120.00");
+
+        let despues = antes.revalorar(dinero("150.00")).expect("revalorar");
+
+        // El costo pasa a ser el pedido...
+        assert_eq!(despues.costo_unitario().unwrap().formatear(2), "150.00");
+        // ...y el valor sube tres mil pesos que nadie compró. Es la misma
+        // operación vista del otro lado.
+        assert_eq!(despues.valor_total().formatear(2), "15000.00");
+    }
+
+    #[test]
+    fn la_existencia_no_se_toca() {
+        let antes = con_existencia("100", "12000.00");
+        let despues = antes.revalorar(dinero("150.00")).expect("revalorar");
+
+        assert_eq!(despues.existencias(), antes.existencias());
+        assert_eq!(despues.cantidad_total().unwrap(), cantidad("100"));
+    }
+
+    #[test]
+    fn reparte_el_valor_sobre_la_existencia_total_no_sobre_una_ubicacion() {
+        // 40 en bodega y 60 en vitrina: el promedio es del producto
+        // (RF-COS-05), así que el costo se multiplica por los 100.
+        let inventario = Inventario::nuevo(
+            Existencias::nuevas(cantidad("40"), cantidad("60")).expect("existencias"),
+            dinero("500.00"),
+        )
+        .expect("inventario");
+
+        let despues = inventario.revalorar(dinero("10.00")).expect("revalorar");
+
+        assert_eq!(despues.valor_total().formatear(2), "1000.00");
+    }
+
+    #[test]
+    fn el_camino_de_ida_y_vuelta_cuadra_aunque_el_costo_no_sea_exacto() {
+        // 7 unidades: 100/7 no es exacto, que es donde el redondeo se nota.
+        let inventario = con_existencia("7", "100.00");
+        let costo = inventario.costo_unitario().expect("costo");
+
+        // Fijar el costo que ya tenía no debe mover el valor.
+        let despues = inventario.revalorar(costo).expect("revalorar");
+
+        assert_eq!(
+            despues.costo_unitario().unwrap().millonesimas(),
+            costo.millonesimas()
+        );
+    }
+
+    #[test]
+    fn un_costo_de_cero_deja_el_inventario_sin_valor() {
+        // Mercancía regalada o recibida sin factura: es un caso legítimo.
+        let despues = con_existencia("100", "12000.00")
+            .revalorar(Dinero::CERO)
+            .expect("revalorar");
+
+        assert!(despues.valor_total().es_cero());
+        assert_eq!(despues.cantidad_total().unwrap(), cantidad("100"));
+    }
+
+    #[test]
+    fn sin_existencia_no_hay_costo_que_fijar() {
+        // Sin nada que dividir no hay costo, y guardar un valor dejaría un
+        // producto que no tiene nada y vale algo.
+        let vacio = Inventario::VACIO;
+
+        assert_eq!(
+            vacio.revalorar(dinero("150.00")).expect_err("no hay nada"),
+            ErrorDominio::SinExistenciaParaCosto
+        );
+    }
+
+    #[test]
+    fn no_se_fija_un_costo_negativo() {
+        assert_eq!(
+            con_existencia("100", "12000.00")
+                .revalorar(dinero("-1.00"))
+                .expect_err("el costo no puede ser negativo"),
+            ErrorDominio::DineroNegativo
+        );
+    }
+
+    #[test]
+    fn revalorar_no_altera_el_inventario_original() {
+        // El tipo es inmutable: cada operación devuelve uno nuevo.
+        let antes = con_existencia("100", "12000.00");
+        let _ = antes.revalorar(dinero("150.00")).expect("revalorar");
+
+        assert_eq!(antes.valor_total().formatear(2), "12000.00");
     }
 }
