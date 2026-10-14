@@ -7,27 +7,36 @@ import {
   CierreCajaPedido,
   CierreCalculadoDto,
   CobroCalculadoDto,
+  AnulacionConsumoDto,
+  ConsumoHechoDto,
+  ConsumoPrevistoDto,
   ConteoCalculadoDto,
   CostoListadoDto,
+  DetalleCuentaDto,
   EstadoCajaDto,
   HistorialVentasDto,
   InformeDto,
   ErrorDto,
   FichaProductoDto,
   LimpiezaDto,
+  LineaConsumoListadaDto,
   MargenDto,
   Moneda,
   MovimientoDto,
   NuevaEntradaDto,
+  NuevaLiquidacionDto,
   NuevaMermaDto,
   NuevaVentaDto,
   NuevaVentaEnEsperaDto,
+  NuevoConsumoDto,
   NuevoCostoDto,
   NuevoProductoDto,
   LineaVentaDto,
   NuevoTraspasoDto,
   PagoDto,
   RevaluacionDto,
+  PanelConsumoDto,
+  ProductoConsumidoDto,
   ProductoDto,
   ProductoVacioDto,
   ProductoVendibleDto,
@@ -363,6 +372,77 @@ export class Kilo12Api {
   /** Devuelve las revaluaciones de costo de un producto. */
   consultarHistorialCostos(producto: number): Promise<CostoListadoDto[]> {
     return invoke<CostoListadoDto[]>('consultar_historial_costos', { producto });
+  }
+
+  // ----------------------------------------- el consumo (RF-CON)
+
+  /**
+   * Dice qué costaría el consumo que se está armando, sin registrarlo.
+   *
+   * El costo es promedio ponderado: la pantalla no puede sumarlo, lo
+   * pregunta. Y de paso se entera de si falta existencia antes de que
+   * alguien pulse confirmar.
+   */
+  previsualizarConsumo(consumo: NuevoConsumoDto): Promise<ConsumoPrevistoDto> {
+    return invoke<ConsumoPrevistoDto>('previsualizar_consumo', { consumo });
+  }
+
+  /** Registra lo que los dueños se llevaron (RF-CON-01). */
+  registrarConsumo(consumo: NuevoConsumoDto): Promise<ConsumoHechoDto> {
+    return invoke<ConsumoHechoDto>('registrar_consumo', { consumo });
+  }
+
+  /**
+   * Paga toda o parte de la deuda y devuelve el saldo que queda.
+   *
+   * **No toca la caja** (RF-CON-11): liquidar no es un ingreso, el negocio
+   * recupera un costo que ya había gastado.
+   */
+  liquidarDeuda(liquidacion: NuevaLiquidacionDto): Promise<string> {
+    return invoke<string>('liquidar_deuda', { liquidacion });
+  }
+
+  /** Deshace un consumo: devuelve la mercancía y baja la deuda. */
+  anularConsumo(anulacion: AnulacionConsumoDto): Promise<void> {
+    return invoke<void>('anular_consumo', { anulacion });
+  }
+
+  /** Deshace una liquidación: **sube** la deuda otra vez. */
+  anularPagoConsumo(anulacion: AnulacionConsumoDto): Promise<void> {
+    return invoke<void>('anular_pago_consumo', { anulacion });
+  }
+
+  /** La deuda del local y el saldo de cada cuenta. */
+  consultarPanelConsumo(): Promise<PanelConsumoDto> {
+    return invoke<PanelConsumoDto>('consultar_panel_consumo');
+  }
+
+  /** Los consumos y las liquidaciones de una cuenta. */
+  consultarCuentaConsumo(cuenta: number): Promise<DetalleCuentaDto> {
+    return invoke<DetalleCuentaDto>('consultar_cuenta_consumo', { cuenta });
+  }
+
+  /** Los renglones de un consumo concreto. */
+  consultarRenglonesConsumo(consumo: number): Promise<LineaConsumoListadaDto[]> {
+    return invoke<LineaConsumoListadaDto[]>('consultar_renglones_consumo', { consumo });
+  }
+
+  /**
+   * Lo consumido por producto, de lo que más costó a lo que menos.
+   *
+   * Llega ya ordenado de Rust: ordenar aquí obligaría a comparar las
+   * cadenas formateadas, donde «9.00» va por encima de «10.00».
+   */
+  consultarConsumoPorProducto(
+    cuenta?: number,
+    desde?: string,
+    hasta?: string,
+  ): Promise<ProductoConsumidoDto[]> {
+    return invoke<ProductoConsumidoDto[]>('consultar_consumo_por_producto', {
+      cuenta,
+      desde,
+      hasta,
+    });
   }
 
   // ------------------------------- quitar del catálogo (RF-CAT-06/07/13)
