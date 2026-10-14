@@ -541,7 +541,7 @@ fn promedio(total: Dinero, cuantas: i64) -> Resultado<Dinero> {
 }
 
 /// Qué parte representa un importe de otro, en porcentaje.
-fn razon(parte: Dinero, total: Dinero) -> Resultado<Porcentaje> {
+pub(crate) fn razon(parte: Dinero, total: Dinero) -> Resultado<Porcentaje> {
     if total.es_cero() {
         return Ok(Porcentaje::desde_diezmilesimas(0));
     }
@@ -553,7 +553,10 @@ fn razon(parte: Dinero, total: Dinero) -> Resultado<Porcentaje> {
 ///
 /// Es geometría, no dinero: la pantalla la usa para dibujar y nunca para
 /// enseñar una cifra. Por eso puede ser un entero corriente.
-fn peso_de(valor: Dinero, techo: Dinero) -> i64 {
+///
+/// Es `pub(crate)` porque el panel de consumo reparte su deuda con la misma
+/// regla. Copiarla garantizaría que las dos copias se separen.
+pub(crate) fn peso_de(valor: Dinero, techo: Dinero) -> i64 {
     if !techo.es_positivo() || !valor.es_positivo() {
         return 0;
     }
