@@ -187,7 +187,63 @@ export interface FichaProductoDto {
   readonly stockMinimo: string;
   readonly objetivoVitrina: string;
   readonly existenciaTotal: string;
+  /**
+   * No queda nada, ni en almacén ni en vitrina.
+   *
+   * Lo decide Rust y no se deduce de `existenciaTotal`: ese texto trae los
+   * decimales de su unidad, así que a granel el cero es «0.000» y por
+   * unidades es «0».
+   */
+  readonly agotado: boolean;
   readonly presentaciones: readonly PresentacionDto[];
+}
+
+/**
+ * Un costo nuevo para un producto, con la clave que lo autoriza.
+ *
+ * El costo no se almacena: se deriva del valor del inventario entre la
+ * existencia (RF-COS-02). Así que esto **revalora el inventario**, y por
+ * eso lleva clave. La comprueba Rust, no esta pantalla.
+ */
+export interface NuevoCostoDto {
+  readonly producto: number;
+  readonly costo: string;
+  readonly clave: string;
+}
+
+/**
+ * Lo que una revaluación haría, o lo que acaba de hacer.
+ *
+ * Las cuatro cifras de las dos puntas vienen calculadas por el núcleo. La
+ * que hay que enseñar en el cartel no es el costo nuevo —ese lo acaba de
+ * escribir el usuario— sino **cuánto se mueve el valor del inventario**.
+ */
+export interface RevaluacionDto {
+  readonly producto: number;
+  readonly nombre: string;
+  readonly unidadBase: string;
+  readonly existencia: string;
+  readonly costoAnterior: string;
+  readonly costoNuevo: string;
+  readonly valorAnterior: string;
+  readonly valorNuevo: string;
+  /** Cuánto cambia el valor del inventario. Lleva signo. */
+  readonly diferencia: string;
+  readonly sube: boolean;
+}
+
+/** Una revaluación de costo ya ocurrida. */
+export interface CostoListadoDto {
+  readonly id: number;
+  readonly anterior: string;
+  readonly nuevo: string;
+  /** Existencia sobre la que se aplicó. */
+  readonly existencia: string;
+  readonly valorAnterior: string;
+  readonly valorNuevo: string;
+  readonly diferencia: string;
+  readonly subio: boolean;
+  readonly cambiadoEn: string;
 }
 
 /** Un cambio de precio ya ocurrido. */
@@ -306,6 +362,65 @@ export interface VentaEnEsperaDto {
 
 /** Largo máximo de la nota, en caracteres. El núcleo aplica el mismo. */
 export const LARGO_MAXIMO_NOTA = 120;
+
+/** Códigos de error propios de la revaluación de costo (DT-7). */
+export const ERROR_COSTO = {
+  /** La clave de mantenimiento no es la que se tecleó. */
+  CLAVE_INCORRECTA: 'CLAVE_INCORRECTA',
+  /** Sin existencia no hay costo que fijar. */
+  SIN_EXISTENCIA_PARA_COSTO: 'SIN_EXISTENCIA_PARA_COSTO',
+} as const;
+
+/**
+ * Qué le toca a un producto que se quedó sin mercancía (RF-CAT-06, RF-CAT-07).
+ *
+ * Son dos operaciones distintas detrás de un solo botón, y la diferencia
+ * importa: borrar no se deshace y retirar sí.
+ */
+export const DESTINO_PRODUCTO = {
+  /** Nunca se movió: se borra y no queda nada de él. */
+  BORRAR: 'BORRAR',
+  /** Vendió o se movió: se esconde de la venta y conserva su historial. */
+  RETIRAR: 'RETIRAR',
+  /** Está en una venta empezada y sin cobrar: no se toca. */
+  BLOQUEADO: 'BLOQUEADO',
+} as const;
+
+export type DestinoProducto = (typeof DESTINO_PRODUCTO)[keyof typeof DESTINO_PRODUCTO];
+
+/** Códigos de error propios de quitar un producto del catálogo (DT-7). */
+export const ERROR_QUITAR_PRODUCTO = {
+  /** Todavía queda mercancía: primero hay que darle salida. */
+  PRODUCTO_CON_EXISTENCIA: 'PRODUCTO_CON_EXISTENCIA',
+  /** Hay una venta apartada que lo lleva. */
+  PRODUCTO_EN_VENTA_EN_ESPERA: 'PRODUCTO_EN_VENTA_EN_ESPERA',
+} as const;
+
+/** Un producto sin mercancía, con lo que se haría con él y por qué. */
+export interface ProductoVacioDto {
+  readonly id: number;
+  readonly sku: string;
+  readonly nombre: string;
+  readonly destino: DestinoProducto;
+  /** Renglones de ventas cobradas que lo llevan. */
+  readonly ventas: number;
+  /** Asientos del kárdex a su nombre. */
+  readonly movimientos: number;
+  /** Renglones en ventas apartadas y sin cobrar. */
+  readonly esperas: number;
+  /** Ya estaba retirado de la venta. */
+  readonly retirado: boolean;
+}
+
+/** Lo que una limpieza del catálogo haría, o lo que acaba de hacer. */
+export interface LimpiezaDto {
+  /** Se van para siempre: nunca se movieron. */
+  readonly seBorran: readonly ProductoVacioDto[];
+  /** Se esconden de la venta y conservan su historial. */
+  readonly seRetiran: readonly ProductoVacioDto[];
+  /** No se tocan: están en una venta empezada y sin cobrar. */
+  readonly bloqueados: readonly ProductoVacioDto[];
+}
 
 /** Códigos de error propios de la venta en espera (DT-7). */
 export const ERROR_VENTA_EN_ESPERA = {
