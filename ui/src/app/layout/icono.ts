@@ -72,6 +72,14 @@ import { Icono as NombreIcono } from './navegacion';
           <path d="M3.4 16.6h13.2" />
           <path d="M6.2 16.6V11M10 16.6V5.4M13.8 16.6v-7.8" />
         }
+        @case ('ipv') {
+          <!-- Una hoja cuadriculada: el IPV es una tabla que se llena y se
+               cuadra contra el estante. Se distingue de «informes», que son
+               barras, y de «ventas», que es un ticket con la cola
+               recortada. -->
+          <rect x="3.2" y="3" width="13.6" height="14" rx="1.3" />
+          <path d="M3.2 7.2h13.6M3.2 11h13.6M3.2 14.6h13.6M11.4 7.2V17" />
+        }
         @case ('consumo') {
           <!-- Una bolsa que sale por la puerta de casa: la mercancía se va
                del local pero no se vendió. -->
