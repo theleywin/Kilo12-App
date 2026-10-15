@@ -3,15 +3,17 @@
 //! Traduce entre las entidades del dominio y las filas de la base de datos.
 //! Es el único sitio del sistema que sabe a la vez cómo son unas y otras.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use application::error::Resultado;
 use application::puertos::{
     AcumuladoSesion, AnulacionConfirmada, Asiento, CambioDeCosto, CambioDePrecio, CambioRegistrado,
-    CierreConfirmado, ConsultaVentasDeSesion, CostoRegistrado, DetalleVenta, LineaDelPeriodo,
-    LineaRegistrada, MovimientoEfectivoRegistrado, MovimientoRegistrado, PagoRegistrado,
-    ProductoConInventario, RastroProducto, RepositorioProducto, SesionRegistrada, TotalesPeriodo,
-    VentaConfirmada, VentaDiaria, VentaHoraria, VentaPorMetodo, VentaRegistrada,
+    CierreConfirmado, ConsultaIpv, ConsultaVentasDeSesion, CostoRegistrado, DetalleVenta,
+    LineaDelPeriodo, LineaRegistrada, MovidoEnSesion, MovimientoEfectivoRegistrado,
+    MovimientoRegistrado, PagoRegistrado, ProductoConInventario, RastroProducto,
+    RepositorioProducto, SaldoDeSesion, SesionRegistrada, TotalesPeriodo, VentaConfirmada,
+    VentaDiaria, VentaHoraria, VentaPorMetodo, VentaRegistrada,
 };
 use domain::{
     ArqueoMoneda, Cantidad, Comision, Dinero, ErrorDominio, EstadoSesion, Existencias,
@@ -1316,6 +1318,128 @@ impl ConsultaVentasDeSesion for RepositorioProductoSqlite {
 
         Ok(lineas)
     }
+}
+
+impl ConsultaIpv for RepositorioProductoSqlite {
+    fn saldos_de_sesion(&self, sesion: IdSesion) -> Resultado<Vec<SaldoDeSesion>> {
+        let saldos = self.base.con(|conexion| {
+            // Dos lecturas del mismo sitio con el corte en otro momento: lo
+            // que había justo antes de abrir y lo que había al cerrar.
+            let inicial = saldos_hasta(conexion, "m.ocurrido_en < s.abierta_en", sesion)?;
+            let cierre = saldos_hasta(
+                conexion,
+                "(s.cerrada_en IS NULL OR m.ocurrido_en <= s.cerrada_en)",
+                sesion,
+            )?;
+
+            // La unión de los dos: un producto que solo tiene asientos dentro
+            // del turno no aparece en el primero, y uno que dejó de moverse
+            // antes de abrir aparece en los dos con la misma cifra.
+            let mut productos: Vec<i64> = inicial.keys().chain(cierre.keys()).copied().collect();
+            productos.sort_unstable();
+            productos.dedup();
+
+            Ok(productos
+                .into_iter()
+                .map(|producto| SaldoDeSesion {
+                    producto: IdProducto(producto),
+                    inicial: inicial.get(&producto).copied().unwrap_or(Cantidad::CERO),
+                    cierre: cierre.get(&producto).copied().unwrap_or(Cantidad::CERO),
+                })
+                .collect())
+        })?;
+
+        Ok(saldos)
+    }
+
+    fn movimientos_de_sesion(&self, sesion: IdSesion) -> Resultado<Vec<MovidoEnSesion>> {
+        let movidos = self.base.con(|conexion| {
+            // Por ventana de tiempo, por el mismo motivo que la merma del
+            // arqueo: el kárdex no sabe de sesiones y no se le va a dar una
+            // columna que lo ate a la caja.
+            // Se agrupa también por los dos estantes: el IPV habla de la
+            // vitrina, y el mismo traspaso la llena o la vacía según la
+            // dirección. Quién va a qué columna lo decide el caso de uso.
+            let mut consulta = conexion.prepare(
+                "SELECT m.producto_id, m.tipo, m.origen, m.destino, SUM(m.cantidad)
+                   FROM movimiento m
+                   JOIN sesion_caja s ON s.id = ?1
+                  WHERE m.ocurrido_en >= s.abierta_en
+                    AND (s.cerrada_en IS NULL OR m.ocurrido_en <= s.cerrada_en)
+                  GROUP BY m.producto_id, m.tipo, m.origen, m.destino
+                  ORDER BY m.producto_id, m.tipo",
+            )?;
+
+            let mut filas = consulta.query(params![sesion.0])?;
+            let mut movidos = Vec::new();
+
+            while let Some(fila) = filas.next()? {
+                let producto: i64 = fila.get(0)?;
+                let tipo_texto: String = fila.get(1)?;
+                let tipo: TipoMovimiento = tipo_texto.parse().map_err(|_| {
+                    ErrorInfra::DatoCorrupto(format!(
+                        "tipo «{tipo_texto}» en los asientos del producto {producto}"
+                    ))
+                })?;
+                let origen: Option<String> = fila.get(2)?;
+                let destino: Option<String> = fila.get(3)?;
+
+                movidos.push(MovidoEnSesion {
+                    producto: IdProducto(producto),
+                    tipo,
+                    origen: ubicacion_opcional(origen.as_deref(), producto)?,
+                    destino: ubicacion_opcional(destino.as_deref(), producto)?,
+                    cantidad: Cantidad::desde_milesimas(fila.get(4)?),
+                });
+            }
+
+            Ok(movidos)
+        })?;
+
+        Ok(movidos)
+    }
+}
+
+/// Existencia **en vitrina** de cada producto en su último asiento que
+/// cumple `corte`.
+///
+/// Solo la vitrina, porque de eso habla el IPV: el asiento guarda los dos
+/// estantes y aquí se lee uno.
+///
+/// No se reconstruye sumando el historial: cada asiento guardó la existencia
+/// que dejó (RF-INV-05), así que basta con quedarse con el último y leer su
+/// vitrina. Sumar el historial entero daría lo mismo si todo está bien, y si
+/// algo está mal daría una cifra distinta a la que el kárdex enseña, que es
+/// justo lo que no se quiere.
+///
+/// El último es el de `id` mayor y no el de `ocurrido_en` mayor: dos asientos
+/// del mismo segundo son posibles y el sello no los desempata. Se busca
+/// primero ese `id` y luego se lee su fila, en vez de confiar en qué fila
+/// acompaña a un `MAX()` dentro de un `GROUP BY`.
+fn saldos_hasta(
+    conexion: &Connection,
+    corte: &str,
+    sesion: IdSesion,
+) -> ResultadoInfra<BTreeMap<i64, Cantidad>> {
+    let mut consulta = conexion.prepare(&format!(
+        "SELECT m.producto_id, m.vitrina_resultante
+           FROM movimiento m
+           JOIN (SELECT m.producto_id AS producto_id, MAX(m.id) AS id
+                   FROM movimiento m
+                   JOIN sesion_caja s ON s.id = ?1
+                  WHERE {corte}
+                  GROUP BY m.producto_id) ultimo
+             ON ultimo.id = m.id"
+    ))?;
+
+    let mut filas = consulta.query(params![sesion.0])?;
+    let mut saldos = BTreeMap::new();
+
+    while let Some(fila) = filas.next()? {
+        saldos.insert(fila.get(0)?, Cantidad::desde_milesimas(fila.get(1)?));
+    }
+
+    Ok(saldos)
 }
 
 /// Columnas de un renglón vendido, en el orden en que las lee
