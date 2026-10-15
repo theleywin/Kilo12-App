@@ -133,10 +133,25 @@ jobs:
           path: instaladores
           merge-multiple: true
 
+      # Los patrones llevan `**` porque `upload-artifact` conserva la
+      # estructura de carpetas bajo el ancestro común de lo que sube: los
+      # archivos no quedan en la raíz de `instaladores/` sino dentro de
+      # `release/bundle/nsis/` y compañía. Con `instaladores/*` el patrón
+      # solo encontraba directorios, que la acción ignora, y la v0.2.0 se
+      # publicó **vacía** sin que nada fallara.
+      #
+      # De ahí `fail_on_unmatched_files`: lo que convirtió un error de una
+      # línea en una publicación rota fue que la acción avisara por el
+      # registro y siguiera adelante con éxito. Mejor que el trabajo se
+      # caiga a que entregue una publicación sin instaladores.
       - name: Crear la publicación
         uses: softprops/action-gh-release@v2
         with:
-          files: instaladores/*
+          fail_on_unmatched_files: true
+          files: |
+            instaladores/**/*.msi
+            instaladores/**/*.exe
+            instaladores/**/*.dmg
           generate_release_notes: true
           body: |
             ## Instalación
