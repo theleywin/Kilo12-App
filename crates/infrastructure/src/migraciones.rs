@@ -461,10 +461,31 @@ const MIGRACIONES: &[&str] = &[
 
 /// Lleva el esquema a la última versión.
 pub fn aplicar(conexion: &Connection) -> ResultadoInfra<()> {
+    aplicar_hasta(conexion, version_esperada())
+}
+
+/// Aplica las migraciones pendientes hasta la versión indicada.
+///
+/// Existe para **reproducir una versión anterior del esquema**, que es lo
+/// que hace falta para probar una actualización: hay que partir de la base
+/// que tiene instalada quien va a actualizar, y la única forma honesta de
+/// construirla es aplicar las migraciones que existían entonces y parar.
+/// Vale porque una migración publicada no se edita jamás, así que las de
+/// hoy son byte a byte las de entonces.
+///
+/// La aplicación nunca llama a esto con un tope: arrancar con el esquema a
+/// medio migrar dejaría a la mitad del código hablando de tablas que no
+/// existen. Para eso está [`aplicar`].
+pub fn aplicar_hasta(conexion: &Connection, hasta: usize) -> ResultadoInfra<()> {
     let version: i64 = conexion.query_row("PRAGMA user_version", [], |fila| fila.get(0))?;
     let version = usize::try_from(version).unwrap_or(0);
 
-    for (indice, migracion) in MIGRACIONES.iter().enumerate().skip(version) {
+    for (indice, migracion) in MIGRACIONES
+        .iter()
+        .enumerate()
+        .take(hasta.min(MIGRACIONES.len()))
+        .skip(version)
+    {
         conexion.execute_batch(&format!(
             "BEGIN;\n{}\nPRAGMA user_version = {};\nCOMMIT;",
             migracion,
