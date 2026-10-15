@@ -1,9 +1,10 @@
 # Kilo12 — Requerimientos Funcionales
 
-**Versión:** 1.7
+**Versión:** 1.8
 **Fecha:** 2026-10-14
 **Estado:** Alcance funcional cerrado. Todas las decisiones de modelo de datos están resueltas.
 
+**Cambios en 1.8:** se documentan dos cosas que el sistema ya hacía y ningún requerimiento recogía: la **clave del sistema** (RF-SEG-04) y el **vaciado de la aplicación** que protege (RF-DAT-10). Nuevo módulo **§6.15 — Informe de productos vendidos (RF-IPV)**, la hoja que el local ya llevaba a mano en Excel. Es el informe de la **vitrina** por turno de caja, al precio de venta, imprimible y exportable a `.xlsx`. Su pantalla enseña el turno abierto y solo ese; las hojas de turnos cerrados se consultan desde Caja y con la clave del sistema (RF-IPV-13, RF-IPV-14). Los módulos §6.15 y §6.16 pasan a §6.16 y §6.17.
 **Cambios en 1.7:** nuevo módulo **§6.10 — Consumo de los dueños (RF-CON)**, con veinte requerimientos, y nueva decisión cerrada D-7. El consumo de los dueños deja de ser un motivo de merma: **se edita RF-MER-01 para quitar «consumo propio» de su lista tipificada**, porque tratarlo como pérdida falseaba el arqueo del turno. Los módulos §6.10 a §6.15 pasan a §6.11 a §6.16, y se actualizan las referencias que los apuntaban. Nuevo riesgo asumido RI-4.
 **Cambios en 1.6:** se especifica **quitar un producto del catálogo** (RF-CAT-13), que hasta ahora solo existía como la prohibición de RF-CAT-07. No es una operación sino dos, elegidas según el historial del producto: se borra lo que nunca se movió y se desactiva lo que vendió. Se añade la limpieza de todos los productos sin existencia a la vez, con confirmación que separa los dos grupos, y la protección de los que figuran en una venta en espera (RF-CAT-14).
 **Cambios en 1.5:** las cifras de la pantalla Ventas se refieren a la **sesión de caja de referencia** (la abierta o, si no hay ninguna, la última cerrada) y no al día del calendario (RF-VTA-20). El desglose por presentación (RF-EST-03b) se ofrece en Ventas para esa sesión, con una fila por presentación y sin subtotal por producto.
@@ -508,7 +509,41 @@ Conviene tener presente el efecto de la regla: al no depender del margen, la com
 
 ---
 
-### 6.15 Módulo: Datos, respaldo y configuración (RF-DAT)
+### 6.15 Módulo: Informe de productos vendidos (RF-IPV)
+
+El local ya llevaba esta hoja a mano en un Excel, una pestaña por día, y la cuadraba con la mercancía delante. Este módulo la produce sola.
+
+Dos cosas la definen y conviene no perderlas de vista. La primera: **es la hoja de la vitrina**, no del negocio entero. Se recorre estante en mano, así que la existencia que enseña tiene que ser la del mostrador; si sumara lo guardado en el almacén, la columna CANT. FINAL dejaría de poder comprobarse contra lo que se ve, que es su única utilidad. La segunda se deriva de la primera: **ENTRADA aquí significa «lo que entró a la vitrina»**, que casi siempre es un traspaso bajado del almacén (RF-INV-04) y no una compra al proveedor (RF-COM-01). Son dos vocabularios distintos para el mismo hecho, y el informe usa el del local.
+
+El Excel que sirvió de modelo trae dos columnas, `Costo` y `CASA gastos`, que el local no usa. No se incluyen.
+
+| ID | Requerimiento | Prio. |
+|---|---|---|
+| RF-IPV-01 | El sistema debe producir, para un turno de caja, una tabla con una fila por mercancía y las columnas: mercancía, cantidad inicial, entrada, merma, consumo, salida, precio, importe y cantidad final. Todas las cantidades se refieren a la **vitrina** y se expresan en unidad base. | M |
+| RF-IPV-02 | La **cantidad inicial** y la **cantidad final** deben leerse de la existencia que cada asiento del kárdex dejó anotada (RF-INV-05), no reconstruirse sumando el historial. La inicial es la del último asiento anterior a abrir el turno; la final, la del último asiento del turno. | M |
+| RF-IPV-03 | La columna **entrada** debe sumar lo que entró a la vitrina —traspasos bajados del almacén y compras colocadas directamente en el mostrador— y restar lo que se devolvió al almacén. Puede quedar en contra y eso no es un error. | M |
+| RF-IPV-04 | Las columnas **merma**, **consumo** y **salida** deben contar solo los asientos que tocaron la vitrina. La salida debe restar las devoluciones, y el consumo sus anulaciones; las dos pueden quedar en contra si lo que se anula es de un turno anterior. | M |
+| RF-IPV-05 | Lo que solo ocurre en el almacén —una compra que se guarda sin colocar, una merma de lo guardado, un consumo sacado de allí— **no debe aparecer en ninguna columna**. | M |
+| RF-IPV-06 | El informe debe comprobar en cada fila la identidad `final = inicial + entrada − merma − consumo − salida` y **señalar** las que no la cumplen, en lugar de ajustar ninguna cifra. Un ajuste de conteo (RF-MER-04), que no tiene columna propia, debe impedir que la fila cuadre. | M |
+| RF-IPV-07 | El **importe** de cada fila es lo vendido de esa mercancía en el turno al precio de venta, con los precios congelados en la venta (RF-VTA-13). El **precio** es derivado: el importe entre las unidades base que salieron, es decir el precio medio al que salió la mercancía. Si no se vendió nada, se muestra el precio de catálogo de la presentación predeterminada. | M |
+| RF-IPV-08 | Cuando una mercancía se haya vendido en **más de una presentación**, el informe debe desglosarla en subfilas, una por presentación, con lo que salió de ella contado en esa presentación, su precio y su importe. Las columnas de existencia de la subfila van vacías: la vitrina guarda unidades base, no formatos. | S |
+| RF-IPV-09 | El informe debe mostrar el **importe total** de la hoja, el **total vendido real** que la caja registró en el turno (RF-CAJ-05) y la **diferencia** entre ambos. En la hoja de papel esa última casilla se anotaba a mano; aquí se calcula. Una diferencia no nula se explica por descuentos o por ventas anuladas. | S |
+| RF-IPV-10 | Deben aparecer todas las mercancías activas del catálogo, incluidas las que no se movieron, y además las retiradas de la venta (RF-CAT-07) que conserven existencia en vitrina o se hayan movido en el turno. Las retiradas y vacías se omiten. | S |
+| RF-IPV-11 | Las filas deben ordenarse **alfabéticamente** por nombre de mercancía, no por importe: la hoja se recorre con el estante delante. | S |
+| RF-IPV-12 | El sistema debe permitir **imprimir** el informe y **exportarlo a `.xlsx`**, con una hoja por turno. En el archivo exportado las cifras deben ir como números y no como texto, para que las columnas se puedan sumar. | M |
+| RF-IPV-13 | La pantalla del IPV debe mostrar la hoja del **turno abierto** y solo esa. Si no hay ninguno abierto, no hay hoja que ver: el IPV se llena mientras el turno está vivo y se cuadra al cerrarlo, y la hoja del turno anterior ya es historia. Esta pantalla no ofrece selector de turnos. | M |
+| RF-IPV-14 | La hoja de un turno ya cerrado debe consultarse desde el historial de **Caja**: se abre el turno, se pide ver su IPV y se exige la **clave del sistema** (RF-SEG-04). Cualquier turno que no sea el abierto exige esa clave, también para exportarlo, y la comprobación debe hacerse en el núcleo y no en la interfaz. El informe de un turno cerrado es historia y no debe cambiar al consultarlo más tarde. | M |
+
+**Criterios de aceptación destacados**
+
+- RF-IPV-03: si en el turno se bajan 12 unidades del almacén al mostrador y se suben 4 de vuelta, la columna entrada dice 8. Si solo se suben 4, dice −4.
+- RF-IPV-05: una compra de 100 unidades que se guarda en el almacén deja la fila entera en cero y la fila cuadra, porque la vitrina en efecto no se movió.
+- RF-IPV-07: 2 unidades sueltas a 100 y 1 paquete de 6 a 266,64 dan salida 8, importe 466,64 y precio 58,33. Ninguna de las dos presentaciones se vendió a ese precio: es el precio medio al que salió la mercancía.
+- RF-IPV-14: pedir un turno que **no existe** debe rechazarse por falta de clave, no por no existir. Si se comprobara al revés, probar números y mirar cómo cambia el error diría cuántos turnos hay.
+
+---
+
+### 6.16 Módulo: Datos, respaldo y configuración (RF-DAT)
 
 | ID | Requerimiento | Prio. |
 |---|---|---|
@@ -521,18 +556,20 @@ Conviene tener presente el efecto de la regla: al no depender del margen, la com
 | RF-DAT-07 | El sistema debe validar la integridad del archivo de respaldo antes de restaurarlo, rechazando archivos corruptos o de versión incompatible. | S |
 | RF-DAT-08 | El sistema debe migrar automáticamente el esquema de datos al actualizar a una versión nueva de la aplicación, sin pérdida de información. | M |
 | RF-DAT-09 | El sistema debe permitir exportar el histórico completo de ventas y movimientos a CSV como respaldo legible independiente de la aplicación. | C |
+| RF-DAT-10 | El sistema debe permitir **vaciar la aplicación** —catálogo, existencias, kárdex, ventas, cajas y ajustes— dejándola como recién instalada, protegido por la clave del sistema (RF-SEG-04). Existe para el momento de terminar de probar y empezar a operar de verdad. No tiene vuelta atrás. | S |
 
 **Justificación:** operar offline significa que no hay red de seguridad. RF-DAT-02 a RF-DAT-05 no son comodidades: son lo único que separa al negocio de perder su historia completa cuando falle el disco duro.
 
 ---
 
-### 6.16 Módulo: Acceso (RF-SEG)
+### 6.17 Módulo: Acceso (RF-SEG)
 
 | ID | Requerimiento | Prio. |
 |---|---|---|
 | RF-SEG-01 | El sistema debe permitir proteger la apertura de la aplicación con un PIN o contraseña local, configurable y desactivable. | S |
 | RF-SEG-02 | El sistema no debe transmitir ningún dato fuera del equipo bajo ninguna circunstancia. | M |
 | RF-SEG-03 | El sistema debe registrar una bitácora local de operaciones sensibles: anulaciones, ajustes, cambios de precio y restauraciones de respaldo. | C |
+| RF-SEG-04 | El sistema debe tener una **clave del sistema** única, que protege las operaciones que no son del día a día: vaciar la aplicación (RF-DAT-10) y consultar el IPV de un turno ya cerrado (RF-IPV-14). No es un mecanismo de seguridad y no pretende serlo —está escrita en el código y el archivo de la base de datos está al alcance de cualquiera—: evita el accidente y el husmeo casual. Debe comprobarse **en el núcleo y no en la interfaz**, porque los comandos quedan expuestos a la pantalla y una puerta que solo viva en JavaScript se salta abriendo las herramientas de desarrollo. | M |
 
 ---
 
