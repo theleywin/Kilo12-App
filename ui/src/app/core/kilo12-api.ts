@@ -16,6 +16,7 @@ import {
   EstadoCajaDto,
   HistorialVentasDto,
   InformeDto,
+  IpvDto,
   ErrorDto,
   FichaProductoDto,
   LimpiezaDto,
@@ -239,6 +240,28 @@ export class Kilo12Api {
   }
 
   /**
+   * El IPV de un turno (RF-IPV-01, RF-IPV-13, RF-IPV-14).
+   *
+   * Sin `sesion` se arma el del **turno abierto**, y si no hay ninguno la
+   * hoja llega vacía. Cualquier otro turno exige la clave del sistema, y
+   * quien la comprueba es Rust: una puerta que solo viva aquí se salta
+   * abriendo las herramientas de desarrollo.
+   */
+  consultarIpv(sesion?: number, clave?: string): Promise<IpvDto> {
+    return invoke<IpvDto>('consultar_ipv', { sesion, clave });
+  }
+
+  /**
+   * Escribe el IPV en un `.xlsx` y devuelve dónde quedó (RF-IPV-12).
+   *
+   * Una hoja por turno. El archivo va a la carpeta de documentos del
+   * usuario, y la ruta se devuelve para poder decírsela.
+   */
+  exportarIpv(sesiones?: readonly number[], clave?: string): Promise<string> {
+    return invoke<string>('exportar_ipv', { sesiones, clave });
+  }
+
+  /**
    * Borra todos los datos de la aplicación. **No tiene vuelta atrás.**
    *
    * La clave la comprueba Rust, no esta pantalla: validar solo aquí sería
@@ -320,11 +343,7 @@ export class Kilo12Api {
   }
 
   /** Cambia el precio de una presentación y lo anota en el historial. */
-  cambiarPrecio(cambio: {
-    producto: number;
-    presentacion: number;
-    precio: string;
-  }): Promise<void> {
+  cambiarPrecio(cambio: { producto: number; presentacion: number; precio: string }): Promise<void> {
     return invoke<void>('cambiar_precio', { cambio });
   }
 
@@ -568,12 +587,7 @@ export class Kilo12Api {
  * siempre tenga un código y un mensaje que mostrar.
  */
 export function comoError(valor: unknown): ErrorDto {
-  if (
-    typeof valor === 'object' &&
-    valor !== null &&
-    'codigo' in valor &&
-    'mensaje' in valor
-  ) {
+  if (typeof valor === 'object' && valor !== null && 'codigo' in valor && 'mensaje' in valor) {
     return valor as ErrorDto;
   }
 
