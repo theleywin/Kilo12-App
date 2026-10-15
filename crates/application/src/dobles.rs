@@ -12,19 +12,19 @@ use std::rc::Rc;
 use domain::{
     Cantidad, Dinero, EstadoSesion, Existencias, IdPresentacion, IdProducto, IdSesion,
     IdVentaEnEspera, Inventario, Movimiento, MovimientoEfectivo, Presentacion, Producto,
-    SesionCaja, Ubicacion, UnidadBase, VentaEnEspera,
+    SesionCaja, TipoMovimiento, Ubicacion, UnidadBase, VentaEnEspera,
 };
 
 use crate::error::Resultado;
 use crate::puertos::{
     AcumuladoSesion, AnulacionConfirmada, AnulacionConsumo, Asiento, CambioDeCosto, CambioDePrecio,
-    CambioRegistrado, CierreConfirmado, ConsultaVentasDeSesion, ConsumoConfirmado,
+    CambioRegistrado, CierreConfirmado, ConsultaIpv, ConsultaVentasDeSesion, ConsumoConfirmado,
     ConsumoRegistrado, CostoRegistrado, CuentaConsumo, DescuentoConsumo, DetalleVenta,
-    EsperaRegistrada, EsperaResumida, LineaConsumoRegistrada, LineaDelPeriodo,
+    EsperaRegistrada, EsperaResumida, LineaConsumoRegistrada, LineaDelPeriodo, MovidoEnSesion,
     MovimientoEfectivoRegistrado, MovimientoRegistrado, PagoConsumoRegistrado,
     ProductoConInventario, RastroProducto, RepositorioConsumo, RepositorioProducto,
-    RepositorioVentaEnEspera, SaldoCuenta, SesionRegistrada, TotalesPeriodo, VentaConfirmada,
-    VentaDiaria, VentaHoraria, VentaPorMetodo, VentaRegistrada,
+    RepositorioVentaEnEspera, SaldoCuenta, SaldoDeSesion, SesionRegistrada, TotalesPeriodo,
+    VentaConfirmada, VentaDiaria, VentaHoraria, VentaPorMetodo, VentaRegistrada,
 };
 
 fn cantidad(texto: &str) -> Cantidad {
@@ -444,8 +444,15 @@ impl RepositorioProducto for ProductosEnMemoria {
         unreachable!("abrir_sesion no se usa en estas pruebas")
     }
 
-    fn sesion(&self, _: IdSesion) -> Resultado<Option<SesionRegistrada>> {
-        unreachable!("sesion no se usa en estas pruebas")
+    fn sesion(&self, id: IdSesion) -> Resultado<Option<SesionRegistrada>> {
+        let abierta = self
+            .sesion
+            .borrow()
+            .as_ref()
+            .filter(|s| s.sesion.id() == Some(id))
+            .cloned();
+
+        Ok(abierta.or_else(|| self.cerradas.borrow().get(&id.0).cloned()))
     }
 
     fn registrar_movimiento_efectivo(&self, _: IdSesion, _: &MovimientoEfectivo) -> Resultado<()> {
@@ -518,6 +525,83 @@ impl ConsultaVentasDeSesion for VentasDeSesionEnMemoria {
     fn lineas_de_sesion(&self, sesion: IdSesion) -> Resultado<Vec<LineaDelPeriodo>> {
         Ok(self
             .lineas
+            .borrow()
+            .get(&sesion.0)
+            .cloned()
+            .unwrap_or_default())
+    }
+}
+
+/// Saldos y asientos de un turno, en memoria.
+///
+/// Se dictan los dos lados a mano, y eso es deliberado: aquí se prueba la
+/// aritmética del IPV, no la lectura del kárdex. Por eso se puede fabricar
+/// un turno **incoherente** —un cierre que no se explica por sus asientos—,
+/// que es la única forma de comprobar que la hoja lo denuncia en vez de
+/// maquillarlo. Que SQLite lea bien la existencia anterior a la apertura se
+/// prueba contra SQLite.
+#[derive(Debug, Default)]
+pub(crate) struct IpvEnMemoria {
+    saldos: RefCell<BTreeMap<i64, Vec<SaldoDeSesion>>>,
+    movidos: RefCell<BTreeMap<i64, Vec<MovidoEnSesion>>>,
+}
+
+impl IpvEnMemoria {
+    /// Lo que un producto tenía al abrir y al cerrar el turno.
+    pub(crate) fn con_saldo(self, sesion: i64, producto: i64, inicial: &str, cierre: &str) -> Self {
+        self.saldos
+            .borrow_mut()
+            .entry(sesion)
+            .or_default()
+            .push(SaldoDeSesion {
+                producto: IdProducto(producto),
+                inicial: cantidad(inicial),
+                cierre: cantidad(cierre),
+            });
+        self
+    }
+
+    /// Un asiento del turno, ya sumado por tipo y por par de estantes.
+    ///
+    /// `origen` y `destino` se dictan a mano porque son lo que decide a qué
+    /// columna va: el mismo traspaso llena o vacía la vitrina según la
+    /// dirección.
+    pub(crate) fn con_movido(
+        self,
+        sesion: i64,
+        producto: i64,
+        tipo: TipoMovimiento,
+        (origen, destino): (Option<Ubicacion>, Option<Ubicacion>),
+        cantidad_movida: &str,
+    ) -> Self {
+        self.movidos
+            .borrow_mut()
+            .entry(sesion)
+            .or_default()
+            .push(MovidoEnSesion {
+                producto: IdProducto(producto),
+                tipo,
+                origen,
+                destino,
+                cantidad: cantidad(cantidad_movida),
+            });
+        self
+    }
+}
+
+impl ConsultaIpv for IpvEnMemoria {
+    fn saldos_de_sesion(&self, sesion: IdSesion) -> Resultado<Vec<SaldoDeSesion>> {
+        Ok(self
+            .saldos
+            .borrow()
+            .get(&sesion.0)
+            .cloned()
+            .unwrap_or_default())
+    }
+
+    fn movimientos_de_sesion(&self, sesion: IdSesion) -> Resultado<Vec<MovidoEnSesion>> {
+        Ok(self
+            .movidos
             .borrow()
             .get(&sesion.0)
             .cloned()
