@@ -50,8 +50,8 @@
       </div>
       <div class="panel__cuerpo pila">
         <p class="explicacion">
-          Mientras la caja esté cerrada <strong>no se puede cobrar</strong>. Una venta sin sesión
-          no aparecería en ningún arqueo, y ese descuadre ya no tendría arreglo.
+          Mientras la caja esté cerrada <strong>no se puede cobrar</strong>. Una venta sin sesión no
+          aparecería en ningún arqueo, y ese descuadre ya no tendría arreglo.
         </p>
 
         <div class="fila">
@@ -304,8 +304,8 @@
               }
               @if (!cerrando()) {
                 <p class="explicacion">
-                  Al cerrar se cuenta el dinero físico y se compara con lo esperado. El arqueo
-                  queda congelado y <strong>no se puede deshacer</strong>.
+                  Al cerrar se cuenta el dinero físico y se compara con lo esperado. El arqueo queda
+                  congelado y <strong>no se puede deshacer</strong>.
                 </p>
                 <button type="button" class="boton boton--ancho" (click)="empezarCierre()">
                   Contar y cerrar
@@ -348,12 +348,20 @@
                   <div class="arqueos arqueos--previo">
                     <div class="arqueo" [class.arqueo--descuadre]="!vista.arqueoCup.cuadra">
                       <span class="arqueo__titulo">
-                        {{ vista.arqueoCup.cuadra ? 'Cuadra' : falta(vista.arqueoCup.diferencia) ? 'Falta' : 'Sobra' }}
+                        {{
+                          vista.arqueoCup.cuadra
+                            ? 'Cuadra'
+                            : falta(vista.arqueoCup.diferencia)
+                              ? 'Falta'
+                              : 'Sobra'
+                        }}
                       </span>
                       <span class="cifra cifra--grande">{{ vista.arqueoCup.diferencia }}</span>
                       <span class="apagado nota">Esperado {{ vista.arqueoCup.esperado }}</span>
                     </div>
-                    @if (vista.arqueoUsd.esperado !== '0.00' || vista.arqueoUsd.contado !== '0.00') {
+                    @if (
+                      vista.arqueoUsd.esperado !== '0.00' || vista.arqueoUsd.contado !== '0.00'
+                    ) {
                       <div class="arqueo" [class.arqueo--descuadre]="!vista.arqueoUsd.cuadra">
                         <span class="arqueo__titulo">Dólares</span>
                         <span class="cifra cifra--grande">{{ vista.arqueoUsd.diferencia }}</span>
@@ -429,7 +437,9 @@
                     <div class="linea">
                       <span class="apagado">
                         Comisión
-                        <span class="nota">{{ vista.economico.comisionPorcentaje }} % de la venta</span>
+                        <span class="nota"
+                          >{{ vista.economico.comisionPorcentaje }} % de la venta</span
+                        >
                       </span>
                       <span class="cifra apagado">{{ vista.economico.comision }}</span>
                     </div>
@@ -463,7 +473,12 @@
   <div class="panel">
     <div class="panel__cabecera">
       <span class="panel__titulo">Cajas anteriores</span>
-      <button type="button" class="boton boton--discreto" (click)="recargar()" [disabled]="cargando()">
+      <button
+        type="button"
+        class="boton boton--discreto"
+        (click)="recargar()"
+        [disabled]="cargando()"
+      >
         {{ cargando() ? 'Cargando…' : 'Actualizar' }}
       </button>
     </div>
@@ -515,7 +530,12 @@
     <div class="panel panel--detalle">
       <div class="panel__cabecera">
         <span class="panel__titulo">Caja del {{ vista.abiertaEn }} · {{ vista.operador }}</span>
-        <button type="button" class="boton boton--discreto" (click)="cerrarDetalle()">Cerrar</button>
+        <button type="button" class="boton boton--secundario" (click)="pedirClaveParaIpv()">
+          Ver el IPV de este turno
+        </button>
+        <button type="button" class="boton boton--discreto" (click)="cerrarDetalle()">
+          Cerrar
+        </button>
       </div>
 
       <div class="panel__cuerpo pila">
@@ -604,3 +624,15 @@
     </div>
   }
 </section>
+
+@if (pidiendoIpv()) {
+  <app-clave
+    titulo="Ver el IPV de este turno"
+    explicacion="La hoja de un turno que ya cerró se consulta con la clave del sistema."
+    accion="Ver la hoja"
+    [ocupado]="comprobandoClave()"
+    [error]="errorClave()"
+    (confirmado)="abrirIpv($event)"
+    (cerrado)="cancelarIpv()"
+  />
+}

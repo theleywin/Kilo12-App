@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { Router } from '@angular/router';
 
 import {
   CierreCalculadoDto,
@@ -8,6 +9,7 @@ import {
   SesionListadaDto,
 } from '../../core/api.types';
 import { comoError, Kilo12Api } from '../../core/kilo12-api';
+import { Clave } from '../../shared/clave/clave';
 import { ContadorEfectivo } from '../../shared/contador-efectivo/contador-efectivo';
 
 /** Número decimal con hasta seis decimales. */
@@ -34,12 +36,13 @@ const PORCENTAJE = /^\d{1,3}(\.\d{1,2})?$/;
 @Component({
   selector: 'app-caja',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [ContadorEfectivo],
+  imports: [Clave, ContadorEfectivo],
   templateUrl: './caja.html',
   styleUrl: './caja.css',
 })
 export class Caja {
   private readonly api = inject(Kilo12Api);
+  private readonly router = inject(Router);
 
   protected readonly caja = signal<EstadoCajaDto | null>(null);
   protected readonly historial = signal<readonly SesionListadaDto[]>([]);
@@ -95,6 +98,11 @@ export class Caja {
    * guarda su resultado, que es lo que se lleva a la casilla del cierre.
    */
   protected readonly conteo = signal<ConteoCalculadoDto | null>(null);
+
+  /** El cartel de la clave para abrir el IPV de un turno pasado. */
+  protected readonly pidiendoIpv = signal(false);
+  protected readonly comprobandoClave = signal(false);
+  protected readonly errorClave = signal<string | null>(null);
 
   /** Sesión del historial que se está mirando. */
   protected readonly detalle = signal<CierreCalculadoDto | null>(null);
@@ -324,6 +332,55 @@ export class Caja {
 
   protected cerrarDetalle(): void {
     this.detalle.set(null);
+  }
+
+  // --------------------------------------------------- el IPV del turno
+
+  /**
+   * Pide la clave para ver el IPV de un turno que ya cerró.
+   *
+   * La hoja del turno en curso se mira sin permiso en su propia pantalla;
+   * la de un turno pasado es historia y se abre a conciencia (RF-IPV-14).
+   */
+  protected pedirClaveParaIpv(): void {
+    this.errorClave.set(null);
+    this.pidiendoIpv.set(true);
+  }
+
+  /**
+   * Comprueba la clave y, si sirve, lleva a la hoja de ese turno.
+   *
+   * Se comprueba **consultando**, no comparando aquí: la clave la valida
+   * Rust y esta pantalla solo mira si la respuesta fue una negativa. Si
+   * todo va bien, la clave viaja en el estado de navegación —no en la
+   * dirección— para que no quede escrita en el historial del navegador.
+   */
+  protected async abrirIpv(clave: string): Promise<void> {
+    const sesion = this.detalle()?.sesion;
+    if (sesion === undefined) {
+      return;
+    }
+
+    this.comprobandoClave.set(true);
+    try {
+      await this.api.consultarIpv(sesion, clave);
+      this.pidiendoIpv.set(false);
+      await this.router.navigate(['/ipv', sesion], { state: { clave } });
+    } catch (fallo) {
+      const error = comoError(fallo);
+      if (error.codigo === 'CLAVE_INCORRECTA') {
+        this.errorClave.set(error.mensaje);
+      } else {
+        this.pidiendoIpv.set(false);
+        this.error.set(error);
+      }
+    } finally {
+      this.comprobandoClave.set(false);
+    }
+  }
+
+  protected cancelarIpv(): void {
+    this.pidiendoIpv.set(false);
   }
 
   /** Una diferencia que empieza por «-» es un faltante. */
