@@ -645,16 +645,20 @@ pub fn sesion_de_referencia<R: RepositorioProducto>(
         None => repositorio.listar_sesiones(1)?.into_iter().next(),
     };
 
-    registrada
-        .map(|registrada| {
-            Ok(SesionDeReferencia {
-                id: identificador(&registrada)?.0,
-                abierta: registrada.sesion.esta_abierta(),
-                abierta_en: registrada.abierta_en,
-                cerrada_en: registrada.cerrada_en,
-            })
-        })
-        .transpose()
+    registrada.map(como_referencia).transpose()
+}
+
+/// Reduce una sesión guardada a lo que las pantallas necesitan de ella.
+///
+/// Lo usa tanto la sesión de referencia como quien pide un turno concreto
+/// —el IPV, por ejemplo—, para que las dos vías describan el turno igual.
+pub fn como_referencia(registrada: SesionRegistrada) -> Resultado<SesionDeReferencia> {
+    Ok(SesionDeReferencia {
+        id: identificador(&registrada)?.0,
+        abierta: registrada.sesion.esta_abierta(),
+        abierta_en: registrada.abierta_en,
+        cerrada_en: registrada.cerrada_en,
+    })
 }
 
 /// Tasa vigente, solo para presentar el cierre consolidado.

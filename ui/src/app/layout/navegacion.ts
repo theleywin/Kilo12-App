@@ -42,6 +42,7 @@ export type Icono =
   | 'caja'
   | 'contar'
   | 'informes'
+  | 'ipv'
   | 'consumo'
   | 'guia';
 
@@ -163,6 +164,24 @@ export const SECCIONES: readonly Seccion[] = [
       'Productos más vendidos y más rentables',
       'Productos por agotarse según el mínimo y el ritmo de venta',
       'Ganancia del período, descontada la comisión',
+    ],
+  },
+  {
+    ruta: 'ipv',
+    titulo: 'IPV',
+    descripcion:
+      'La hoja del turno abierto en la vitrina: qué había, qué entró, qué salió y qué quedó.',
+    // Sin atajo: se abre al cerrar el turno, una o dos veces al día, y las
+    // teclas calientes son de la ruta del mostrador.
+    icono: 'ipv',
+    densidad: 'amplia',
+    incluye: [
+      'Una fila por mercancía, al precio de venta',
+      'Lo que bajó del almacén cuenta como entrada a la vitrina',
+      'Columnas de entrada, merma, consumo y salida del turno',
+      'Aviso cuando una fila no cuadra con su existencia final',
+      'Imprimir la hoja y exportarla a Excel',
+      'Las hojas de turnos ya cerrados se consultan desde Caja',
     ],
   },
   {

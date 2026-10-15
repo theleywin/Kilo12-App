@@ -12,8 +12,8 @@ use application::casos::caja::{CLAVE_COMISION, LIMITE_POR_DEFECTO as LIMITE_CAJA
 use application::casos::consultar_kardex::LIMITE_POR_DEFECTO;
 use application::casos::consultar_ventas::LIMITE_POR_DEFECTO as LIMITE_VENTAS;
 use application::casos::{
-    AbrirCaja, AnularVenta, BorrarTodo, CerrarCaja, ConsultarCaja, ConsultarInforme,
-    ContarEfectivo, HistorialCajas, MoverEfectivo,
+    AbrirCaja, AnularVenta, BorrarTodo, CerrarCaja, ConsultarCaja, ConsultarInforme, ConsultarIpv,
+    ContarEfectivo, HistorialCajas, Ipv, MoverEfectivo, PeticionIpv,
 };
 use application::casos::{
     AgregarPresentacion, CambiarCosto, CambiarPrecio, ConsultarAlmacen, ConsultarHistorialCostos,
@@ -32,10 +32,12 @@ use application::casos::{
 use application::casos::{
     DejarVentaEnEspera, EliminarVentaEnEspera, ListarVentasEnEspera, RetomarVentaEnEspera,
 };
+use application::error::ErrorAplicacion;
 use application::margen;
 use application::puertos::RepositorioProducto;
 use domain::{Dinero, Moneda, Porcentaje};
-use tauri::State;
+use infrastructure::escribir_ipv;
+use tauri::{Manager, State};
 
 use crate::dto::{
     AlmacenDto, CambioPrecioDto, CambioPrecioListadoDto, ConsultaSimulacionDto, CostoListadoDto,
@@ -51,7 +53,7 @@ use crate::dto::{
 };
 use crate::dto::{
     AnulacionDto, AperturaCajaDto, CierreCajaDto, CierreCalculadoDto, ConteoCalculadoDto,
-    EstadoCajaDto, InformeDto, MovimientoEfectivoDto, SesionListadaDto,
+    EstadoCajaDto, InformeDto, IpvDto, MovimientoEfectivoDto, SesionListadaDto,
 };
 use crate::dto::{
     CobroCalculadoDto, HistorialVentasDto, NuevaVentaDto, PagoDto, ProductoVendibleDto,
@@ -864,6 +866,123 @@ pub fn consultar_informe(
     caso.ejecutar(desde.trim(), hasta.trim(), dias)
         .map(InformeDto::from)
         .map_err(ErrorDto::from)
+}
+
+/// Devuelve el IPV de un turno (RF-IPV-01, RF-IPV-13, RF-IPV-14).
+///
+/// Sin `sesion` se arma el del **turno abierto**, y si no hay ninguno no hay
+/// hoja. Cualquier otro turno exige la clave del sistema, y quien la
+/// comprueba es el caso de uso: este comando queda expuesto a la interfaz y
+/// una puerta que solo viva en JavaScript se salta abriendo las herramientas
+/// de desarrollo.
+#[tauri::command]
+pub fn consultar_ipv(
+    estado: State<'_, Estado>,
+    sesion: Option<i64>,
+    clave: Option<String>,
+) -> Result<IpvDto, ErrorDto> {
+    hoja_de(&estado, &PeticionIpv { sesion, clave }).map(IpvDto::from)
+}
+
+/// Escribe el IPV en un `.xlsx` y devuelve dónde quedó (RF-IPV-12).
+///
+/// Una hoja por turno, en el orden en que llegan. El archivo se guarda en la
+/// carpeta de documentos del usuario y no junto a la base de datos: la
+/// carpeta de datos de la aplicación está escondida en los tres sistemas, y
+/// un informe que no se encuentra no sirve de nada. Se devuelve la ruta para
+/// que la pantalla pueda decirla.
+#[tauri::command]
+pub fn exportar_ipv(
+    app: tauri::AppHandle,
+    estado: State<'_, Estado>,
+    sesiones: Option<Vec<i64>>,
+    clave: Option<String>,
+) -> Result<String, ErrorDto> {
+    let sesiones = sesiones.filter(|s| !s.is_empty());
+
+    // La misma puerta que para mirar la hoja, y por el mismo camino: si
+    // exportar no pidiera la clave, el pasado se leería llamando a este
+    // comando en vez de al otro.
+    let hojas = match sesiones {
+        Some(ids) => ids
+            .into_iter()
+            .map(|id| {
+                hoja_de(
+                    &estado,
+                    &PeticionIpv {
+                        sesion: Some(id),
+                        clave: clave.clone(),
+                    },
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?,
+        None => vec![hoja_de(&estado, &PeticionIpv::del_turno_abierto())?],
+    };
+
+    let carpeta = app
+        .path()
+        .document_dir()
+        .map_err(|error| ErrorDto::from(ErrorAplicacion::Persistencia(error.to_string())))?
+        .join("Kilo12");
+    std::fs::create_dir_all(&carpeta)
+        .map_err(|error| ErrorDto::from(ErrorAplicacion::Persistencia(error.to_string())))?;
+
+    let ruta = sin_pisar(&carpeta, &nombre_del_libro(&hojas));
+    escribir_ipv(&hojas, &ruta)
+        .map_err(ErrorAplicacion::from)
+        .map_err(ErrorDto::from)?;
+
+    Ok(ruta.to_string_lossy().into_owned())
+}
+
+/// Arma la hoja de un turno. Lo comparten la consulta y la exportación para
+/// que lo que se imprime y lo que se exporta no puedan discrepar, ni en las
+/// cifras ni en quién tiene permiso para verlas.
+fn hoja_de(estado: &State<'_, Estado>, peticion: &PeticionIpv) -> Result<Ipv, ErrorDto> {
+    // El mismo adaptador implementa los tres puertos: comparten la base.
+    let caso = ConsultarIpv::nuevo(
+        estado.repositorio_producto(),
+        estado.repositorio_producto(),
+        estado.repositorio_producto(),
+    );
+    caso.ejecutar(peticion).map_err(ErrorDto::from)
+}
+
+/// Nombre del archivo: la fecha del primer turno y, si hay varios, cuántos.
+///
+/// La fecha se toma del sello del turno y no del reloj: el libro se llama
+/// como el día del que habla, no como el día en que se exportó.
+fn nombre_del_libro(hojas: &[Ipv]) -> String {
+    let fecha = hojas
+        .first()
+        .and_then(|hoja| hoja.sesion.as_ref())
+        .and_then(|sesion| sesion.abierta_en.get(..10))
+        .unwrap_or("sin-fecha")
+        .to_owned();
+
+    if hojas.len() > 1 {
+        format!("IPV {fecha} ({} turnos).xlsx", hojas.len())
+    } else {
+        format!("IPV {fecha}.xlsx")
+    }
+}
+
+/// Busca un nombre libre en la carpeta añadiendo un sufijo.
+///
+/// Sobrescribir sin avisar borraría el IPV que alguien exportó hace un rato
+/// y quizá ya anotó a mano. Diez intentos bastan; si están los diez, se
+/// devuelve el último y el error de escritura lo dirá.
+fn sin_pisar(carpeta: &std::path::Path, nombre: &str) -> std::path::PathBuf {
+    let candidato = carpeta.join(nombre);
+    if !candidato.exists() {
+        return candidato;
+    }
+
+    let raiz = nombre.trim_end_matches(".xlsx");
+    (2..=10)
+        .map(|intento| carpeta.join(format!("{raiz} ({intento}).xlsx")))
+        .find(|ruta| !ruta.exists())
+        .unwrap_or_else(|| carpeta.join(format!("{raiz} (10).xlsx")))
 }
 
 /// Borra todos los datos de la aplicación.

@@ -1,0 +1,22 @@
+/* El velo y el marco vienen de `estilos/componentes.css`. Aquí solo lo que
+   un cartel de una sola casilla necesita y los 760 px del marco general no
+   le dan. */
+
+.modal--estrecho {
+  width: min(420px, calc(100vw - var(--e5) * 2));
+}
+
+.explicacion {
+  margin: 0 0 var(--e3);
+  color: var(--apagado);
+  font-size: var(--texto-s);
+}
+
+/* El punto y aparte entre los dígitos cuenta: se teclea mirando el teclado
+   numérico, no la pantalla. */
+#clave-sistema {
+  letter-spacing: 0.35em;
+  text-align: center;
+  font-family: var(--letra-cifra);
+  font-size: var(--texto-l);
+}

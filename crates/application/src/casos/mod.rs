@@ -16,6 +16,7 @@ pub mod consumo;
 pub mod editar_producto;
 pub mod fijar_objetivo_vitrina;
 pub mod informes;
+pub mod ipv;
 pub mod limpiar_catalogo;
 pub mod listar_productos;
 pub mod mantenimiento;
@@ -67,6 +68,7 @@ pub use informes::{
     ComparativaDiaria, ConsultarInforme, Informe, PorcionMetodo, ProductoEnInforme, ProductoParado,
     ProductoPorAgotarse, PuntoDiario, PuntoHorario, ResumenPeriodo,
 };
+pub use ipv::{CifrasIpv, ConsultarIpv, FilaIpv, FormaVendida, Ipv, PeticionIpv};
 pub use limpiar_catalogo::{Destino, LimpiarCatalogo, Limpieza, ProductoVacio, QuitarDelCatalogo};
 pub use listar_productos::{ListarProductos, OrdenCatalogo, ProductoListado};
 pub use mantenimiento::{BorrarTodo, CLAVE_MANTENIMIENTO};

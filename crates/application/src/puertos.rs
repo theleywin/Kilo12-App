@@ -9,7 +9,7 @@
 use domain::{
     Cantidad, Cobro, Comision, Dinero, Existencias, IdPresentacion, IdProducto, IdSesion,
     IdVentaEnEspera, Inventario, MetodoPago, Movimiento, MovimientoEfectivo, Producto,
-    ResumenCierre, SesionCaja, Ubicacion, UnidadBase, Venta, VentaEnEspera,
+    ResumenCierre, SesionCaja, TipoMovimiento, Ubicacion, UnidadBase, Venta, VentaEnEspera,
 };
 
 use crate::error::Resultado;
@@ -763,6 +763,86 @@ pub trait RepositorioConsumo {
         desde: Option<&str>,
         hasta: Option<&str>,
     ) -> Resultado<Vec<LineaConsumoRegistrada>>;
+}
+
+// ======================================== el IPV (RF-IPV)
+
+/// Lo que un producto tenía **en la vitrina** al abrir y al cerrar un turno.
+///
+/// Solo la vitrina: el IPV es la hoja del mostrador. Lo que duerme en el
+/// almacén no se vende ni se merma ahí, y meterlo en la cuenta haría que la
+/// CANT. INICIAL no se pudiera comprobar contra el estante, que es para lo
+/// único que sirve esa columna.
+///
+/// Las dos cifras se **leen**, no se reconstruyen: cada asiento del kárdex
+/// guardó la existencia que dejó (RF-INV-05), así que la inicial del turno
+/// es el saldo del último asiento anterior a abrirlo. Sumar el historial
+/// entero para llegar a la misma cifra sería trabajo de más y una ocasión
+/// más de equivocarse.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SaldoDeSesion {
+    pub producto: IdProducto,
+    /// Unidades base en vitrina al abrir el turno.
+    pub inicial: Cantidad,
+    /// Unidades base en vitrina al cerrarlo, o ahora si sigue abierto.
+    pub cierre: Cantidad,
+}
+
+/// Lo que un producto movió dentro de un turno, por tipo y por estante.
+///
+/// Viajan `origen` y `destino` porque sin ellos no se puede saber si el
+/// asiento tocó la vitrina. Un traspaso que baja del almacén la llena y uno
+/// que sube la vacía: es el mismo tipo de asiento y van a la misma columna
+/// con signo contrario. Una merma del almacén, en cambio, no pinta nada en
+/// esta hoja.
+///
+/// Llega sin agregar por concepto a propósito: el IPV junta la venta con su
+/// devolución y el consumo con su anulación, y esa resta se hace en Rust
+/// porque puede dar negativo —anular hoy una venta de ayer deja la columna
+/// en contra— y porque decidir qué se suma con qué es una regla del
+/// informe, no de la base.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MovidoEnSesion {
+    pub producto: IdProducto,
+    pub tipo: TipoMovimiento,
+    /// De dónde salió. Una entrada de compra no tiene origen.
+    pub origen: Option<Ubicacion>,
+    /// A dónde fue. Una venta o una merma no tienen destino.
+    pub destino: Option<Ubicacion>,
+    /// Unidades base, sumadas dentro del turno.
+    pub cantidad: Cantidad,
+}
+
+/// Lo que el IPV necesita del kárdex y que no da ningún otro puerto
+/// (RF-IPV-01, RF-IPV-02).
+///
+/// Todo lo que devuelve habla de la **vitrina**, porque es de lo que habla
+/// la hoja.
+///
+/// Es un puerto aparte por el mismo criterio que `ConsultaVentasDeSesion`
+/// (DT-5): quien arma el informe de un turno no necesita saber dar de alta
+/// un producto. Lo implementa el mismo adaptador, sobre la misma base.
+///
+/// El turno se delimita por **ventana de tiempo**, igual que la merma del
+/// arqueo: el kárdex no guarda a qué sesión pertenece un asiento, y darle
+/// esa columna lo ataría a un concepto de caja que no le corresponde. Eso
+/// tiene una consecuencia que conviene tener escrita: los sellos se guardan
+/// con resolución de un segundo, así que un asiento del mismo segundo en que
+/// se abrió la caja cuenta **dentro** del turno. En una tienda no pasa —no
+/// se da de alta un producto y se abre la caja en el mismo segundo—, pero en
+/// una prueba sí, y por eso las de SQLite separan los tramos a propósito.
+pub trait ConsultaIpv {
+    /// Existencia en vitrina de cada producto al abrir y al cerrar.
+    ///
+    /// Solo aparecen los productos que tenían algo o movieron algo: uno que
+    /// nunca ha existido para ese turno no tiene saldo que enseñar.
+    fn saldos_de_sesion(&self, sesion: IdSesion) -> Resultado<Vec<SaldoDeSesion>>;
+
+    /// Asientos del turno, sumados por producto, tipo y par de estantes.
+    ///
+    /// Vienen todos, también los que no tocaron la vitrina: filtrarlos es
+    /// una regla del informe y se aplica en el caso de uso.
+    fn movimientos_de_sesion(&self, sesion: IdSesion) -> Resultado<Vec<MovidoEnSesion>>;
 }
 
 /// Una venta en espera tal como está guardada.

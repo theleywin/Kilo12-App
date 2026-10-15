@@ -1,0 +1,165 @@
+/* El IPV es una tabla y poco más. Lo que hay aquí es sobre todo decidir
+   anchos de columna: nueve columnas de cifras necesitan que el ojo sepa
+   cuál está leyendo sin seguir la fila con el dedo. */
+
+.ipv {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e3);
+}
+
+.nota {
+  font-size: var(--texto-s);
+}
+
+/* ================================================== barra de acciones */
+
+.barra {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--e2);
+  flex-wrap: wrap;
+}
+
+.barra__hueco {
+  flex: 1;
+}
+
+/* La barra arranca alineada abajo por si algún día vuelve a llevar un
+   campo; con solo botones y etiquetas, centrarlos se lee mejor. */
+.barra {
+  align-items: center;
+}
+
+.ruta {
+  font-size: var(--texto-s);
+  word-break: break-all;
+}
+
+/* ===================================================== la hoja misma */
+
+.hoja__cabecera {
+  display: flex;
+  align-items: baseline;
+  gap: var(--e3);
+  flex-wrap: wrap;
+}
+
+.hoja__titulo {
+  margin: 0;
+  font-size: var(--texto-l);
+  font-weight: var(--peso-medio);
+}
+
+.panel--hoja {
+  overflow: hidden;
+}
+
+.tabla--ipv {
+  /* Fijo y no automático: con 150 filas, dejar que el navegador mida el
+     contenido hace que las columnas bailen según lo que haya en pantalla. */
+  table-layout: fixed;
+  min-width: 56rem;
+}
+
+.tabla--ipv th:first-child,
+.tabla--ipv td:first-child {
+  /* La mercancía se queda con el ancho que sobra: es el único texto. */
+  width: auto;
+}
+
+.tabla--ipv th:not(:first-child),
+.tabla--ipv td:not(:first-child) {
+  width: 6.5rem;
+}
+
+/* Precio e importe son los dos más anchos: llevan dos decimales y pueden
+   pasar de las cinco cifras. */
+.tabla--ipv th:nth-child(7),
+.tabla--ipv td:nth-child(7),
+.tabla--ipv th:nth-child(8),
+.tabla--ipv td:nth-child(8) {
+  width: 7.5rem;
+}
+
+.mercancia {
+  font-weight: var(--peso-medio);
+  text-align: left;
+}
+
+/* ======================================================= las subfilas */
+
+/* La subfila pertenece a la de arriba: va sangrada, más pequeña y sin la
+   línea que separa productos, para que se lea como parte del mismo bloque. */
+.fila--forma td {
+  padding-top: var(--e1);
+  padding-bottom: var(--e1);
+  border-top: 0;
+  color: var(--apagado);
+  font-size: var(--texto-s);
+}
+
+.forma {
+  padding-left: var(--e4) !important;
+}
+
+/* =========================================== lo que no se explica */
+
+/* Un amarillo tenue, no un rojo de alarma: la fila sigue siendo buena
+   información y lo único que pasa es que falta explicarla. La cifra que no
+   cuadra sí va en rojo, y es la que se mira. */
+.fila--descuadrada td,
+.fila--descuadrada th {
+  background: var(--destaque-suave);
+}
+
+.pie {
+  margin: 0;
+  max-width: 70ch;
+}
+
+/* ============================================= accesibilidad e impresión */
+
+/* El `caption` de la tabla es para los lectores de pantalla: a la vista ya
+   está el encabezado de la hoja justo encima. */
+.oculto {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@media print {
+  /* En papel la tabla se encoge para que las nueve columnas caigan dentro
+     del folio sin que haya que reducir la escala en el diálogo. */
+  .tabla--ipv {
+    min-width: 0;
+    font-size: 9pt;
+  }
+
+  .tabla--ipv th,
+  .tabla--ipv td {
+    padding: 2pt 4pt;
+  }
+
+  .hoja__titulo {
+    font-size: 12pt;
+  }
+
+  /* El pie explicativo sobra en la hoja: quien la imprime ya sabe qué es. */
+  .pie {
+    display: none;
+  }
+
+  /* La fila descuadrada pierde el fondo —el tóner— y se queda con la cifra
+     en rojo, que es la señal que importa. */
+  .fila--descuadrada td,
+  .fila--descuadrada th {
+    background: transparent;
+  }
+}
+

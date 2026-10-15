@@ -1,0 +1,48 @@
+<div class="velo" (click)="cerrar()"></div>
+
+<div class="modal modal--estrecho" role="dialog" aria-modal="true" aria-labelledby="titulo-clave">
+  <div class="modal__cabecera">
+    <span class="modal__titulo" id="titulo-clave">{{ titulo() }}</span>
+    <button type="button" class="boton boton--discreto" (click)="cerrar()">Cerrar</button>
+  </div>
+
+  <div class="modal__cuerpo">
+    @if (explicacion()) {
+      <p class="explicacion">{{ explicacion() }}</p>
+    }
+
+    <div class="campo">
+      <label for="clave-sistema">Clave</label>
+      <!-- `type="password"` y no texto: no es un secreto de verdad, pero
+           la pantalla se teclea con gente delante del mostrador. -->
+      <input
+        id="clave-sistema"
+        type="password"
+        inputmode="numeric"
+        autocomplete="off"
+        autofocus
+        [value]="clave()"
+        (input)="clave.set($any($event.target).value)"
+        (keydown.enter)="confirmar()"
+        (keydown.escape)="cerrar()"
+      />
+      @if (error(); as fallo) {
+        <span class="error">{{ fallo }}</span>
+      }
+    </div>
+
+    <div class="modal__acciones">
+      <button type="button" class="boton boton--discreto" [disabled]="ocupado()" (click)="cerrar()">
+        Cancelar
+      </button>
+      <button
+        type="button"
+        class="boton boton--destacado"
+        [disabled]="!puedeConfirmar"
+        (click)="confirmar()"
+      >
+        {{ ocupado() ? 'Comprobando…' : accion() }}
+      </button>
+    </div>
+  </div>
+</div>

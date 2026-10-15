@@ -1,11 +1,12 @@
 # Kilo12 — Diseño Técnico
 
-**Versión:** 1.6
+**Versión:** 1.7
 **Fecha:** 2026-10-14
 **Estado:** Propuesta de diseño para revisión. No se ha escrito código de aplicación todavía.
 
-**Documento base:** `requerimientos-funcionales.md` v1.7
+**Documento base:** `requerimientos-funcionales.md` v1.8
 
+**Cambios en 1.7:** nueva DT-17: el IPV (§6.15) habla de la vitrina y de un vocabulario distinto del de Kilo12, lee la existencia en vez de reconstruirla, comprueba la identidad de la hoja en lugar de usarla para calcular, y protege con la clave del sistema todo turno que no sea el abierto. DT-5 incorpora el puerto `ConsultaIpv`. Primera dependencia externa del crate de infraestructura que no es `rusqlite`: `rust_xlsxwriter`.
 **Cambios en 1.6:** nueva DT-16: el consumo de los dueños lleva puerto estrecho propio, y toda su escritura cabe en un método del adaptador porque el candado de la conexión no es reentrante. DT-10 incorpora la primera reconstrucción de tabla del proyecto —la migración 9, sobre el kárdex— con sus dos avisos para la siguiente, y el respaldo previo a migrar con `VACUUM INTO`. La tabla de DT-8 incorpora las cuatro tablas del consumo.
 **Cambios en 1.5:** DT-6 documenta por qué las rutas no se cargan de forma diferida y para qué se conserva el presupuesto de paquete, que pasa a 700 kB / 1,5 MB. Nueva DT-15: quitar un producto del catálogo son dos operaciones —borrar o desactivar— y el destino lo decide el rastro del producto, con las claves foráneas del esquema como garantía de RF-CAT-07. `RepositorioProducto` incorpora `rastro_de_producto` y `limpiar_catalogo`. `FichaProducto` incorpora `agotado`, que la interfaz no puede deducir del texto de la existencia.
 **Cambios en 1.4:** nueva DT-14: las cifras de la pantalla Ventas se calculan sobre la sesión de caja de referencia, no sobre el día del calendario. DT-5 incorpora el puerto `ConsultaVentasDeSesion` y la agregación compartida `casos/agregados.rs`. Se retira `resumen_de_hoy`.
@@ -158,6 +159,8 @@ infrastructure ──────┘   (implementa los puertos que application d
 3. **Cambiar de motor de persistencia** significaría escribir otro adaptador, no tocar las reglas.
 
 **Puertos pequeños.** Un puerto agrupa lo que un caso de uso necesita, no todo lo que la base sabe hacer. Las ventas en espera tienen su propio puerto, `RepositorioVentaEnEspera` (`guardar`, `listar`, `obtener`, `eliminar`), en lugar de cuatro métodos más en `RepositorioProducto`: quien lista esperas no necesita saber cerrar una caja, y un doble en memoria para las pruebas no debería implementar cuarenta métodos para usar cuatro. Su adaptador SQLite comparte la misma `BaseDatos` que el resto.
+
+El IPV (§6.15) añade un tercero, `ConsultaIpv`, con dos métodos: la existencia **en vitrina** de cada producto al abrir y al cerrar el turno, y los asientos del turno sumados por producto, tipo y par de estantes. Lo implementa el mismo adaptador, y el caso de uso `ConsultarIpv` recibe los tres puertos —catálogo y caja, saldos del turno y renglones vendidos— porque ninguna otra pantalla los pide juntos (DT-17).
 
 Con el mismo criterio, la vista agrupada de Ventas (RF-EST-03b) tiene su propio puerto estrecho, `ConsultaVentasDeSesion` (`lineas_de_sesion(IdSesion)`): devuelve los renglones de las ventas de una sesión, sin las anuladas, con la venta y la presentación de cada uno. Lo implementa `RepositorioProductoSqlite` sobre la misma base, y el caso de uso `ConsultarVentasPorProducto` lo recibe junto a `RepositorioProducto`, que solo usa para resolver la sesión de referencia (DT-14). El resultado es una lista plana de filas, una por (producto, presentación), sin subtotal por producto: cada presentación se trata como un producto distinto.
 
@@ -576,6 +579,34 @@ Por eso `consumo.total_costo` **se almacena** en lugar de derivarse, igual que `
 
 **Consecuencia asumida.** El consumo no deja rastro en ninguna cifra de caja ni de venta, lo que significa que **el dinero de una liquidación es invisible para la aplicación**. Se sabe cuánto se debía y cuánto se pagó, pero ese pago no aparece en ningún arqueo ni informe de ingresos. Es correcto —no es un ingreso— y es lo que el propietario eligió; el día que ese efectivo pase por la gaveta hay que anotarlo a mano (RF-CAJ-03).
 
+### DT-17 — El IPV habla de la vitrina, y de otro vocabulario
+
+**Decisión.** El informe de productos vendidos (§6.15) se calcula sobre la **vitrina**, no sobre la existencia total. Es la decisión de la que cuelga todo lo demás: la hoja se imprime y se recorre con la mercancía delante, así que la CANT. FINAL tiene que ser la que se puede contar en el estante. Si sumara lo guardado en el almacén, la columna seguiría siendo cierta y dejaría de servir para nada.
+
+**Dos nombres para el mismo hecho.** En Kilo12, mover mercancía del almacén al mostrador es un `TRASPASO` (RF-INV-04) y una compra al proveedor es una `ENTRADA` (RF-COM-01). En la hoja del local, «entrada» es lo que entró a la vitrina, que casi siempre es el traspaso. El informe usa el vocabulario del local y traduce: un traspaso con destino vitrina suma a ENTRADA, uno con origen vitrina **resta** de la misma columna, y una compra solo cuenta si se colocó directamente en el mostrador. No se inventa una columna «salida al almacén» que la hoja de papel no tiene: devolver mercancía al almacén es lo contrario de bajarla, y con signo negativo la identidad sigue cerrando.
+
+Por eso `MovidoEnSesion` lleva `origen` y `destino`, y el adaptador agrupa por `(producto, tipo, origen, destino)`: sin los dos estantes no se puede saber si el asiento tocó la vitrina, y el mismo tipo de asiento va a la misma columna con signos contrarios según la dirección.
+
+**La existencia se lee, no se reconstruye** (RF-IPV-02). Cada asiento guardó la existencia que dejó (RF-INV-05), así que la inicial del turno es el `vitrina_resultante` del último asiento anterior a abrirlo. Sumar el historial entero daría lo mismo mientras todo esté bien, y si algo estuviera mal daría una cifra distinta a la que el kárdex enseña, que es exactamente lo que no se quiere de un informe cuyo propósito es detectar descuadres.
+
+**La identidad comprueba, no calcula** (RF-IPV-06). `final = inicial + entrada − merma − consumo − salida` no produce ninguna cifra: se contrasta contra la que el kárdex guardó, y la fila lleva un `cuadra` que la interfaz pinta en rojo. Una hoja que siempre cuadra no sirve para detectar nada. Un `AJUSTE` (RF-MER-04) no tiene columna y tampoco se le fabrica una: la tabla guarda `cantidad > 0`, así que su dirección no se recupera de la suma y colocarlo a ciegas sería inventar. Lo que hace es impedir que la fila cuadre, que es lo correcto —un ajuste es una diferencia que alguien tiene que explicar—. Hoy ningún caso de uso crea ajustes, de modo que es una salvaguarda para cuando los haya.
+
+**El PRECIO de la fila es derivado**, importe entre unidades base vendidas (RF-IPV-07). Con varias presentaciones es la única cifra que hace que `IMPORTE = SALIDA × PRECIO` se lea coherente: dos sueltas a 100 y un paquete de seis a 266,64 dan 8 unidades, 466,64 de importe y 58,33 de precio, que no es el de ninguna de las dos. El desglose real va en subfilas. Cuando la salida no es positiva no hay nada que repartir —y `Dinero::dividir_entre` rechaza el cero—, así que se recurre al precio de catálogo de la presentación predeterminada.
+
+**La ventana del turno es temporal, con su límite escrito.** El kárdex no guarda a qué sesión pertenece un asiento y no se le va a dar esa columna: lo ataría a un concepto de caja que no le corresponde. Se usa el mismo corte que la merma del arqueo, `ocurrido_en` contra `abierta_en` y `cerrada_en`. Los sellos tienen resolución de **un segundo**, de modo que un asiento del mismo segundo en que se abrió la caja cuenta dentro del turno. En una tienda no ocurre; en una prueba sí, y por eso las de SQLite separan los tramos a propósito con un helper que envejece lo ya escrito.
+
+**Dos presentaciones de la misma cifra.** `FilaIpv` lleva los textos ya formateados —la pantalla no hace aritmética (DT-7)— y además un `CifrasIpv` con los enteros escalados, porque una hoja de cálculo cuyas columnas son texto no se puede sumar y deja de ser una hoja de cálculo. Los dos salen del **mismo** cálculo, hecho una sola vez, para que no puedan describir cifras distintas. La conversión a coma flotante ocurre solo al escribir la celda, que es un `f64` y no admite otra cosa.
+
+Esa misma pareja explica el campo `decimales`. En la hoja, una cantidad se escribe entera si no tiene fracción, **aunque la mercancía se pese**: es distinto del criterio del resto de la aplicación, que mira `es_granel()` y siempre pone tres decimales, y la diferencia tiene motivo. Son nueve columnas por ciento cincuenta filas, casi todas en cero; una pared de «0.000» no dice nada y hace que el «2.500» de verdad deje de saltar a la vista. Pero Excel separa el número de su formato, así que el formato de celda no se puede deducir del texto —media libra se imprimiría como una— y el núcleo declara cuántos decimales admite la mercancía.
+
+**El presente es libre y el pasado va con llave** (RF-IPV-14). La pantalla del IPV enseña el turno abierto y solo ese; para cualquier otro hace falta la clave del sistema, y el camino previsto es Caja → el turno → la clave. La comprobación vive en el **caso de uso**, no en el comando de Tauri ni en la pantalla, porque es una regla del negocio y porque los comandos quedan expuestos a la interfaz: una puerta que solo viva en JavaScript se salta abriendo las herramientas de desarrollo. Es el mismo criterio de `BorrarTodo` y la misma clave (RF-SEG-04).
+
+Dos detalles de esa puerta que no son obvios. El primero: la clave se comprueba **antes** de buscar el turno. Si se hiciera al revés, probar números y mirar si el error cambia —«clave incorrecta» frente a «no existe»— diría cuántos turnos tiene el local. El segundo: **exportar pide lo mismo que mirar**. Si solo mirase, el pasado se leería llamando al comando de exportar en vez de al de consultar, y la puerta estaría puesta en una sola de las dos entradas.
+
+La clave viaja de Caja al IPV por el **estado de navegación** de Angular y no por la dirección: una clave en la barra se queda escrita en el historial. Y si se entra a `/ipv/:sesion` sin pasar por Caja —recargando—, la pantalla la pide ella misma en vez de dar por hecho que alguien la pidió antes.
+
+**La exportación no es un puerto.** `escribir_ipv` vive en infraestructura y recibe el `Ipv` ya armado. La capa de aplicación no necesita saber que existe un Excel, y añadir un puerto solo para eso sería ceremonia: la dependencia sigue apuntando hacia adentro. Es la primera dependencia externa de ese crate que no es `rusqlite`; la versión la elige la resolución consciente de MSRV, porque forzar una más nueva rompería el `rust-version = "1.80"` que el workspace promete.
+
 ---
 
 ## 4. Estructura del repositorio
@@ -683,3 +714,5 @@ Entidades y objetos de valor principales. Los tipos son ilustrativos del diseño
 | RF-CON-01 a RF-CON-20 (consumo de los dueños) | DT-16 (puerto `RepositorioConsumo`, escritura en un método), DT-8 (cuatro tablas), DT-10 (migración 9 reconstruye el kárdex) |
 | RF-VTA-14 (venta en espera) | DT-5 (puerto `RepositorioVentaEnEspera`), DT-8 (tablas propias), DT-9 (borrado atómico al cobrar) |
 | RF-VTA-20, RF-EST-03b (Ventas por sesión) | DT-14 (sesión de referencia), DT-5 (puerto `ConsultaVentasDeSesion`, `casos/agregados.rs`) |
+| RF-IPV-01 a RF-IPV-14 (IPV del turno) | DT-17 (vitrina, vocabulario, identidad que comprueba, la clave para el pasado), DT-5 (puerto `ConsultaIpv`), DT-4 (`CifrasIpv` para el `.xlsx`) |
+| RF-SEG-04, RF-DAT-10 (clave del sistema) | DT-17 y `casos/mantenimiento.rs` (se comprueba en el núcleo, no en la pantalla) |

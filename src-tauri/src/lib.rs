@@ -84,6 +84,8 @@ pub fn ejecutar() {
             comandos::denominaciones_efectivo,
             comandos::contar_efectivo,
             comandos::consultar_informe,
+            comandos::consultar_ipv,
+            comandos::exportar_ipv,
             comandos::borrar_todos_los_datos,
         ])
         .run(tauri::generate_context!())

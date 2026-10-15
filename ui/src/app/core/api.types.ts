@@ -703,6 +703,76 @@ export interface VentasPorProductoDto {
   readonly filas: readonly FilaVendidaDto[];
 }
 
+/**
+ * Una presentación en la que se vendió el producto, dentro del IPV.
+ *
+ * Solo llega cuando hubo más de una: con una sola, la subfila repetiría la
+ * fila de arriba.
+ */
+export interface FormaVendidaDto {
+  readonly presentacion: number;
+  readonly nombre: string;
+  /** Lo que salió contado en esta presentación: paquetes, si es el paquete. */
+  readonly salida: string;
+  readonly precio: string;
+  readonly importe: string;
+}
+
+/**
+ * Una mercancía en la hoja del IPV.
+ *
+ * Todas las cifras son de la **vitrina**: la hoja se cuadra con la
+ * mercancía delante, así que lo que duerme en el almacén no cuenta.
+ */
+export interface FilaIpvDto {
+  readonly producto: number;
+  readonly mercancia: string;
+  /** Lo que había en vitrina al abrir el turno. */
+  readonly inicial: string;
+  /**
+   * Lo que entró a la vitrina: lo que bajó del almacén, más lo que se
+   * compró y se puso directamente en el mostrador, menos lo que se devolvió
+   * al almacén. Puede salir en contra.
+   */
+  readonly entrada: string;
+  readonly merma: string;
+  /** Lo que se llevaron los dueños, neto de anulaciones. */
+  readonly consumo: string;
+  /** Lo vendido en unidades base, neto de devoluciones. */
+  readonly salida: string;
+  /** Precio medio por unidad base, o el de catálogo si no se vendió. */
+  readonly precio: string;
+  readonly importe: string;
+  readonly cierre: string;
+  /**
+   * `false` si la fila no se explica por sus propias columnas.
+   *
+   * La identidad es `cierre = inicial + entrada − merma − consumo − salida`.
+   * La pantalla no la comprueba: la comprueba Rust y aquí solo se avisa.
+   */
+  readonly cuadra: boolean;
+  readonly formas: readonly FormaVendidaDto[];
+}
+
+/**
+ * La hoja del IPV de un turno de caja.
+ *
+ * Es la hoja de la vitrina, no del negocio entero: se imprime y se recorre
+ * estante en mano.
+ */
+export interface IpvDto {
+  /** `null` si nunca se abrió una caja. */
+  readonly sesion: SesionDeReferenciaDto | null;
+  /** En orden alfabético: la hoja se recorre estante en mano. */
+  readonly filas: readonly FilaIpvDto[];
+  readonly importeTotal: string;
+  /** Lo que la caja registró como vendido en el turno. */
+  readonly vendidoReal: string;
+  /** `importeTotal` − `vendidoReal`, con signo. */
+  readonly diferencia: string;
+  readonly cuadra: boolean;
+}
+
 /** Una línea de una venta ya cobrada. */
 export interface LineaVendidaDto {
   readonly producto: number;
