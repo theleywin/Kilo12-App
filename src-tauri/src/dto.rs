@@ -33,7 +33,7 @@ use application::casos::{
 use application::casos::{
     ComandoDejarEnEspera, LineaRetomada, VentaEnEsperaListada, VentaRetomada,
 };
-use application::casos::{FilaVendida, VentasPorProducto};
+use application::casos::{FilaIpv, FilaVendida, FormaVendida, Ipv, VentasPorProducto};
 use application::{ErrorAplicacion, Margen};
 use serde::{Deserialize, Serialize};
 
@@ -1495,6 +1495,100 @@ impl From<HistorialVentas> for HistorialVentasDto {
     }
 }
 
+// ============================================================= el IPV
+
+/// La hoja del IPV de un turno (RF-IPV-01).
+///
+/// Las cifras viajan ya formateadas, como en todas las demás vistas: la
+/// pantalla no hace aritmética de dinero (DT-7). Las versiones sin formatear
+/// que lleva el núcleo se quedan en Rust, que es quien escribe el `.xlsx`.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IpvDto {
+    /// `null` si nunca se abrió una caja.
+    pub sesion: Option<SesionDeReferenciaDto>,
+    pub filas: Vec<FilaIpvDto>,
+    pub importe_total: String,
+    pub vendido_real: String,
+    pub diferencia: String,
+    pub cuadra: bool,
+}
+
+/// Una mercancía de la hoja.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FilaIpvDto {
+    pub producto: i64,
+    pub mercancia: String,
+    pub inicial: String,
+    pub entrada: String,
+    pub merma: String,
+    pub consumo: String,
+    pub salida: String,
+    pub precio: String,
+    pub importe: String,
+    pub cierre: String,
+    /// `false` si la fila no se explica por sus propias columnas.
+    pub cuadra: bool,
+    /// Vacío cuando el producto se vendió de una sola forma.
+    pub formas: Vec<FormaVendidaDto>,
+}
+
+/// Una presentación concreta en la que se vendió el producto.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FormaVendidaDto {
+    pub presentacion: i64,
+    pub nombre: String,
+    pub salida: String,
+    pub precio: String,
+    pub importe: String,
+}
+
+impl From<Ipv> for IpvDto {
+    fn from(hoja: Ipv) -> Self {
+        Self {
+            sesion: hoja.sesion.map(SesionDeReferenciaDto::from),
+            filas: hoja.filas.into_iter().map(FilaIpvDto::from).collect(),
+            importe_total: hoja.importe_total,
+            vendido_real: hoja.vendido_real,
+            diferencia: hoja.diferencia,
+            cuadra: hoja.cuadra,
+        }
+    }
+}
+
+impl From<FilaIpv> for FilaIpvDto {
+    fn from(fila: FilaIpv) -> Self {
+        Self {
+            producto: fila.producto,
+            mercancia: fila.mercancia,
+            inicial: fila.inicial,
+            entrada: fila.entrada,
+            merma: fila.merma,
+            consumo: fila.consumo,
+            salida: fila.salida,
+            precio: fila.precio,
+            importe: fila.importe,
+            cierre: fila.cierre,
+            cuadra: fila.cuadra,
+            formas: fila.formas.into_iter().map(FormaVendidaDto::from).collect(),
+        }
+    }
+}
+
+impl From<FormaVendida> for FormaVendidaDto {
+    fn from(forma: FormaVendida) -> Self {
+        Self {
+            presentacion: forma.presentacion,
+            nombre: forma.nombre,
+            salida: forma.salida,
+            precio: forma.precio,
+            importe: forma.importe,
+        }
+    }
+}
+
 /// Lo vendido en la sesión, una fila por producto y presentación.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -2462,6 +2556,97 @@ mod pruebas {
         assert_eq!(
             serde_json::to_value(dto).expect("serializar"),
             json!({ "sesion": null, "filas": [] })
+        );
+    }
+
+    #[test]
+    fn el_ipv_viaja_en_camel_case_con_sus_subfilas() {
+        let dto = IpvDto::from(Ipv {
+            sesion: Some(SesionDeReferencia {
+                id: 12,
+                abierta: false,
+                abierta_en: "2026-10-13 08:00:00".to_owned(),
+                cerrada_en: Some("2026-10-13 20:00:00".to_owned()),
+            }),
+            filas: vec![FilaIpv {
+                producto: 1,
+                mercancia: "Salchicha".to_owned(),
+                inicial: "20".to_owned(),
+                entrada: "0".to_owned(),
+                merma: "0".to_owned(),
+                consumo: "0".to_owned(),
+                salida: "8".to_owned(),
+                precio: "58.33".to_owned(),
+                importe: "466.64".to_owned(),
+                cierre: "12".to_owned(),
+                cuadra: true,
+                formas: vec![FormaVendida {
+                    presentacion: 11,
+                    nombre: "Paquete".to_owned(),
+                    salida: "1".to_owned(),
+                    precio: "266.64".to_owned(),
+                    importe: "266.64".to_owned(),
+                    salida_cruda: "1".parse().expect("cantidad"),
+                    precio_crudo: "266.64".parse().expect("importe"),
+                    importe_crudo: "266.64".parse().expect("importe"),
+                }],
+                cifras: application::casos::CifrasIpv {
+                    decimales: 0,
+                    inicial: "20".parse().expect("cantidad"),
+                    entrada: "0".parse().expect("cantidad"),
+                    merma: "0".parse().expect("cantidad"),
+                    consumo: "0".parse().expect("cantidad"),
+                    salida: "8".parse().expect("cantidad"),
+                    precio: "58.33".parse().expect("importe"),
+                    importe: "466.64".parse().expect("importe"),
+                    cierre: "12".parse().expect("cantidad"),
+                },
+            }],
+            importe_total: "466.64".to_owned(),
+            vendido_real: "466.64".to_owned(),
+            diferencia: "0.00".to_owned(),
+            cuadra: true,
+            importe_total_crudo: "466.64".parse().expect("importe"),
+            vendido_real_crudo: "466.64".parse().expect("importe"),
+            diferencia_cruda: "0.00".parse().expect("importe"),
+        });
+
+        // Las cifras sin formatear NO cruzan: son para el `.xlsx`, y
+        // mandarlas invitaría a que la pantalla hiciera cuentas con ellas.
+        assert_eq!(
+            serde_json::to_value(dto).expect("serializar"),
+            json!({
+                "sesion": {
+                    "id": 12,
+                    "abierta": false,
+                    "abiertaEn": "2026-10-13 08:00:00",
+                    "cerradaEn": "2026-10-13 20:00:00",
+                },
+                "filas": [{
+                    "producto": 1,
+                    "mercancia": "Salchicha",
+                    "inicial": "20",
+                    "entrada": "0",
+                    "merma": "0",
+                    "consumo": "0",
+                    "salida": "8",
+                    "precio": "58.33",
+                    "importe": "466.64",
+                    "cierre": "12",
+                    "cuadra": true,
+                    "formas": [{
+                        "presentacion": 11,
+                        "nombre": "Paquete",
+                        "salida": "1",
+                        "precio": "266.64",
+                        "importe": "266.64",
+                    }],
+                }],
+                "importeTotal": "466.64",
+                "vendidoReal": "466.64",
+                "diferencia": "0.00",
+                "cuadra": true,
+            })
         );
     }
 
