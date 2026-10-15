@@ -1,0 +1,82 @@
+/* Lo que cambia cuando la pantalla se va al papel.
+   ---------------------------------------------------------------------
+   Es global y no de un componente a propósito: imprimir exige apagar el
+   armazón —el menú, el alto fijo, el recorte del desplazamiento—, y los
+   estilos de un componente de Angular están encapsulados y no llegan a él.
+
+   Solo hay una pantalla que se imprima, el IPV, pero las reglas se
+   escribieron para cualquiera: se marca con `imprimible` lo que debe
+   salir y con `sin-imprimir` lo que no. Así la siguiente no necesita
+   tocar este archivo. */
+
+@media print {
+  /* El armazón recorta el desplazamiento para que el menú no se vaya de
+     la vista. En papel eso haría que solo saliera la primera pantalla. */
+  html,
+  body {
+    height: auto;
+    overflow: visible;
+    background: #fff;
+    color: #000;
+  }
+
+  /* El menú no se imprime: nadie navega en una hoja de papel. */
+  .menu,
+  .sin-imprimir {
+    display: none !important;
+  }
+
+  /* El armazón deja de ser rejilla de dos columnas y el lienzo suelta su
+     relleno: el margen lo pone la impresora. */
+  app-armazon,
+  .armazon,
+  .lienzo,
+  .pagina {
+    display: block !important;
+    height: auto !important;
+    max-width: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    overflow: visible !important;
+  }
+
+  /* Las tarjetas pierden el relieve: en papel una sombra es una mancha
+     gris y un fondo de color se come el tóner. */
+  .panel {
+    border: 1px solid #000;
+    border-radius: 0;
+    background: transparent;
+    box-shadow: none;
+  }
+
+  /* Una tabla de 150 productos cruza varias hojas; el encabezado se
+     repite en cada una y ninguna fila se parte por la mitad. */
+  thead {
+    display: table-header-group;
+  }
+
+  tr,
+  .fila-impresa {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+
+  .tabla th,
+  .tabla td {
+    border-color: #999;
+  }
+
+  /* El navegador no imprime los fondos por omisión, y sin ellos las filas
+     marcadas se vuelven indistinguibles. Se pide que sí. */
+  .imprimible {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}
+
+/* Tamaño y márgenes de la hoja. El IPV es ancho —nueve columnas—, así que
+   va acostado; en vertical las cifras quedarían pegadas unas a otras. */
+@page {
+  size: A4 landscape;
+  margin: 12mm 10mm;
+}
