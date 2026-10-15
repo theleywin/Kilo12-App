@@ -3,15 +3,17 @@
 //! Traduce entre las entidades del dominio y las filas de la base de datos.
 //! Es el único sitio del sistema que sabe a la vez cómo son unas y otras.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use application::error::Resultado;
 use application::puertos::{
-    AcumuladoSesion, AnulacionConfirmada, Asiento, CambioDePrecio, CambioRegistrado,
-    CierreConfirmado, DetalleVenta, LineaDelPeriodo, LineaRegistrada, MovimientoEfectivoRegistrado,
-    MovimientoRegistrado, PagoRegistrado, ProductoConInventario, RepositorioProducto, ResumenDia,
-    SesionRegistrada, TotalesPeriodo, VentaConfirmada, VentaDiaria, VentaHoraria, VentaPorMetodo,
-    VentaRegistrada,
+    AcumuladoSesion, AnulacionConfirmada, Asiento, CambioDeCosto, CambioDePrecio, CambioRegistrado,
+    CierreConfirmado, ConsultaIpv, ConsultaVentasDeSesion, CostoRegistrado, DetalleVenta,
+    LineaDelPeriodo, LineaRegistrada, MovidoEnSesion, MovimientoEfectivoRegistrado,
+    MovimientoRegistrado, PagoRegistrado, ProductoConInventario, RastroProducto,
+    RepositorioProducto, SaldoDeSesion, SesionRegistrada, TotalesPeriodo, VentaConfirmada,
+    VentaDiaria, VentaHoraria, VentaPorMetodo, VentaRegistrada,
 };
 use domain::{
     ArqueoMoneda, Cantidad, Comision, Dinero, ErrorDominio, EstadoSesion, Existencias,
@@ -300,6 +302,83 @@ impl RepositorioProducto for RepositorioProductoSqlite {
         Ok(historial)
     }
 
+    fn revalorar_producto(
+        &self,
+        id: IdProducto,
+        inventario: &Inventario,
+        cambio: &CambioDeCosto,
+    ) -> Resultado<()> {
+        self.base.en_transaccion(|tx| {
+            // El valor y su anotación se escriben juntos o no se escribe
+            // ninguno de los dos: un inventario que vale otra cosa sin que
+            // conste por qué es dinero sin coartada.
+            //
+            // Solo `valor_total`. La existencia no se toca: revalorar no
+            // mueve mercancía.
+            let actualizadas = tx.execute(
+                "UPDATE producto SET valor_total = ?2 WHERE id = ?1",
+                params![id.0, inventario.valor_total().millonesimas()],
+            )?;
+
+            if actualizadas == 0 {
+                return Err(ErrorInfra::DatoCorrupto(format!(
+                    "se intentó revalorar el producto {} y no existe",
+                    id.0
+                )));
+            }
+
+            tx.execute(
+                "INSERT INTO historial_costo
+                   (producto_id, anterior, nuevo, existencia,
+                    valor_anterior, valor_nuevo, cambiado_en)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, datetime('now', 'localtime'))",
+                params![
+                    id.0,
+                    cambio.anterior.millonesimas(),
+                    cambio.nuevo.millonesimas(),
+                    cambio.existencia.milesimas(),
+                    cambio.valor_anterior.millonesimas(),
+                    cambio.valor_nuevo.millonesimas(),
+                ],
+            )?;
+
+            Ok(())
+        })?;
+
+        Ok(())
+    }
+
+    fn historial_costos(&self, id: IdProducto) -> Resultado<Vec<CostoRegistrado>> {
+        let historial = self.base.con(|conexion| {
+            let mut consulta = conexion.prepare(
+                "SELECT id, anterior, nuevo, existencia,
+                        valor_anterior, valor_nuevo, cambiado_en
+                   FROM historial_costo
+                  WHERE producto_id = ?1
+                  ORDER BY id DESC",
+            )?;
+
+            let mut filas = consulta.query(params![id.0])?;
+            let mut historial = Vec::new();
+
+            while let Some(fila) = filas.next()? {
+                historial.push(CostoRegistrado {
+                    id: fila.get(0)?,
+                    anterior: Dinero::desde_millonesimas(fila.get(1)?),
+                    nuevo: Dinero::desde_millonesimas(fila.get(2)?),
+                    existencia: Cantidad::desde_milesimas(fila.get(3)?),
+                    valor_anterior: Dinero::desde_millonesimas(fila.get(4)?),
+                    valor_nuevo: Dinero::desde_millonesimas(fila.get(5)?),
+                    cambiado_en: fila.get(6)?,
+                });
+            }
+
+            Ok(historial)
+        })?;
+
+        Ok(historial)
+    }
+
     fn listar(&self, incluir_inactivos: bool) -> Resultado<Vec<ProductoConInventario>> {
         let productos = self.base.con(|conexion| {
             let filtro = if incluir_inactivos {
@@ -325,6 +404,71 @@ impl RepositorioProducto for RepositorioProductoSqlite {
         Ok(productos)
     }
 
+    fn rastro_de_producto(&self, id: IdProducto) -> Resultado<RastroProducto> {
+        let rastro = self.base.con(|conexion| {
+            let contar = |de: &str| -> ResultadoInfra<i64> {
+                Ok(conexion.query_row(
+                    &format!("SELECT COUNT(*) FROM {de} WHERE producto_id = ?1"),
+                    params![id.0],
+                    |fila| fila.get(0),
+                )?)
+            };
+
+            Ok(RastroProducto {
+                ventas: contar("venta_linea")?,
+                movimientos: contar("movimiento")?,
+                esperas: contar("venta_en_espera_linea")?,
+            })
+        })?;
+
+        Ok(rastro)
+    }
+
+    fn limpiar_catalogo(&self, borrar: &[IdProducto], retirar: &[IdProducto]) -> Resultado<()> {
+        self.base.en_transaccion(|tx| {
+            // Retirar primero, que es lo reversible. Si un borrado de más
+            // abajo lo impide una clave foránea, la transacción entera se
+            // deshace y el catálogo queda exactamente como estaba.
+            for id in retirar {
+                tx.execute(
+                    "UPDATE producto SET activo = 0 WHERE id = ?1",
+                    params![id.0],
+                )?;
+            }
+
+            for id in borrar {
+                // De dentro hacia fuera, como en el borrón completo: cada
+                // tabla antes que aquella a la que apunta.
+                //
+                // `movimiento`, `venta_linea` y `venta_en_espera_linea` NO
+                // están en la lista a propósito. Son las tres que apuntan
+                // al producto y que no se tiran nunca, así que si el
+                // producto tiene alguna, el `DELETE` de abajo falla por
+                // clave foránea y todo esto se deshace. Eso es RF-CAT-07
+                // impuesto por el esquema: lo que el caso de uso decidió
+                // antes es una cortesía para dar un mensaje decente, no la
+                // garantía.
+                for tabla in [
+                    "historial_costo",
+                    "historial_precio",
+                    "existencia",
+                    "presentacion",
+                ] {
+                    tx.execute(
+                        &format!("DELETE FROM {tabla} WHERE producto_id = ?1"),
+                        params![id.0],
+                    )?;
+                }
+
+                tx.execute("DELETE FROM producto WHERE id = ?1", params![id.0])?;
+            }
+
+            Ok(())
+        })?;
+
+        Ok(())
+    }
+
     fn registrar_venta(&self, confirmada: &VentaConfirmada<'_>) -> Resultado<i64> {
         let VentaConfirmada {
             venta,
@@ -334,9 +478,26 @@ impl RepositorioProducto for RepositorioProductoSqlite {
             vuelto,
             descuentos,
             sesion,
+            espera,
         } = confirmada;
 
         let folio = self.base.en_transaccion(|tx| {
+            // La espera se consume LO PRIMERO y dentro de la misma
+            // transacción. Si ya no está —se cobró o se eliminó antes—, la
+            // venta no se registra: cobrarla dos veces sería una venta
+            // doble. Y si cualquier paso posterior falla, el borrado se
+            // deshace con todo lo demás y la espera sigue ahí.
+            if let Some(espera) = espera {
+                let borradas = tx.execute(
+                    "DELETE FROM venta_en_espera WHERE id = ?1",
+                    params![espera.0],
+                )?;
+
+                if borradas == 0 {
+                    return Err(ErrorInfra::Dominio(ErrorDominio::VentaEnEsperaNoEncontrada));
+                }
+            }
+
             // El folio se calcula dentro de la transacción: dos cajas no
             // pueden sacar el mismo número (RF-VTA-17).
             let folio: i64 = tx.query_row(
@@ -523,34 +684,6 @@ impl RepositorioProducto for RepositorioProductoSqlite {
         })?;
 
         Ok(detalle)
-    }
-
-    fn resumen_de_hoy(&self) -> Resultado<ResumenDia> {
-        let resumen = self.base.con(|conexion| {
-            // El corte del día lo decide la base con su propio reloj. Si lo
-            // calculara Rust tendría que saber en qué huso está la tienda, y
-            // la tienda está exactamente donde está esta máquina.
-            // Las anuladas no cuentan: la mercancía volvió y el dinero se
-            // devolvió. Dejarlas sumando inflaría el día entero.
-            let (cuantas, total, costo) = conexion.query_row(
-                "SELECT COUNT(*), COALESCE(SUM(total), 0), COALESCE(SUM(costo_total), 0)
-                 FROM venta
-                 WHERE date(ocurrido_en) = date('now', 'localtime')
-                   AND anulada_en IS NULL",
-                [],
-                |fila| Ok((fila.get(0)?, fila.get(1)?, fila.get(2)?)),
-            )?;
-
-            let resumen = ResumenDia {
-                cuantas,
-                total: Dinero::desde_millonesimas(total),
-                costo_total: Dinero::desde_millonesimas(costo),
-            };
-
-            Ok(resumen)
-        })?;
-
-        Ok(resumen)
     }
 
     fn anular_venta(&self, anulacion: &AnulacionConfirmada<'_>) -> Resultado<()> {
@@ -1069,31 +1202,16 @@ impl RepositorioProducto for RepositorioProductoSqlite {
 
     fn lineas_del_periodo(&self, desde: &str, hasta: &str) -> Resultado<Vec<LineaDelPeriodo>> {
         let lineas = self.base.con(|conexion| {
-            let mut consulta = conexion.prepare(
-                "SELECT l.producto_id, l.nombre_producto, l.nombre_presentacion,
-                        l.cantidad, l.factor, l.precio, l.costo_unitario
+            let consulta = conexion.prepare(&format!(
+                "SELECT {COLUMNAS_LINEA}
                    FROM venta_linea l
                    JOIN venta v ON v.id = l.venta_id
                   WHERE date(v.ocurrido_en) BETWEEN ?1 AND ?2
-                    AND v.anulada_en IS NULL",
-            )?;
+                    AND v.anulada_en IS NULL
+                  ORDER BY l.id"
+            ))?;
 
-            let mut filas = consulta.query(params![desde, hasta])?;
-            let mut lineas = Vec::new();
-
-            while let Some(fila) = filas.next()? {
-                lineas.push(LineaDelPeriodo {
-                    producto: IdProducto(fila.get(0)?),
-                    nombre_producto: fila.get(1)?,
-                    nombre_presentacion: fila.get(2)?,
-                    cantidad: Cantidad::desde_milesimas(fila.get(3)?),
-                    factor: Cantidad::desde_milesimas(fila.get(4)?),
-                    precio: Dinero::desde_millonesimas(fila.get(5)?),
-                    costo_unitario: Dinero::desde_millonesimas(fila.get(6)?),
-                });
-            }
-
-            Ok(lineas)
+            leer_lineas(consulta, params![desde, hasta])
         })?;
 
         Ok(lineas)
@@ -1109,12 +1227,19 @@ impl RepositorioProducto for RepositorioProductoSqlite {
             // se queda donde está, así que al abrir de nuevo no se intenta
             // migrar nada.
             for tabla in [
+                "venta_en_espera_linea",
+                "venta_en_espera",
                 "venta_pago",
                 "venta_linea",
                 "venta",
+                "consumo_linea",
+                "consumo",
+                "pago_consumo",
+                "cuenta_consumo",
                 "movimiento_efectivo",
                 "sesion_caja",
                 "movimiento",
+                "historial_costo",
                 "historial_precio",
                 "existencia",
                 "presentacion",
@@ -1173,6 +1298,182 @@ impl RepositorioProducto for RepositorioProductoSqlite {
     }
 }
 
+impl ConsultaVentasDeSesion for RepositorioProductoSqlite {
+    fn lineas_de_sesion(&self, sesion: IdSesion) -> Resultado<Vec<LineaDelPeriodo>> {
+        let lineas = self.base.con(|conexion| {
+            // Por la sesión y no por la fecha: un turno que cruza la
+            // medianoche es uno solo, y dos turnos del mismo día son dos.
+            // Las anuladas no cuentan, igual que en el arqueo.
+            let consulta = conexion.prepare(&format!(
+                "SELECT {COLUMNAS_LINEA}
+                   FROM venta_linea l
+                   JOIN venta v ON v.id = l.venta_id
+                  WHERE v.sesion_id = ?1
+                    AND v.anulada_en IS NULL
+                  ORDER BY l.id"
+            ))?;
+
+            leer_lineas(consulta, params![sesion.0])
+        })?;
+
+        Ok(lineas)
+    }
+}
+
+impl ConsultaIpv for RepositorioProductoSqlite {
+    fn saldos_de_sesion(&self, sesion: IdSesion) -> Resultado<Vec<SaldoDeSesion>> {
+        let saldos = self.base.con(|conexion| {
+            // Dos lecturas del mismo sitio con el corte en otro momento: lo
+            // que había justo antes de abrir y lo que había al cerrar.
+            let inicial = saldos_hasta(conexion, "m.ocurrido_en < s.abierta_en", sesion)?;
+            let cierre = saldos_hasta(
+                conexion,
+                "(s.cerrada_en IS NULL OR m.ocurrido_en <= s.cerrada_en)",
+                sesion,
+            )?;
+
+            // La unión de los dos: un producto que solo tiene asientos dentro
+            // del turno no aparece en el primero, y uno que dejó de moverse
+            // antes de abrir aparece en los dos con la misma cifra.
+            let mut productos: Vec<i64> = inicial.keys().chain(cierre.keys()).copied().collect();
+            productos.sort_unstable();
+            productos.dedup();
+
+            Ok(productos
+                .into_iter()
+                .map(|producto| SaldoDeSesion {
+                    producto: IdProducto(producto),
+                    inicial: inicial.get(&producto).copied().unwrap_or(Cantidad::CERO),
+                    cierre: cierre.get(&producto).copied().unwrap_or(Cantidad::CERO),
+                })
+                .collect())
+        })?;
+
+        Ok(saldos)
+    }
+
+    fn movimientos_de_sesion(&self, sesion: IdSesion) -> Resultado<Vec<MovidoEnSesion>> {
+        let movidos = self.base.con(|conexion| {
+            // Por ventana de tiempo, por el mismo motivo que la merma del
+            // arqueo: el kárdex no sabe de sesiones y no se le va a dar una
+            // columna que lo ate a la caja.
+            // Se agrupa también por los dos estantes: el IPV habla de la
+            // vitrina, y el mismo traspaso la llena o la vacía según la
+            // dirección. Quién va a qué columna lo decide el caso de uso.
+            let mut consulta = conexion.prepare(
+                "SELECT m.producto_id, m.tipo, m.origen, m.destino, SUM(m.cantidad)
+                   FROM movimiento m
+                   JOIN sesion_caja s ON s.id = ?1
+                  WHERE m.ocurrido_en >= s.abierta_en
+                    AND (s.cerrada_en IS NULL OR m.ocurrido_en <= s.cerrada_en)
+                  GROUP BY m.producto_id, m.tipo, m.origen, m.destino
+                  ORDER BY m.producto_id, m.tipo",
+            )?;
+
+            let mut filas = consulta.query(params![sesion.0])?;
+            let mut movidos = Vec::new();
+
+            while let Some(fila) = filas.next()? {
+                let producto: i64 = fila.get(0)?;
+                let tipo_texto: String = fila.get(1)?;
+                let tipo: TipoMovimiento = tipo_texto.parse().map_err(|_| {
+                    ErrorInfra::DatoCorrupto(format!(
+                        "tipo «{tipo_texto}» en los asientos del producto {producto}"
+                    ))
+                })?;
+                let origen: Option<String> = fila.get(2)?;
+                let destino: Option<String> = fila.get(3)?;
+
+                movidos.push(MovidoEnSesion {
+                    producto: IdProducto(producto),
+                    tipo,
+                    origen: ubicacion_opcional(origen.as_deref(), producto)?,
+                    destino: ubicacion_opcional(destino.as_deref(), producto)?,
+                    cantidad: Cantidad::desde_milesimas(fila.get(4)?),
+                });
+            }
+
+            Ok(movidos)
+        })?;
+
+        Ok(movidos)
+    }
+}
+
+/// Existencia **en vitrina** de cada producto en su último asiento que
+/// cumple `corte`.
+///
+/// Solo la vitrina, porque de eso habla el IPV: el asiento guarda los dos
+/// estantes y aquí se lee uno.
+///
+/// No se reconstruye sumando el historial: cada asiento guardó la existencia
+/// que dejó (RF-INV-05), así que basta con quedarse con el último y leer su
+/// vitrina. Sumar el historial entero daría lo mismo si todo está bien, y si
+/// algo está mal daría una cifra distinta a la que el kárdex enseña, que es
+/// justo lo que no se quiere.
+///
+/// El último es el de `id` mayor y no el de `ocurrido_en` mayor: dos asientos
+/// del mismo segundo son posibles y el sello no los desempata. Se busca
+/// primero ese `id` y luego se lee su fila, en vez de confiar en qué fila
+/// acompaña a un `MAX()` dentro de un `GROUP BY`.
+fn saldos_hasta(
+    conexion: &Connection,
+    corte: &str,
+    sesion: IdSesion,
+) -> ResultadoInfra<BTreeMap<i64, Cantidad>> {
+    let mut consulta = conexion.prepare(&format!(
+        "SELECT m.producto_id, m.vitrina_resultante
+           FROM movimiento m
+           JOIN (SELECT m.producto_id AS producto_id, MAX(m.id) AS id
+                   FROM movimiento m
+                   JOIN sesion_caja s ON s.id = ?1
+                  WHERE {corte}
+                  GROUP BY m.producto_id) ultimo
+             ON ultimo.id = m.id"
+    ))?;
+
+    let mut filas = consulta.query(params![sesion.0])?;
+    let mut saldos = BTreeMap::new();
+
+    while let Some(fila) = filas.next()? {
+        saldos.insert(fila.get(0)?, Cantidad::desde_milesimas(fila.get(1)?));
+    }
+
+    Ok(saldos)
+}
+
+/// Columnas de un renglón vendido, en el orden en que las lee
+/// [`leer_lineas`].
+const COLUMNAS_LINEA: &str = "l.venta_id, l.producto_id, l.presentacion_id,
+                              l.nombre_producto, l.nombre_presentacion,
+                              l.cantidad, l.factor, l.precio, l.costo_unitario";
+
+/// Lee los renglones vendidos que devuelve una consulta sobre
+/// [`COLUMNAS_LINEA`].
+fn leer_lineas(
+    mut consulta: rusqlite::Statement<'_>,
+    parametros: impl rusqlite::Params,
+) -> ResultadoInfra<Vec<LineaDelPeriodo>> {
+    let mut filas = consulta.query(parametros)?;
+    let mut lineas = Vec::new();
+
+    while let Some(fila) = filas.next()? {
+        lineas.push(LineaDelPeriodo {
+            venta: fila.get(0)?,
+            producto: IdProducto(fila.get(1)?),
+            presentacion: IdPresentacion(fila.get(2)?),
+            nombre_producto: fila.get(3)?,
+            nombre_presentacion: fila.get(4)?,
+            cantidad: Cantidad::desde_milesimas(fila.get(5)?),
+            factor: Cantidad::desde_milesimas(fila.get(6)?),
+            precio: Dinero::desde_millonesimas(fila.get(7)?),
+            costo_unitario: Dinero::desde_millonesimas(fila.get(8)?),
+        });
+    }
+
+    Ok(lineas)
+}
+
 /// Lee una sesión de caja.
 fn leer_sesion(fila: &Row<'_>) -> ResultadoInfra<SesionRegistrada> {
     let estado: String = fila.get(3)?;
@@ -1217,7 +1518,13 @@ fn leer_venta(fila: &Row<'_>) -> ResultadoInfra<VentaRegistrada> {
 /// Guarda el saldo resultante junto al movimiento, en lugar de derivarlo al
 /// leer: así el historial se lee de arriba abajo sin rehacer la aritmética
 /// de todos los movimientos anteriores (RF-INV-05).
-fn escribir_movimiento(
+/// Escribe un asiento del kárdex con el saldo que dejó.
+///
+/// Es `pub(crate)` porque el adaptador del consumo escribe sus propios
+/// asientos dentro de su transacción: no puede llamar a este repositorio
+/// —el candado de la conexión no es reentrante— y copiar el `INSERT`
+/// garantizaría que las dos copias se separen en cuanto alguien toque una.
+pub(crate) fn escribir_movimiento(
     tx: &Transaction<'_>,
     producto_id: i64,
     movimiento: &Movimiento,

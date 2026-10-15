@@ -350,6 +350,18 @@
   text-align: center;
 }
 
+/* `.tabla th` alinea a la izquierda con más especificidad que `.derecha`
+   sola: sin esto, la cabecera de una columna de cifras se queda a la
+   izquierda mientras sus valores van a la derecha, y la tabla se lee
+   corrida una columna. */
+.tabla th.derecha {
+  text-align: right;
+}
+
+.tabla th.centro {
+  text-align: center;
+}
+
 /* ============================================================== cifras */
 
 .cifra {
@@ -513,4 +525,115 @@
 .mono {
   font-family: var(--letra-cifra);
   font-size: var(--texto-s);
+}
+
+/* ============================================ volver atrás
+   El enlace que sube un nivel desde una ficha. Lleva su flecha dentro, no
+   en el texto de cada plantilla: así ninguna se olvida de ponerla y todas
+   usan el mismo signo.
+
+   Tiene forma de pastilla con relleno al pasar por encima, porque un
+   enlace suelto de doce píxeles sobre fondo blanco no se lee como algo
+   que se pueda pulsar. */
+
+.volver {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--e1);
+  margin-bottom: var(--e3);
+  padding: var(--e1) var(--e3) var(--e1) var(--e2);
+  border: 1px solid transparent;
+  border-radius: var(--radio-pildora);
+  color: var(--apagado);
+  text-decoration: none;
+  font-size: var(--texto-s);
+  font-weight: var(--peso-medio);
+  transition:
+    background var(--transicion),
+    border-color var(--transicion),
+    color var(--transicion);
+}
+
+.volver::before {
+  content: '←';
+  font-size: var(--texto-m);
+  line-height: 1;
+}
+
+.volver:hover {
+  border-color: var(--linea);
+  background: var(--superficie);
+  color: var(--acento);
+}
+
+/* ====================================================== el modal
+   Tapa la aplicación a propósito. Se usa para lo que no admite seguir a lo
+   tuyo mientras pasa: contar dinero físico (Caja) y decidir qué se borra
+   del catálogo (Productos).
+
+   El velo se pinta aparte del marco y no como un seudoelemento porque es
+   clicable: cerrar haciendo clic fuera es el gesto que la gente intenta
+   primero. Lo que NO lleva velo clicable es un cartel que pide clave —ahí
+   un clic despistado no puede deshacer lo escrito—, y ese vive como
+   `.cartel` dentro de su propia pantalla. */
+
+.velo {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: rgba(28, 33, 20, 0.45);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+.modal {
+  position: fixed;
+  z-index: 41;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  width: min(760px, calc(100vw - var(--e5) * 2));
+  max-height: calc(100vh - var(--e5) * 2);
+  border: 1px solid var(--linea);
+  border-radius: var(--radio-l);
+  background: var(--fondo);
+  box-shadow: var(--sombra-2);
+  overflow: hidden;
+}
+
+.modal__cabecera {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--e3);
+  padding: var(--e3) var(--e4);
+  border-bottom: 1px solid var(--linea);
+}
+
+.modal__titulo {
+  font-size: var(--texto-l);
+  font-weight: var(--peso-fuerte);
+}
+
+.modal__cuerpo {
+  padding: var(--e4);
+  overflow-y: auto;
+}
+
+.modal__cuerpo .pista {
+  display: block;
+  font-size: var(--texto-xs);
+  color: var(--apagado);
+}
+
+/* Lo que confirma a la derecha, lo que cancela a la izquierda. Siempre en
+   ese orden: el botón que no tiene vuelta atrás no debe caer donde cae el
+   cursor por inercia. */
+.modal__acciones {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--e2);
+  margin-top: var(--e4);
 }

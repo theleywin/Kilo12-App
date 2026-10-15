@@ -1,0 +1,61 @@
+<section class="pagina">
+  <header class="cabecera-pagina">
+    <h1>Contar dinero</h1>
+    <p class="descripcion">
+      Cuenta un fajo billete a billete y te dice cuánto hay. No toca la caja, no queda registrado
+      en ninguna parte y se puede usar con el turno cerrado.
+    </p>
+  </header>
+
+  @if (error(); as fallo) {
+    <div
+      class="aviso"
+      [class.aviso--error]="!fallo.delUsuario"
+      [class.aviso--atencion]="fallo.delUsuario"
+      role="alert"
+    >
+      <strong>{{ fallo.mensaje }}</strong>
+      <span class="codigo">{{ fallo.codigo }}</span>
+    </div>
+  }
+
+  <!-- Una moneda a la vez. Pesos y dólares son fajos distintos y esta
+       pantalla no los suma: hacerlo exigiría una tasa de cambio, que es una
+       decisión del negocio y vive en Vender. -->
+  <div class="barra">
+    <div class="segmento" role="group" aria-label="Moneda que se cuenta">
+      @for (opcion of monedas; track opcion.valor) {
+        <button
+          type="button"
+          [attr.aria-pressed]="moneda() === opcion.valor"
+          (click)="elegirMoneda(opcion.valor)"
+        >
+          {{ opcion.nombre }}
+        </button>
+      }
+    </div>
+
+    <button
+      type="button"
+      class="boton boton--discreto"
+      [disabled]="!hayAlgoContado()"
+      (click)="limpiar()"
+    >
+      Limpiar
+    </button>
+  </div>
+
+  <div class="panel">
+    <div class="panel__cuerpo">
+      <!-- La misma pieza que el arqueo de Caja (F7). Aquí no se le cuelga
+           nada del total: no hay nada contra lo que cotejar ni ningún
+           formulario al que llevarse la cifra. -->
+      <app-contador-efectivo
+        [moneda]="moneda()"
+        [titulo]="titulo()"
+        (conteoCambia)="conteo.set($event)"
+        (fallo)="error.set($event)"
+      />
+    </div>
+  </div>
+</section>

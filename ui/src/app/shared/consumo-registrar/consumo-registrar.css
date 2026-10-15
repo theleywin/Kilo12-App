@@ -1,0 +1,150 @@
+/* El velo y el marco del modal vienen de `estilos/componentes.css`. Aquí
+   solo lo propio del carrito. */
+
+.nota {
+  font-size: var(--texto-s);
+}
+
+.registro__arriba {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--e3);
+  margin-bottom: var(--e3);
+}
+
+.registro__arriba .campo--ancho {
+  grid-column: 1 / -1;
+}
+
+/* Seis candidatos como máximo: una lista más larga se recorre con la vista
+   más despacio que escribiendo otra letra. */
+.candidatos {
+  display: flex;
+  flex-direction: column;
+  margin: 0 0 var(--e3);
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--linea);
+  border-radius: var(--radio-s);
+  overflow: hidden;
+}
+
+.candidato {
+  display: grid;
+  grid-template-columns: 1fr auto 90px 90px;
+  gap: var(--e3);
+  align-items: baseline;
+  width: 100%;
+  padding: var(--e2) var(--e3);
+  border: 0;
+  border-bottom: 1px solid var(--linea-suave);
+  background: var(--fondo);
+  color: var(--tinta);
+  text-align: left;
+  cursor: pointer;
+}
+
+.candidatos li:last-child .candidato {
+  border-bottom: 0;
+}
+
+.candidato:hover {
+  background: var(--acento-suave);
+}
+
+.candidato__nombre {
+  font-weight: var(--peso-medio);
+}
+
+.candidato .cifra {
+  text-align: right;
+}
+
+.carrito {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e2);
+  padding: var(--e3);
+  border: 1px solid var(--linea);
+  border-radius: var(--radio-s);
+  background: var(--superficie);
+}
+
+.carrito__linea {
+  display: grid;
+  grid-template-columns: 1fr auto 90px auto auto;
+  gap: var(--e2);
+  align-items: center;
+}
+
+.carrito__nombre {
+  font-weight: var(--peso-medio);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.carrito__cantidad {
+  height: var(--alto-control);
+  padding: 0 var(--e2);
+  border: 1px solid var(--linea);
+  border-radius: var(--radio-s);
+  background: var(--fondo);
+  color: var(--tinta);
+}
+
+.carrito__linea select,
+.registro__arriba select {
+  height: var(--alto-control);
+  padding: 0 var(--e2);
+  border: 1px solid var(--linea);
+  border-radius: var(--radio-s);
+  background: var(--fondo);
+  color: var(--tinta);
+  font-size: var(--texto-m);
+}
+
+.carrito__cantidad:focus,
+.carrito__linea select:focus,
+.registro__arriba select:focus {
+  outline: none;
+  border-color: var(--acento);
+  box-shadow: 0 0 0 3px var(--acento-halo);
+}
+
+/* Las dos cifras que calculó Rust. La segunda es la que de verdad se mira
+   antes de confirmar: en qué queda la cuenta. */
+.suma {
+  margin-top: var(--e3);
+  padding: var(--e3);
+  border-radius: var(--radio-s);
+  background: var(--acento-suave);
+}
+
+.suma__linea {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--e3);
+  padding: var(--e1) 0;
+}
+
+.suma__linea--fuerte {
+  margin-top: var(--e2);
+  padding-top: var(--e2);
+  border-top: 1px solid var(--linea);
+  font-size: var(--texto-l);
+}
+
+.suma__linea--fuerte .cifra {
+  font-size: var(--texto-xl);
+}
+
+@media (max-width: 820px) {
+  .candidato,
+  .carrito__linea,
+  .registro__arriba {
+    grid-template-columns: 1fr;
+    gap: var(--e1);
+  }
+}

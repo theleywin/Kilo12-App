@@ -36,9 +36,11 @@ pub mod tasa_cambio;
 pub mod ubicacion;
 pub mod unidad;
 pub mod venta;
+pub mod venta_en_espera;
 
 pub use caja::{
-    contar_billetes, ArqueoMoneda, ModoCierre, ResumenCierre, TotalesCaja, DENOMINACIONES_CUP,
+    contar_billetes, denominaciones, ArqueoMoneda, ModoCierre, ResumenCierre, TotalesCaja,
+    DENOMINACIONES_CUP, DENOMINACIONES_USD,
 };
 pub use cantidad::Cantidad;
 pub use dinero::Dinero;
@@ -57,6 +59,7 @@ pub use tasa_cambio::TasaCambio;
 pub use ubicacion::Ubicacion;
 pub use unidad::UnidadBase;
 pub use venta::{IdVenta, LineaVenta, Venta};
+pub use venta_en_espera::{IdVentaEnEspera, LineaEnEspera, VentaEnEspera, LARGO_MAXIMO_NOTA};
 
 /// Resultado de una operación del dominio.
 pub type Resultado<T> = core::result::Result<T, ErrorDominio>;

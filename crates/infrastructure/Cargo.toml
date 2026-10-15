@@ -11,6 +11,12 @@ application = { path = "../application" }
 # «bundled» compila SQLite dentro del binario: la aplicación no depende de
 # ninguna biblioteca instalada en el sistema, que es lo que exige RNF-10.
 rusqlite = { version = "0.40", features = ["bundled"] }
+# Escribe el `.xlsx` del IPV. Sin las opciones por defecto: solo hace
+# falta escribir celdas, y así no entran ni `chrono` ni `serde` ni el
+# resto del abanico. La versión la elige la resolución consciente de
+# MSRV: forzar una más nueva rompería el `rust-version = "1.80"` que el
+# workspace promete.
+rust_xlsxwriter = { version = "0.92", default-features = false }
 
 [lints.rust]
 unsafe_code = "forbid"

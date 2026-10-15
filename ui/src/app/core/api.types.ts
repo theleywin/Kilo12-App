@@ -187,7 +187,63 @@ export interface FichaProductoDto {
   readonly stockMinimo: string;
   readonly objetivoVitrina: string;
   readonly existenciaTotal: string;
+  /**
+   * No queda nada, ni en almacén ni en vitrina.
+   *
+   * Lo decide Rust y no se deduce de `existenciaTotal`: ese texto trae los
+   * decimales de su unidad, así que a granel el cero es «0.000» y por
+   * unidades es «0».
+   */
+  readonly agotado: boolean;
   readonly presentaciones: readonly PresentacionDto[];
+}
+
+/**
+ * Un costo nuevo para un producto, con la clave que lo autoriza.
+ *
+ * El costo no se almacena: se deriva del valor del inventario entre la
+ * existencia (RF-COS-02). Así que esto **revalora el inventario**, y por
+ * eso lleva clave. La comprueba Rust, no esta pantalla.
+ */
+export interface NuevoCostoDto {
+  readonly producto: number;
+  readonly costo: string;
+  readonly clave: string;
+}
+
+/**
+ * Lo que una revaluación haría, o lo que acaba de hacer.
+ *
+ * Las cuatro cifras de las dos puntas vienen calculadas por el núcleo. La
+ * que hay que enseñar en el cartel no es el costo nuevo —ese lo acaba de
+ * escribir el usuario— sino **cuánto se mueve el valor del inventario**.
+ */
+export interface RevaluacionDto {
+  readonly producto: number;
+  readonly nombre: string;
+  readonly unidadBase: string;
+  readonly existencia: string;
+  readonly costoAnterior: string;
+  readonly costoNuevo: string;
+  readonly valorAnterior: string;
+  readonly valorNuevo: string;
+  /** Cuánto cambia el valor del inventario. Lleva signo. */
+  readonly diferencia: string;
+  readonly sube: boolean;
+}
+
+/** Una revaluación de costo ya ocurrida. */
+export interface CostoListadoDto {
+  readonly id: number;
+  readonly anterior: string;
+  readonly nuevo: string;
+  /** Existencia sobre la que se aplicó. */
+  readonly existencia: string;
+  readonly valorAnterior: string;
+  readonly valorNuevo: string;
+  readonly diferencia: string;
+  readonly subio: boolean;
+  readonly cambiadoEn: string;
 }
 
 /** Un cambio de precio ya ocurrido. */
@@ -274,6 +330,307 @@ export interface VentaHechaDto {
   readonly vuelto: string;
 }
 
+/**
+ * La venta que se quiere cobrar.
+ *
+ * `esperaId` solo va cuando el cobro sale de una venta en espera: el núcleo
+ * la borra en la misma operación que registra la venta (RF-VTA-14).
+ */
+export interface NuevaVentaDto {
+  readonly lineas: readonly LineaVentaDto[];
+  readonly pagos: readonly PagoDto[];
+  readonly esperaId?: number;
+}
+
+// ------------------------------------------- venta en espera (RF-VTA-14)
+
+/** La venta en curso que se aparta al pulsar «Pendiente». */
+export interface NuevaVentaEnEsperaDto {
+  /** Texto libre para reconocerla en la lista. Opcional. */
+  readonly nota?: string;
+  readonly lineas: readonly LineaVentaDto[];
+}
+
+/** Una venta en espera en la lista. */
+export interface VentaEnEsperaDto {
+  readonly id: number;
+  readonly nota: string | null;
+  /** `YYYY-MM-DD HH:MM:SS`, hora local. La antigüedad sale de aquí. */
+  readonly creadaEn: string;
+  readonly cuantasLineas: number;
+}
+
+/** Largo máximo de la nota, en caracteres. El núcleo aplica el mismo. */
+export const LARGO_MAXIMO_NOTA = 120;
+
+/** Códigos de error propios de la revaluación de costo (DT-7). */
+export const ERROR_COSTO = {
+  /** La clave de mantenimiento no es la que se tecleó. */
+  CLAVE_INCORRECTA: 'CLAVE_INCORRECTA',
+  /** Sin existencia no hay costo que fijar. */
+  SIN_EXISTENCIA_PARA_COSTO: 'SIN_EXISTENCIA_PARA_COSTO',
+} as const;
+
+/**
+ * Qué le toca a un producto que se quedó sin mercancía (RF-CAT-06, RF-CAT-07).
+ *
+ * Son dos operaciones distintas detrás de un solo botón, y la diferencia
+ * importa: borrar no se deshace y retirar sí.
+ */
+export const DESTINO_PRODUCTO = {
+  /** Nunca se movió: se borra y no queda nada de él. */
+  BORRAR: 'BORRAR',
+  /** Vendió o se movió: se esconde de la venta y conserva su historial. */
+  RETIRAR: 'RETIRAR',
+  /** Está en una venta empezada y sin cobrar: no se toca. */
+  BLOQUEADO: 'BLOQUEADO',
+} as const;
+
+export type DestinoProducto = (typeof DESTINO_PRODUCTO)[keyof typeof DESTINO_PRODUCTO];
+
+/** Códigos de error propios de quitar un producto del catálogo (DT-7). */
+export const ERROR_QUITAR_PRODUCTO = {
+  /** Todavía queda mercancía: primero hay que darle salida. */
+  PRODUCTO_CON_EXISTENCIA: 'PRODUCTO_CON_EXISTENCIA',
+  /** Hay una venta apartada que lo lleva. */
+  PRODUCTO_EN_VENTA_EN_ESPERA: 'PRODUCTO_EN_VENTA_EN_ESPERA',
+} as const;
+
+/** Un producto sin mercancía, con lo que se haría con él y por qué. */
+export interface ProductoVacioDto {
+  readonly id: number;
+  readonly sku: string;
+  readonly nombre: string;
+  readonly destino: DestinoProducto;
+  /** Renglones de ventas cobradas que lo llevan. */
+  readonly ventas: number;
+  /** Asientos del kárdex a su nombre. */
+  readonly movimientos: number;
+  /** Renglones en ventas apartadas y sin cobrar. */
+  readonly esperas: number;
+  /** Ya estaba retirado de la venta. */
+  readonly retirado: boolean;
+}
+
+/** Lo que una limpieza del catálogo haría, o lo que acaba de hacer. */
+export interface LimpiezaDto {
+  /** Se van para siempre: nunca se movieron. */
+  readonly seBorran: readonly ProductoVacioDto[];
+  /** Se esconden de la venta y conservan su historial. */
+  readonly seRetiran: readonly ProductoVacioDto[];
+  /** No se tocan: están en una venta empezada y sin cobrar. */
+  readonly bloqueados: readonly ProductoVacioDto[];
+}
+
+// ============================================ el consumo (RF-CON)
+
+/** Códigos de error propios del consumo de los dueños (DT-7). */
+export const ERROR_CONSUMO = {
+  /** La cuenta está retirada: no se le carga nada. */
+  CUENTA_CONSUMO_INACTIVA: 'CUENTA_CONSUMO_INACTIVA',
+  CONSUMO_VACIO: 'CONSUMO_VACIO',
+  CONSUMO_YA_ANULADO: 'CONSUMO_YA_ANULADO',
+  PAGO_YA_ANULADO: 'PAGO_YA_ANULADO',
+  PAGO_NO_POSITIVO: 'PAGO_NO_POSITIVO',
+} as const;
+
+/** Un renglón de lo que los dueños se llevan. */
+export interface LineaConsumoDto {
+  readonly producto: number;
+  readonly presentacion: number;
+  /** Cuántas presentaciones, no unidades base. */
+  readonly cantidad: string;
+  /** `BODEGA` o `VITRINA`. Va por renglón. */
+  readonly origen: string;
+}
+
+/** Lo que se manda al registrar o previsualizar un consumo. */
+export interface NuevoConsumoDto {
+  readonly cuenta: number;
+  /** Quién se lo llevó. Puede no ser la dueña de la cuenta. */
+  readonly tomadoPor: string;
+  readonly lineas: readonly LineaConsumoDto[];
+}
+
+/** Lo que se manda al liquidar una deuda. */
+export interface NuevaLiquidacionDto {
+  readonly cuenta: number;
+  readonly importe: string;
+  readonly nota?: string;
+}
+
+/** Lo que se manda al anular un consumo o una liquidación. */
+export interface AnulacionConsumoDto {
+  readonly id: number;
+  readonly motivo: string;
+}
+
+/** Un renglón tal como quedaría, con su importe calculado por Rust. */
+export interface LineaPrevistaConsumoDto {
+  readonly producto: number;
+  readonly nombreProducto: string;
+  readonly nombrePresentacion: string;
+  /** `Bodega` o `Vitrina`. */
+  readonly origen: string;
+  readonly cantidad: string;
+  readonly costoUnitario: string;
+  readonly importe: string;
+}
+
+/**
+ * Lo que un consumo generaría, sin registrarlo.
+ *
+ * Alimenta el carrito. El costo es promedio ponderado y nadie lo lleva en
+ * la cabeza, así que la suma se pregunta, no se calcula aquí.
+ */
+export interface ConsumoPrevistoDto {
+  readonly cuenta: string;
+  readonly tomadoPor: string;
+  readonly total: string;
+  readonly saldoResultante: string;
+  readonly aFavor: boolean;
+  readonly lineas: readonly LineaPrevistaConsumoDto[];
+}
+
+/** Lo que un consumo acabó de generar. */
+export interface ConsumoHechoDto {
+  readonly id: number;
+  readonly cuenta: string;
+  readonly tomadoPor: string;
+  readonly total: string;
+  readonly saldo: string;
+  readonly cuantasLineas: number;
+}
+
+/**
+ * Una cuenta con su saldo.
+ *
+ * El saldo llega **sin signo** y `aFavor` dice de qué lado está. Es la
+ * última de las cuatro capas que podrían recortar un negativo (RF-CON-14)
+ * y tampoco lo hace: «500.00 a favor» se lee; «-500.00» parece un error.
+ */
+export interface CuentaEnDeudaDto {
+  readonly id: number;
+  readonly nombre: string;
+  readonly activa: boolean;
+  readonly consumido: string;
+  readonly pagado: string;
+  readonly saldo: string;
+  readonly aFavor: boolean;
+  /** Parte de la deuda del local que carga, sin el símbolo. */
+  readonly porcion: string;
+  /** La misma parte de 0 a 1000. Se divide entre diez para dibujar. */
+  readonly peso: number;
+}
+
+/** El primer nivel: la deuda del local y sus cuentas. */
+export interface PanelConsumoDto {
+  readonly total: string;
+  readonly aFavor: boolean;
+  readonly cuentas: readonly CuentaEnDeudaDto[];
+}
+
+/** Un consumo tal como se lista. */
+export interface ConsumoListadoDto {
+  readonly id: number;
+  readonly tomadoPor: string;
+  readonly total: string;
+  readonly ocurridoEn: string;
+  readonly anulado: boolean;
+  readonly motivoAnulacion: string | null;
+}
+
+/** Una liquidación tal como se lista. */
+export interface PagoConsumoListadoDto {
+  readonly id: number;
+  readonly importe: string;
+  readonly nota: string | null;
+  readonly ocurridoEn: string;
+  readonly anulado: boolean;
+  readonly motivoAnulacion: string | null;
+}
+
+/** El detalle de una cuenta: lo que se llevó y lo que pagó. */
+export interface DetalleCuentaDto {
+  readonly cuenta: CuentaEnDeudaDto;
+  readonly consumos: readonly ConsumoListadoDto[];
+  readonly pagos: readonly PagoConsumoListadoDto[];
+}
+
+/** Un renglón de un consumo ya registrado. */
+export interface LineaConsumoListadaDto {
+  readonly producto: number;
+  readonly nombreProducto: string;
+  readonly nombrePresentacion: string;
+  readonly origen: string;
+  readonly cantidad: string;
+  readonly costoUnitario: string;
+  readonly importe: string;
+}
+
+/** Lo consumido de un producto: el eje que dice qué se está yendo. */
+export interface ProductoConsumidoDto {
+  readonly producto: number;
+  readonly nombre: string;
+  readonly cantidad: string;
+  readonly costo: string;
+  /** Largo de su barra, de 0 a 1000. Se divide entre diez para dibujar. */
+  readonly peso: number;
+}
+
+/** Códigos de error propios de la venta en espera (DT-7). */
+export const ERROR_VENTA_EN_ESPERA = {
+  ESPERA_VACIA: 'ESPERA_VACIA',
+  NOTA_DEMASIADO_LARGA: 'NOTA_DEMASIADO_LARGA',
+  VENTA_EN_ESPERA_NO_ENCONTRADA: 'VENTA_EN_ESPERA_NO_ENCONTRADA',
+} as const;
+
+/** Por qué un renglón retomado no se puede cobrar tal cual. */
+export const PROBLEMA_LINEA = {
+  PRODUCTO_NO_ENCONTRADO: 'PRODUCTO_NO_ENCONTRADO',
+  PRODUCTO_INACTIVO: 'PRODUCTO_INACTIVO',
+  PRESENTACION_NO_ENCONTRADA: 'PRESENTACION_NO_ENCONTRADA',
+  PRESENTACION_INACTIVA: 'PRESENTACION_INACTIVA',
+  CANTIDAD_INVALIDA: 'CANTIDAD_INVALIDA',
+  SIN_EXISTENCIA: 'SIN_EXISTENCIA',
+} as const;
+
+export type CodigoProblemaLinea = (typeof PROBLEMA_LINEA)[keyof typeof PROBLEMA_LINEA];
+
+/** El aviso de un renglón retomado, listo para enseñar. */
+export interface ProblemaLineaDto {
+  readonly codigo: CodigoProblemaLinea;
+  readonly mensaje: string;
+}
+
+/** Un renglón de la venta retomada, al precio de hoy. */
+export interface LineaRetomadaDto {
+  readonly producto: number;
+  readonly presentacion: number;
+  /** Vacío si el producto ya no existe. */
+  readonly nombreProducto: string;
+  /** Vacío si la presentación ya no existe. */
+  readonly nombrePresentacion: string;
+  readonly cantidad: string;
+  /** Solo en los renglones que se pueden calcular. */
+  readonly precio: string | null;
+  readonly importe: string | null;
+  readonly unidadesBase: string | null;
+  readonly problema: ProblemaLineaDto | null;
+}
+
+/** Una venta en espera lista para volver a la pantalla. */
+export interface VentaRetomadaDto {
+  readonly id: number;
+  readonly nota: string | null;
+  readonly creadaEn: string;
+  readonly lineas: readonly LineaRetomadaDto[];
+  /** Suma de los renglones que se pueden calcular. */
+  readonly total: string;
+  /** Algún renglón hay que corregirlo antes de cobrar. */
+  readonly hayProblemas: boolean;
+}
+
 /** Una venta en la lista del historial. */
 export interface VentaListadaDto {
   readonly id: number;
@@ -288,17 +645,132 @@ export interface VentaListadaDto {
   readonly hora: string;
 }
 
-/** Lo vendido hoy. */
+/**
+ * La sesión de caja a la que se refieren «las ventas de hoy»: la abierta o,
+ * si no hay ninguna, la última cerrada.
+ */
+export interface SesionDeReferenciaDto {
+  readonly id: number;
+  readonly abierta: boolean;
+  /** `YYYY-MM-DD HH:MM:SS`, hora local de la máquina. */
+  readonly abiertaEn: string;
+  /** `null` mientras siga abierta. */
+  readonly cerradaEn: string | null;
+}
+
+/**
+ * Lo vendido en la sesión de referencia, no en el día del calendario. Las
+ * anuladas no cuentan. Sale de la misma suma que arquea la caja.
+ */
 export interface ResumenDelDiaDto {
   readonly cuantas: number;
   readonly total: string;
   readonly ganancia: string;
 }
 
-/** El historial de ventas con el corte del día. */
+/** El historial de ventas con el corte de la sesión de caja. */
 export interface HistorialVentasDto {
   readonly hoy: ResumenDelDiaDto;
+  /** A qué sesión se refiere `hoy`. `null` si nunca se abrió una caja. */
+  readonly sesion: SesionDeReferenciaDto | null;
   readonly ventas: readonly VentaListadaDto[];
+}
+
+/**
+ * Una presentación de un producto vendida en la sesión.
+ *
+ * Cada presentación cuenta como un producto distinto: el suelto y el
+ * paquete son dos filas y no se suman entre sí.
+ */
+export interface FilaVendidaDto {
+  readonly producto: number;
+  /** Nombre congelado en la venta más reciente que lo llevó. */
+  readonly nombreProducto: string;
+  readonly presentacion: number;
+  /** Nombre congelado en la venta más reciente que la llevó. */
+  readonly nombrePresentacion: string;
+  /** La salida, en presentaciones: cajas, si es la caja. */
+  readonly cantidad: string;
+  readonly total: string;
+  readonly ganancia: string;
+}
+
+/** Lo vendido en la sesión de referencia, una fila por presentación. */
+export interface VentasPorProductoDto {
+  /** `null` si nunca se abrió una caja. */
+  readonly sesion: SesionDeReferenciaDto | null;
+  /** Ordenadas por total, de mayor a menor. */
+  readonly filas: readonly FilaVendidaDto[];
+}
+
+/**
+ * Una presentación en la que se vendió el producto, dentro del IPV.
+ *
+ * Solo llega cuando hubo más de una: con una sola, la subfila repetiría la
+ * fila de arriba.
+ */
+export interface FormaVendidaDto {
+  readonly presentacion: number;
+  readonly nombre: string;
+  /** Lo que salió contado en esta presentación: paquetes, si es el paquete. */
+  readonly salida: string;
+  readonly precio: string;
+  readonly importe: string;
+}
+
+/**
+ * Una mercancía en la hoja del IPV.
+ *
+ * Todas las cifras son de la **vitrina**: la hoja se cuadra con la
+ * mercancía delante, así que lo que duerme en el almacén no cuenta.
+ */
+export interface FilaIpvDto {
+  readonly producto: number;
+  readonly mercancia: string;
+  /** Lo que había en vitrina al abrir el turno. */
+  readonly inicial: string;
+  /**
+   * Lo que entró a la vitrina: lo que bajó del almacén, más lo que se
+   * compró y se puso directamente en el mostrador, menos lo que se devolvió
+   * al almacén. Puede salir en contra.
+   */
+  readonly entrada: string;
+  readonly merma: string;
+  /** Lo que se llevaron los dueños, neto de anulaciones. */
+  readonly consumo: string;
+  /** Lo vendido en unidades base, neto de devoluciones. */
+  readonly salida: string;
+  /** Precio medio por unidad base, o el de catálogo si no se vendió. */
+  readonly precio: string;
+  readonly importe: string;
+  readonly cierre: string;
+  /**
+   * `false` si la fila no se explica por sus propias columnas.
+   *
+   * La identidad es `cierre = inicial + entrada − merma − consumo − salida`.
+   * La pantalla no la comprueba: la comprueba Rust y aquí solo se avisa.
+   */
+  readonly cuadra: boolean;
+  readonly formas: readonly FormaVendidaDto[];
+}
+
+/**
+ * La hoja del IPV de un turno de caja.
+ *
+ * Es la hoja de la vitrina, no del negocio entero: se imprime y se recorre
+ * estante en mano.
+ */
+export interface IpvDto {
+  /** `null` si nunca se abrió una caja. */
+  readonly sesion: SesionDeReferenciaDto | null;
+  /** En orden alfabético: la hoja se recorre estante en mano. */
+  readonly filas: readonly FilaIpvDto[];
+  readonly importeTotal: string;
+  /** Lo que la caja registró como vendido en el turno. */
+  readonly vendidoReal: string;
+  /** `importeTotal` − `vendidoReal`, con signo. */
+  readonly diferencia: string;
+  readonly cuadra: boolean;
 }
 
 /** Una línea de una venta ya cobrada. */
@@ -493,9 +965,23 @@ export interface CierreCajaPedido {
   readonly modo: string;
 }
 
+/**
+ * Moneda de un recuento, espejo del enum `Moneda` del dominio.
+ *
+ * Es una unión de literales y no un `string`: escribir `'CUC'` por error
+ * tiene que fallar al compilar, no al invocar el comando.
+ */
+export type Moneda = 'CUP' | 'USD';
+
+/** Las dos monedas que se cuentan, con el nombre que usa el negocio. */
+export const MONEDAS: ReadonlyArray<{ valor: Moneda; nombre: string; titulo: string }> = [
+  { valor: 'CUP', nombre: 'Pesos', titulo: 'Total en pesos' },
+  { valor: 'USD', nombre: 'Dólares', titulo: 'Total en dólares' },
+];
+
 /** Un renglón del recuento de billetes. */
 export interface LineaConteoDto {
-  /** Valor del billete, en pesos enteros. */
+  /** Valor del billete, en unidades enteras de su moneda. */
   readonly denominacion: number;
   readonly cuantos: number;
   /** Lo que suman esos billetes. */

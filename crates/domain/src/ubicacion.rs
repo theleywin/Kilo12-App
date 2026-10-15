@@ -15,7 +15,12 @@ use core::str::FromStr;
 use crate::error::ErrorDominio;
 
 /// Ubicación de una existencia.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+///
+/// Ordena por [`Self::TODAS`] —bodega antes que vitrina— y no porque una
+/// valga más que otra: es para poder agrupar por `(producto, ubicación)` en
+/// un mapa ordenado, que es lo que hace el consumo para sacar un asiento de
+/// kárdex por estante en vez de uno por renglón.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Ubicacion {
     /// Trastienda, almacén, cajas cerradas. No expuesta al cliente.
     Bodega,

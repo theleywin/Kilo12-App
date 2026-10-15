@@ -9,10 +9,11 @@ use std::sync::Arc;
 
 use application::casos::vender::CLAVE_TASA;
 use application::casos::{
-    AbrirCaja, AnularVenta, BorrarTodo, CerrarCaja, ComandoAbrirCaja, ComandoAnularVenta,
-    ComandoCerrarCaja, ComandoMoverEfectivo, ComandoVender, ConsultarCaja, ConsultarInforme,
-    ConsultarVenta, ConsultarVentas, HistorialCajas, LineaPedida, MoverEfectivo, PagoPedido,
-    Vender, CLAVE_MANTENIMIENTO,
+    AbrirCaja, AnularVenta, BorrarTodo, CambiarCosto, CerrarCaja, ComandoAbrirCaja,
+    ComandoAnularVenta, ComandoCambiarCosto, ComandoCerrarCaja, ComandoMoverEfectivo,
+    ComandoVender, ConsultarCaja, ConsultarHistorialCostos, ConsultarInforme, ConsultarVenta,
+    ConsultarVentas, HistorialCajas, LineaPedida, MoverEfectivo, PagoPedido, Vender,
+    CLAVE_MANTENIMIENTO,
 };
 use application::casos::{
     AgregarPresentacion, CambiarPrecio, ComandoAgregarPresentacion, ComandoCambiarPrecio,
@@ -985,6 +986,7 @@ fn una_venta_descuenta_de_la_vitrina_y_deja_su_asiento() {
                 cantidad: "3".to_owned(),
             }],
             pagos: vec![efectivo("300.00")],
+            espera_id: None,
         })
         .expect("cobrar");
 
@@ -1033,6 +1035,7 @@ fn vender_un_paquete_descuenta_las_unidades_que_lleva_dentro() {
                 cantidad: "2".to_owned(),
             }],
             pagos: vec![efectivo("600.00")],
+            espera_id: None,
         })
         .expect("cobrar");
 
@@ -1054,6 +1057,7 @@ fn no_se_vende_lo_que_no_esta_en_la_vitrina() {
                 cantidad: "25".to_owned(),
             }],
             pagos: vec![efectivo("2000.00")],
+            espera_id: None,
         })
         .expect_err("solo hay 20 en vitrina");
 
@@ -1076,6 +1080,7 @@ fn no_se_cobra_una_venta_con_lo_que_no_alcanza() {
                 cantidad: "3".to_owned(),
             }],
             pagos: vec![efectivo("100.00")],
+            espera_id: None,
         })
         .expect_err("240 no se pagan con 100");
 
@@ -1111,6 +1116,7 @@ fn un_cobro_mixto_se_suma_y_el_vuelto_sale_en_pesos() {
                     entregado: "2.00".to_owned(),
                 },
             ],
+            espera_id: None,
         })
         .expect("cobrar");
 
@@ -1136,6 +1142,7 @@ fn cobrar_en_dolares_exige_tener_la_tasa_puesta() {
                 metodo: "EFECTIVO_USD".to_owned(),
                 entregado: "5.00".to_owned(),
             }],
+            espera_id: None,
         })
         .expect_err("sin tasa no se puede convertir");
 
@@ -1156,6 +1163,7 @@ fn el_folio_es_consecutivo() {
                     cantidad: "1".to_owned(),
                 }],
                 pagos: vec![efectivo("80.00")],
+                espera_id: None,
             })
             .expect("cobrar");
 
@@ -1183,6 +1191,7 @@ fn dos_lineas_del_mismo_producto_se_descuentan_las_dos() {
                 },
             ],
             pagos: vec![efectivo("560.00")],
+            espera_id: None,
         })
         .expect("cobrar");
 
@@ -1211,6 +1220,7 @@ fn venta_de(
                 cantidad: cuantas.to_owned(),
             }],
             pagos: vec![efectivo(paga)],
+            espera_id: None,
         })
         .expect("cobrar")
         .folio
@@ -1277,6 +1287,7 @@ fn el_detalle_trae_las_lineas_y_las_formas_de_pago() {
                     entregado: "2.00".to_owned(),
                 },
             ],
+            espera_id: None,
         })
         .expect("cobrar");
 
@@ -1387,6 +1398,7 @@ fn sin_caja_abierta_no_se_cobra() {
                 cantidad: "1".to_owned(),
             }],
             pagos: vec![efectivo("80.00")],
+            espera_id: None,
         })
         .expect_err("sin caja no se cobra");
 
@@ -1429,6 +1441,7 @@ fn el_efectivo_esperado_no_cuenta_la_transferencia() {
                 metodo: "TRANSFERENCIA".to_owned(),
                 entregado: "800.00".to_owned(),
             }],
+            espera_id: None,
         })
         .expect("cobrar por transferencia");
 
@@ -1467,6 +1480,7 @@ fn el_vuelto_de_un_pago_en_dolares_sale_de_la_gaveta_de_pesos() {
                     entregado: "2.00".to_owned(),
                 },
             ],
+            espera_id: None,
         })
         .expect("cobrar");
 
@@ -1734,6 +1748,7 @@ fn la_venta_total_del_cierre_suma_las_tres_formas_de_cobro() {
                     entregado: "2.00".to_owned(),
                 },
             ],
+            espera_id: None,
         })
         .expect("cobrar");
 
@@ -1899,6 +1914,7 @@ fn lo_mas_vendido_se_cuenta_en_unidad_base() {
                 },
             ],
             pagos: vec![efectivo("610.00")],
+            espera_id: None,
         })
         .expect("cobrar");
 
@@ -1975,6 +1991,7 @@ fn el_reparto_por_metodo_suma_el_cien_por_ciento() {
                 metodo: "TRANSFERENCIA".to_owned(),
                 entregado: "400.00".to_owned(),
             }],
+            espera_id: None,
         })
         .expect("cobrar por transferencia");
 
@@ -2100,4 +2117,261 @@ fn despues_de_vaciar_la_aplicacion_se_puede_volver_a_usar() {
         .ejecutar(10)
         .expect("listar");
     assert_eq!(historial.ventas[0].folio, 1);
+}
+
+// ==================================================== lo desactivado no se cobra
+
+fn vender_uno(
+    repositorio: &RepositorioProductoSqlite,
+    producto: i64,
+    presentacion: i64,
+) -> Result<application::casos::VentaHecha, application::ErrorAplicacion> {
+    Vender::nuevo(repositorio).ejecutar(ComandoVender {
+        lineas: vec![LineaPedida {
+            producto,
+            presentacion,
+            cantidad: "1".to_owned(),
+        }],
+        pagos: vec![efectivo("500.00")],
+        espera_id: None,
+    })
+}
+
+#[test]
+fn no_se_cobra_un_producto_desactivado() {
+    let repositorio = repositorio_en_memoria();
+    let (producto, presentacion) = producto_en_vitrina(&repositorio);
+
+    let editar = |activo| {
+        EditarProducto::nuevo(&repositorio)
+            .ejecutar(ComandoEditarProducto {
+                producto,
+                nombre: "Refresco 500 ml".to_owned(),
+                stock_minimo: None,
+                activo,
+            })
+            .expect("editar");
+    };
+
+    editar(false);
+    let error = vender_uno(&repositorio, producto, presentacion).expect_err("ya no se vende");
+    assert_eq!(error.codigo(), "PRODUCTO_INACTIVO");
+
+    // El intento no dejó rastro: al reactivarlo, la primera venta es el
+    // folio 1 y la vitrina solo pierde esa lata.
+    editar(true);
+    let hecha = vender_uno(&repositorio, producto, presentacion).expect("cobrar");
+    assert_eq!(hecha.folio, 1);
+    assert_eq!(unico(&repositorio).en_vitrina, "19");
+}
+
+#[test]
+fn no_se_cobra_una_presentacion_desactivada() {
+    let repositorio = repositorio_en_memoria();
+    let (producto, unidad) = producto_en_vitrina(&repositorio);
+
+    AgregarPresentacion::nuevo(&repositorio)
+        .ejecutar(ComandoAgregarPresentacion {
+            producto,
+            nombre: "Six-pack".to_owned(),
+            factor: "6".to_owned(),
+            precio: "300.00".to_owned(),
+            codigo_barras: None,
+        })
+        .expect("agregar el six-pack");
+    let six_pack = ConsultarProducto::nuevo(&repositorio)
+        .ejecutar(producto)
+        .expect("ficha")
+        .presentaciones[1]
+        .id;
+
+    DesactivarPresentacion::nuevo(&repositorio)
+        .ejecutar(ComandoPresentacion {
+            producto,
+            presentacion: six_pack,
+        })
+        .expect("desactivar el six-pack");
+
+    let error = vender_uno(&repositorio, producto, six_pack).expect_err("ya no se vende");
+    assert_eq!(error.codigo(), "PRESENTACION_INACTIVA");
+    assert_eq!(unico(&repositorio).en_vitrina, "20");
+
+    // La lata suelta sigue a la venta, y es la primera venta registrada.
+    let hecha = vender_uno(&repositorio, producto, unidad).expect("cobrar");
+    assert_eq!(hecha.folio, 1);
+}
+
+// ============================ revaluación del costo (CambiarCosto)
+//
+// Fijar un costo a mano es mover `producto.valor_total`, porque el costo no
+// se almacena: se deriva del valor entre la existencia (RF-COS-02). Estas
+// pruebas atraviesan la migración nueva y la transacción que escribe el
+// valor y su anotación a la vez.
+
+#[test]
+fn fijar_el_costo_mueve_el_valor_y_lo_deja_anotado() {
+    let repositorio = repositorio_en_memoria();
+    // 50 lb que costaron 120: valor 6 000.
+    let producto = alta_con_mercancia(&repositorio);
+    assert_eq!(unico(&repositorio).costo, "120.00");
+
+    let hecha = CambiarCosto::nuevo(&repositorio)
+        .ejecutar(ComandoCambiarCosto {
+            producto,
+            costo: "150.00".to_owned(),
+            clave: CLAVE_MANTENIMIENTO.to_owned(),
+        })
+        .expect("revalorar");
+
+    assert_eq!(hecha.valor_anterior, "6000.00");
+    assert_eq!(hecha.valor_nuevo, "7500.00");
+    assert_eq!(hecha.diferencia, "1500.00");
+
+    // El catálogo lo lee ya cambiado desde la base.
+    let ficha = unico(&repositorio);
+    assert_eq!(ficha.costo, "150.00");
+    // Y la existencia no se movió: revalorar no mueve mercancía.
+    assert_eq!(ficha.en_almacen, "50.000");
+
+    // La anotación salió en la misma operación.
+    let historial = ConsultarHistorialCostos::nuevo(&repositorio)
+        .ejecutar(producto)
+        .expect("historial");
+    assert_eq!(historial.len(), 1);
+    assert_eq!(historial[0].anterior, "120.00");
+    assert_eq!(historial[0].nuevo, "150.00");
+    assert_eq!(historial[0].existencia, "50.000");
+    assert_eq!(historial[0].valor_anterior, "6000.00");
+    assert_eq!(historial[0].valor_nuevo, "7500.00");
+    assert!(historial[0].subio);
+}
+
+#[test]
+fn la_revaluacion_no_deja_asiento_en_el_kardex() {
+    let repositorio = repositorio_en_memoria();
+    let producto = alta_con_mercancia(&repositorio);
+    let antes = kardex(&repositorio, producto).len();
+
+    CambiarCosto::nuevo(&repositorio)
+        .ejecutar(ComandoCambiarCosto {
+            producto,
+            costo: "150.00".to_owned(),
+            clave: CLAVE_MANTENIMIENTO.to_owned(),
+        })
+        .expect("revalorar");
+
+    // El kárdex explica saldos de existencia, y aquí el saldo no cambió.
+    assert_eq!(kardex(&repositorio, producto).len(), antes);
+}
+
+#[test]
+fn con_la_clave_mala_la_base_se_queda_igual() {
+    let repositorio = repositorio_en_memoria();
+    let producto = alta_con_mercancia(&repositorio);
+
+    let error = CambiarCosto::nuevo(&repositorio)
+        .ejecutar(ComandoCambiarCosto {
+            producto,
+            costo: "150.00".to_owned(),
+            clave: "0000".to_owned(),
+        })
+        .expect_err("la clave no es esa");
+
+    assert_eq!(error.codigo(), "CLAVE_INCORRECTA");
+    assert_eq!(unico(&repositorio).costo, "120.00");
+    assert!(ConsultarHistorialCostos::nuevo(&repositorio)
+        .ejecutar(producto)
+        .expect("historial")
+        .is_empty());
+}
+
+#[test]
+fn el_costo_congelado_de_una_venta_vieja_no_se_mueve() {
+    let repositorio = repositorio_en_memoria();
+    let producto = alta_con_mercancia(&repositorio);
+
+    // Se baja a la vitrina y se vende una libra al costo de 120.
+    Traspasar::nuevo(&repositorio)
+        .ejecutar(ComandoTraspasar {
+            producto,
+            cantidad: "10".to_owned(),
+            origen: "BODEGA".to_owned(),
+        })
+        .expect("bajar a vitrina");
+    AbrirCaja::nuevo(&repositorio)
+        .ejecutar(ComandoAbrirCaja {
+            operador: "Ana".to_owned(),
+            fondo_inicial: "0.00".to_owned(),
+        })
+        .expect("abrir caja");
+
+    let presentacion = ConsultarProducto::nuevo(&repositorio)
+        .ejecutar(producto)
+        .expect("ficha")
+        .presentaciones[0]
+        .id;
+    let hecha = vender_uno(&repositorio, producto, presentacion).expect("cobrar");
+
+    let antes = ConsultarVenta::nuevo(&repositorio)
+        .ejecutar(1)
+        .expect("venta");
+
+    // Ahora se revalora el inventario hacia arriba.
+    CambiarCosto::nuevo(&repositorio)
+        .ejecutar(ComandoCambiarCosto {
+            producto,
+            costo: "400.00".to_owned(),
+            clave: CLAVE_MANTENIMIENTO.to_owned(),
+        })
+        .expect("revalorar");
+
+    // La venta de antes sigue diciendo exactamente lo mismo (RF-VTA-13):
+    // su costo se congeló al cobrar y no lo mueve nada.
+    let despues = ConsultarVenta::nuevo(&repositorio)
+        .ejecutar(1)
+        .expect("venta");
+    assert_eq!(despues.costo_total, antes.costo_total);
+    assert_eq!(despues.ganancia, antes.ganancia);
+    assert_eq!(hecha.folio, 1);
+}
+
+#[test]
+fn un_producto_agotado_no_se_puede_revalorar() {
+    let repositorio = repositorio_en_memoria();
+    let producto = RegistrarProducto::nuevo(&repositorio)
+        .ejecutar(alta("Arroz blanco"))
+        .expect("registrar")
+        .0;
+
+    let error = CambiarCosto::nuevo(&repositorio)
+        .ejecutar(ComandoCambiarCosto {
+            producto,
+            costo: "150.00".to_owned(),
+            clave: CLAVE_MANTENIMIENTO.to_owned(),
+        })
+        .expect_err("sin existencia no hay costo");
+
+    assert_eq!(error.codigo(), "SIN_EXISTENCIA_PARA_COSTO");
+}
+
+#[test]
+fn el_borrado_total_se_lleva_el_historial_de_costos() {
+    let repositorio = repositorio_en_memoria();
+    let producto = alta_con_mercancia(&repositorio);
+
+    CambiarCosto::nuevo(&repositorio)
+        .ejecutar(ComandoCambiarCosto {
+            producto,
+            costo: "150.00".to_owned(),
+            clave: CLAVE_MANTENIMIENTO.to_owned(),
+        })
+        .expect("revalorar");
+
+    // Sin incluir `historial_costo` en el borrado, la clave foránea contra
+    // `producto` impediría vaciar el catálogo.
+    BorrarTodo::nuevo(&repositorio)
+        .ejecutar(CLAVE_MANTENIMIENTO)
+        .expect("borrar todo");
+
+    assert!(catalogo(&repositorio).is_empty());
 }

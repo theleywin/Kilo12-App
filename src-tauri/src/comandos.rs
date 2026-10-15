@@ -12,39 +12,62 @@ use application::casos::caja::{CLAVE_COMISION, LIMITE_POR_DEFECTO as LIMITE_CAJA
 use application::casos::consultar_kardex::LIMITE_POR_DEFECTO;
 use application::casos::consultar_ventas::LIMITE_POR_DEFECTO as LIMITE_VENTAS;
 use application::casos::{
-    AbrirCaja, AnularVenta, BorrarTodo, CerrarCaja, ConsultarCaja, ConsultarInforme,
-    ContarEfectivo, HistorialCajas, MoverEfectivo,
+    AbrirCaja, AnularVenta, BorrarTodo, CerrarCaja, ConsultarCaja, ConsultarInforme, ConsultarIpv,
+    ContarEfectivo, HistorialCajas, Ipv, MoverEfectivo, PeticionIpv,
 };
 use application::casos::{
-    AgregarPresentacion, CambiarPrecio, ConsultarAlmacen, ConsultarHistorialPrecios,
-    ConsultarKardex, ConsultarProducto, ConsultarVitrina, DesactivarPresentacion, EditarProducto,
-    FijarObjetivoVitrina, ListarProductos, MarcarPredeterminada, OrdenCatalogo, RegistrarEntrada,
-    RegistrarMerma, RegistrarProducto, SimularMovimiento, Traspasar,
+    AgregarPresentacion, CambiarCosto, CambiarPrecio, ConsultarAlmacen, ConsultarHistorialCostos,
+    ConsultarHistorialPrecios, ConsultarKardex, ConsultarProducto, ConsultarVitrina,
+    DesactivarPresentacion, EditarProducto, FijarObjetivoVitrina, LimpiarCatalogo, ListarProductos,
+    MarcarPredeterminada, OrdenCatalogo, QuitarDelCatalogo, RegistrarEntrada, RegistrarMerma,
+    RegistrarProducto, SimularMovimiento, Traspasar,
 };
 use application::casos::{
-    CalcularCobro, CatalogoDeVenta, ConsultarTasa, ConsultarVenta, ConsultarVentas, FijarTasa,
-    PrevisualizarVenta, Vender,
+    AnularConsumo, AnularPagoConsumo, ConsultarConsumo, LiquidarDeuda, RegistrarConsumo,
 };
+use application::casos::{
+    CalcularCobro, CatalogoDeVenta, ConsultarTasa, ConsultarVenta, ConsultarVentas,
+    ConsultarVentasPorProducto, FijarTasa, PrevisualizarVenta, Vender,
+};
+use application::casos::{
+    DejarVentaEnEspera, EliminarVentaEnEspera, ListarVentasEnEspera, RetomarVentaEnEspera,
+};
+use application::error::ErrorAplicacion;
 use application::margen;
 use application::puertos::RepositorioProducto;
-use domain::{Dinero, Porcentaje};
-use tauri::State;
+use domain::{Dinero, Moneda, Porcentaje};
+use infrastructure::escribir_ipv;
+use tauri::{Manager, State};
 
 use crate::dto::{
-    AlmacenDto, CambioPrecioDto, CambioPrecioListadoDto, ConsultaSimulacionDto, EdicionProductoDto,
-    ErrorDto, FichaProductoDto, MargenDto, MovimientoDto, NuevaEntradaDto, NuevaMermaDto,
-    NuevaPresentacionDto, NuevoProductoDto, NuevoTraspasoDto, ObjetivoVitrinaDto, ProductoDto,
-    ReferenciaPresentacionDto, SimulacionDto, VitrinaDto,
+    AlmacenDto, CambioPrecioDto, CambioPrecioListadoDto, ConsultaSimulacionDto, CostoListadoDto,
+    EdicionProductoDto, ErrorDto, FichaProductoDto, LimpiezaDto, MargenDto, MovimientoDto,
+    NuevaEntradaDto, NuevaMermaDto, NuevaPresentacionDto, NuevoCostoDto, NuevoProductoDto,
+    NuevoTraspasoDto, ObjetivoVitrinaDto, ProductoDto, ProductoVacioDto, ReferenciaPresentacionDto,
+    RevaluacionDto, SimulacionDto, VitrinaDto,
+};
+use crate::dto::{
+    AnulacionConsumoDto, ConsumoHechoDto, ConsumoPrevistoDto, DetalleCuentaDto,
+    LineaConsumoListadaDto, NuevaLiquidacionDto, NuevoConsumoDto, PanelConsumoDto,
+    ProductoConsumidoDto,
 };
 use crate::dto::{
     AnulacionDto, AperturaCajaDto, CierreCajaDto, CierreCalculadoDto, ConteoCalculadoDto,
-    EstadoCajaDto, InformeDto, MovimientoEfectivoDto, SesionListadaDto,
+    EstadoCajaDto, InformeDto, IpvDto, MovimientoEfectivoDto, SesionListadaDto,
 };
 use crate::dto::{
     CobroCalculadoDto, HistorialVentasDto, NuevaVentaDto, PagoDto, ProductoVendibleDto,
-    VentaDetalladaDto, VentaHechaDto, VentaPrevistaDto,
+    VentaDetalladaDto, VentaHechaDto, VentaPrevistaDto, VentasPorProductoDto,
 };
+use crate::dto::{NuevaVentaEnEsperaDto, VentaEnEsperaDto, VentaRetomadaDto};
 use crate::estado::Estado;
+
+/// Cuántos consumos y liquidaciones se traen de una cuenta.
+///
+/// Es una libreta familiar, no un histórico de ventas: con cien entradas se
+/// ve un año largo, y pedirlas todas haría crecer la pantalla sin que nadie
+/// baje hasta el final.
+const LIMITE_CONSUMOS: usize = 100;
 
 /// Da de alta un producto y devuelve su identificador.
 #[tauri::command]
@@ -216,7 +239,62 @@ pub fn vender(estado: State<'_, Estado>, venta: NuevaVentaDto) -> Result<VentaHe
         .map_err(ErrorDto::from)
 }
 
-/// Devuelve el historial de ventas con el corte del día (RF-VTA-16).
+// ------------------------------------------------ venta en espera (RF-VTA-14)
+
+/// Aparta la venta en curso para atender a otro cliente.
+///
+/// No exige caja abierta ni toca la vitrina: apartar no mueve dinero ni
+/// mercancía. Devuelve el identificador de la venta en espera.
+#[tauri::command]
+pub fn dejar_venta_en_espera(
+    estado: State<'_, Estado>,
+    espera: NuevaVentaEnEsperaDto,
+) -> Result<i64, ErrorDto> {
+    let caso = DejarVentaEnEspera::nuevo(
+        estado.repositorio_producto(),
+        estado.repositorio_venta_en_espera(),
+    );
+    caso.ejecutar(espera.into()).map_err(ErrorDto::from)
+}
+
+/// Lista las ventas en espera, de la más antigua a la más reciente.
+#[tauri::command]
+pub fn listar_ventas_en_espera(
+    estado: State<'_, Estado>,
+) -> Result<Vec<VentaEnEsperaDto>, ErrorDto> {
+    let caso = ListarVentasEnEspera::nuevo(estado.repositorio_venta_en_espera());
+    caso.ejecutar()
+        .map(|esperas| esperas.into_iter().map(VentaEnEsperaDto::from).collect())
+        .map_err(ErrorDto::from)
+}
+
+/// Recupera una venta en espera, calculada con el precio de hoy.
+///
+/// No la borra: se borra al cobrarla (pasando su `esperaId` a `vender`) o
+/// al eliminarla.
+#[tauri::command]
+pub fn retomar_venta_en_espera(
+    estado: State<'_, Estado>,
+    id: i64,
+) -> Result<VentaRetomadaDto, ErrorDto> {
+    let caso = RetomarVentaEnEspera::nuevo(
+        estado.repositorio_producto(),
+        estado.repositorio_venta_en_espera(),
+    );
+    caso.ejecutar(id)
+        .map(VentaRetomadaDto::from)
+        .map_err(ErrorDto::from)
+}
+
+/// Descarta una venta en espera sin cobrarla.
+#[tauri::command]
+pub fn eliminar_venta_en_espera(estado: State<'_, Estado>, id: i64) -> Result<(), ErrorDto> {
+    let caso = EliminarVentaEnEspera::nuevo(estado.repositorio_venta_en_espera());
+    caso.ejecutar(id).map_err(ErrorDto::from)
+}
+
+/// Devuelve el historial de ventas con el corte de la sesión de caja
+/// (RF-VTA-16): las tarjetas cuentan la sesión abierta, o la última cerrada.
 #[tauri::command]
 pub fn consultar_ventas(
     estado: State<'_, Estado>,
@@ -225,6 +303,22 @@ pub fn consultar_ventas(
     let caso = ConsultarVentas::nuevo(estado.repositorio_producto());
     caso.ejecutar(limite.unwrap_or(LIMITE_VENTAS))
         .map(HistorialVentasDto::from)
+        .map_err(ErrorDto::from)
+}
+
+/// Devuelve lo vendido en la sesión de referencia, agrupado por producto y
+/// presentación (RF-VTA-16).
+#[tauri::command]
+pub fn consultar_ventas_por_producto(
+    estado: State<'_, Estado>,
+) -> Result<VentasPorProductoDto, ErrorDto> {
+    // El mismo adaptador implementa los dos puertos: comparten la base.
+    let caso = ConsultarVentasPorProducto::nuevo(
+        estado.repositorio_producto(),
+        estado.repositorio_producto(),
+    );
+    caso.ejecutar()
+        .map(VentasPorProductoDto::from)
         .map_err(ErrorDto::from)
 }
 
@@ -350,6 +444,236 @@ pub fn marcar_predeterminada(
 ) -> Result<(), ErrorDto> {
     let caso = MarcarPredeterminada::nuevo(estado.repositorio_producto());
     caso.ejecutar(referencia.into()).map_err(ErrorDto::from)
+}
+
+/// Enseña cómo quedaría una revaluación **sin guardar nada**.
+///
+/// Alimenta el cartel de confirmación. No pide clave a propósito: las
+/// cifras que están en juego hay que verlas ANTES de teclearla.
+#[tauri::command]
+pub fn previsualizar_costo(
+    estado: State<'_, Estado>,
+    producto: i64,
+    costo: String,
+) -> Result<RevaluacionDto, ErrorDto> {
+    let caso = CambiarCosto::nuevo(estado.repositorio_producto());
+    caso.previsualizar(producto, &costo)
+        .map(RevaluacionDto::from)
+        .map_err(ErrorDto::from)
+}
+
+/// Fija a mano el costo de un producto revalorando su inventario.
+///
+/// El costo no se almacena: se deriva del valor entre la existencia
+/// (RF-COS-02). Así que esto **mueve el valor del inventario**, y por eso
+/// pide la clave de mantenimiento. La clave se comprueba **en Rust**, no en
+/// la pantalla: el comando queda expuesto a la interfaz, y una validación
+/// que solo vive en JavaScript se salta abriendo las herramientas de
+/// desarrollo.
+#[tauri::command]
+pub fn cambiar_costo(
+    estado: State<'_, Estado>,
+    cambio: NuevoCostoDto,
+) -> Result<RevaluacionDto, ErrorDto> {
+    let caso = CambiarCosto::nuevo(estado.repositorio_producto());
+    caso.ejecutar(cambio.into())
+        .map(RevaluacionDto::from)
+        .map_err(ErrorDto::from)
+}
+
+/// Devuelve las revaluaciones de costo de un producto.
+#[tauri::command]
+pub fn consultar_historial_costos(
+    estado: State<'_, Estado>,
+    producto: i64,
+) -> Result<Vec<CostoListadoDto>, ErrorDto> {
+    let caso = ConsultarHistorialCostos::nuevo(estado.repositorio_producto());
+    caso.ejecutar(producto)
+        .map(|cambios| cambios.into_iter().map(CostoListadoDto::from).collect())
+        .map_err(ErrorDto::from)
+}
+
+// ======================================= quitar del catálogo (RF-CAT-06/07)
+
+/// Dice qué pasaría al quitar este producto del catálogo, **sin tocar nada**.
+///
+/// Hace falta antes de confirmar, no después: lo que viene puede ser un
+/// borrado definitivo o un retiro reversible, y eso cambia la pregunta que
+/// se le hace al usuario.
+#[tauri::command]
+pub fn previsualizar_quitar_producto(
+    estado: State<'_, Estado>,
+    producto: i64,
+) -> Result<ProductoVacioDto, ErrorDto> {
+    let caso = QuitarDelCatalogo::nuevo(estado.repositorio_producto());
+    caso.previsualizar(producto)
+        .map(ProductoVacioDto::from)
+        .map_err(ErrorDto::from)
+}
+
+/// Quita un producto del catálogo y devuelve lo que hizo (RF-CAT-06, RF-CAT-07).
+///
+/// Solo si está en cero. El que nunca se movió se borra; el que vendió se
+/// retira de la venta y conserva su historial. Quién va a cada lado lo
+/// decide Rust al confirmar, no la pantalla: entre el cartel y el clic pudo
+/// entrar mercancía.
+#[tauri::command]
+pub fn quitar_producto(
+    estado: State<'_, Estado>,
+    producto: i64,
+) -> Result<ProductoVacioDto, ErrorDto> {
+    let caso = QuitarDelCatalogo::nuevo(estado.repositorio_producto());
+    caso.ejecutar(producto)
+        .map(ProductoVacioDto::from)
+        .map_err(ErrorDto::from)
+}
+
+/// Reúne los productos sin mercancía repartidos por destino (RF-CAT-13).
+#[tauri::command]
+pub fn previsualizar_limpieza(estado: State<'_, Estado>) -> Result<LimpiezaDto, ErrorDto> {
+    let caso = LimpiarCatalogo::nuevo(estado.repositorio_producto());
+    caso.previsualizar()
+        .map(LimpiezaDto::from)
+        .map_err(ErrorDto::from)
+}
+
+/// Limpia de una vez las etiquetas de productos vacíos (RF-CAT-13).
+///
+/// La lista se vuelve a calcular aquí dentro: la pantalla no manda
+/// identificadores, así que no puede pedir el borrado de algo que entre
+/// tanto dejó de estar vacío.
+#[tauri::command]
+pub fn limpiar_catalogo(estado: State<'_, Estado>) -> Result<LimpiezaDto, ErrorDto> {
+    let caso = LimpiarCatalogo::nuevo(estado.repositorio_producto());
+    caso.ejecutar()
+        .map(LimpiezaDto::from)
+        .map_err(ErrorDto::from)
+}
+
+// =========================================== el consumo (RF-CON)
+
+/// Registra lo que los dueños se llevaron para su casa (RF-CON-01).
+///
+/// Genera una deuda al costo contra la cuenta que lo carga, descuenta la
+/// existencia y deja su asiento en el kárdex. No es una venta —no entra
+/// dinero— ni una merma —no se perdió nada—.
+#[tauri::command]
+pub fn registrar_consumo(
+    estado: State<'_, Estado>,
+    consumo: NuevoConsumoDto,
+) -> Result<ConsumoHechoDto, ErrorDto> {
+    let caso = RegistrarConsumo::nuevo(estado.repositorio_producto(), estado.repositorio_consumo());
+    caso.ejecutar(consumo.into())
+        .map(ConsumoHechoDto::from)
+        .map_err(ErrorDto::from)
+}
+
+/// Dice qué costaría el consumo que se está armando, **sin registrarlo**.
+///
+/// Alimenta el carrito de la pantalla. El costo es promedio ponderado y
+/// nadie lo lleva en la cabeza; y de paso avisa de que falta existencia
+/// antes de que alguien pulse confirmar.
+#[tauri::command]
+pub fn previsualizar_consumo(
+    estado: State<'_, Estado>,
+    consumo: NuevoConsumoDto,
+) -> Result<ConsumoPrevistoDto, ErrorDto> {
+    let caso = RegistrarConsumo::nuevo(estado.repositorio_producto(), estado.repositorio_consumo());
+    caso.previsualizar(&consumo.into())
+        .map(ConsumoPrevistoDto::from)
+        .map_err(ErrorDto::from)
+}
+
+/// Paga toda o parte de la deuda de una cuenta y devuelve el saldo que
+/// queda (RF-CON-10).
+///
+/// **No toca la caja ni el arqueo** (RF-CON-11): liquidar no es un ingreso,
+/// porque el negocio ya gastó ese dinero al comprar la mercancía y el pago
+/// recupera un costo. Si el efectivo entra a la gaveta, se anota a mano
+/// como entrada de efectivo desde Caja.
+#[tauri::command]
+pub fn liquidar_deuda(
+    estado: State<'_, Estado>,
+    liquidacion: NuevaLiquidacionDto,
+) -> Result<String, ErrorDto> {
+    let caso = LiquidarDeuda::nuevo(estado.repositorio_consumo());
+    caso.ejecutar(liquidacion.into()).map_err(ErrorDto::from)
+}
+
+/// Deshace un consumo mal registrado (RF-CON-16).
+///
+/// Devuelve la mercancía a la ubicación de la que salió y al costo con que
+/// salió, y baja la deuda. El registro se conserva marcado como anulado.
+#[tauri::command]
+pub fn anular_consumo(
+    estado: State<'_, Estado>,
+    anulacion: AnulacionConsumoDto,
+) -> Result<(), ErrorDto> {
+    let caso = AnularConsumo::nuevo(estado.repositorio_producto(), estado.repositorio_consumo());
+    caso.ejecutar(anulacion.into()).map_err(ErrorDto::from)
+}
+
+/// Deshace una liquidación mal registrada (RF-CON-17).
+///
+/// **Sube** la deuda otra vez: es la otra dirección del mismo eje que
+/// anular un consumo, que la baja.
+#[tauri::command]
+pub fn anular_pago_consumo(
+    estado: State<'_, Estado>,
+    anulacion: AnulacionConsumoDto,
+) -> Result<(), ErrorDto> {
+    let caso = AnularPagoConsumo::nuevo(estado.repositorio_consumo());
+    caso.ejecutar(anulacion.into()).map_err(ErrorDto::from)
+}
+
+/// Devuelve la deuda total del local y el saldo de cada cuenta (RF-CON-12).
+#[tauri::command]
+pub fn consultar_panel_consumo(estado: State<'_, Estado>) -> Result<PanelConsumoDto, ErrorDto> {
+    let caso = ConsultarConsumo::nuevo(estado.repositorio_consumo());
+    caso.panel()
+        .map(PanelConsumoDto::from)
+        .map_err(ErrorDto::from)
+}
+
+/// Devuelve los consumos y las liquidaciones de una cuenta.
+#[tauri::command]
+pub fn consultar_cuenta_consumo(
+    estado: State<'_, Estado>,
+    cuenta: i64,
+) -> Result<DetalleCuentaDto, ErrorDto> {
+    let caso = ConsultarConsumo::nuevo(estado.repositorio_consumo());
+    caso.cuenta(cuenta, LIMITE_CONSUMOS)
+        .map(DetalleCuentaDto::from)
+        .map_err(ErrorDto::from)
+}
+
+/// Devuelve los renglones de un consumo concreto.
+#[tauri::command]
+pub fn consultar_renglones_consumo(
+    estado: State<'_, Estado>,
+    consumo: i64,
+) -> Result<Vec<LineaConsumoListadaDto>, ErrorDto> {
+    let caso = ConsultarConsumo::nuevo(estado.repositorio_consumo());
+    caso.renglones(consumo)
+        .map(|lineas| lineas.into_iter().map(Into::into).collect())
+        .map_err(ErrorDto::from)
+}
+
+/// Devuelve lo consumido por producto, de lo que más costó a lo que menos.
+///
+/// `cuenta` en blanco suma las tres. Sin fechas mira todo el historial, que
+/// es la pregunta que se hace de verdad: qué se está yendo (RF-CON-13).
+#[tauri::command]
+pub fn consultar_consumo_por_producto(
+    estado: State<'_, Estado>,
+    cuenta: Option<i64>,
+    desde: Option<String>,
+    hasta: Option<String>,
+) -> Result<Vec<ProductoConsumidoDto>, ErrorDto> {
+    let caso = ConsultarConsumo::nuevo(estado.repositorio_consumo());
+    caso.por_producto(cuenta, desde.as_deref(), hasta.as_deref())
+        .map(|filas| filas.into_iter().map(Into::into).collect())
+        .map_err(ErrorDto::from)
 }
 
 /// Devuelve cómo ha ido cambiando el precio de un producto (RF-PRE-04).
@@ -501,19 +825,27 @@ pub fn fijar_comision(estado: State<'_, Estado>, porcentaje: String) -> Result<(
         .map_err(ErrorDto::from)
 }
 
-/// Devuelve las denominaciones con que se cuenta la caja.
+/// Devuelve las denominaciones con que se cuenta una moneda.
+///
+/// `moneda` es `CUP` o `USD`. Son dos listas de largo distinto —doce
+/// billetes de peso frente a siete de dólar—, así que la pantalla tiene que
+/// pedirla y no puede darla por sabida.
 #[tauri::command]
-pub const fn denominaciones_efectivo() -> [i64; 12] {
-    ContarEfectivo::denominaciones()
+pub fn denominaciones_efectivo(moneda: String) -> Result<Vec<i64>, ErrorDto> {
+    let moneda: Moneda = moneda.trim().parse()?;
+    Ok(ContarEfectivo::denominaciones(moneda).to_vec())
 }
 
 /// Suma un recuento de billetes (RF-CAJ-05).
 ///
 /// La pantalla manda cuántos billetes hay de cada valor, en el orden de
-/// `denominaciones_efectivo`, y recibe el total ya formateado.
+/// `denominaciones_efectivo` para esa misma moneda, y recibe el total ya
+/// formateado. El total está expresado en la moneda que se contó: aquí no se
+/// convierte nada ni se suman pesos con dólares.
 #[tauri::command]
-pub fn contar_efectivo(cuantos: Vec<i64>) -> Result<ConteoCalculadoDto, ErrorDto> {
-    ContarEfectivo::ejecutar(&cuantos)
+pub fn contar_efectivo(moneda: String, cuantos: Vec<i64>) -> Result<ConteoCalculadoDto, ErrorDto> {
+    let moneda: Moneda = moneda.trim().parse()?;
+    ContarEfectivo::ejecutar(moneda, &cuantos)
         .map(ConteoCalculadoDto::from)
         .map_err(ErrorDto::from)
 }
@@ -534,6 +866,123 @@ pub fn consultar_informe(
     caso.ejecutar(desde.trim(), hasta.trim(), dias)
         .map(InformeDto::from)
         .map_err(ErrorDto::from)
+}
+
+/// Devuelve el IPV de un turno (RF-IPV-01, RF-IPV-13, RF-IPV-14).
+///
+/// Sin `sesion` se arma el del **turno abierto**, y si no hay ninguno no hay
+/// hoja. Cualquier otro turno exige la clave del sistema, y quien la
+/// comprueba es el caso de uso: este comando queda expuesto a la interfaz y
+/// una puerta que solo viva en JavaScript se salta abriendo las herramientas
+/// de desarrollo.
+#[tauri::command]
+pub fn consultar_ipv(
+    estado: State<'_, Estado>,
+    sesion: Option<i64>,
+    clave: Option<String>,
+) -> Result<IpvDto, ErrorDto> {
+    hoja_de(&estado, &PeticionIpv { sesion, clave }).map(IpvDto::from)
+}
+
+/// Escribe el IPV en un `.xlsx` y devuelve dónde quedó (RF-IPV-12).
+///
+/// Una hoja por turno, en el orden en que llegan. El archivo se guarda en la
+/// carpeta de documentos del usuario y no junto a la base de datos: la
+/// carpeta de datos de la aplicación está escondida en los tres sistemas, y
+/// un informe que no se encuentra no sirve de nada. Se devuelve la ruta para
+/// que la pantalla pueda decirla.
+#[tauri::command]
+pub fn exportar_ipv(
+    app: tauri::AppHandle,
+    estado: State<'_, Estado>,
+    sesiones: Option<Vec<i64>>,
+    clave: Option<String>,
+) -> Result<String, ErrorDto> {
+    let sesiones = sesiones.filter(|s| !s.is_empty());
+
+    // La misma puerta que para mirar la hoja, y por el mismo camino: si
+    // exportar no pidiera la clave, el pasado se leería llamando a este
+    // comando en vez de al otro.
+    let hojas = match sesiones {
+        Some(ids) => ids
+            .into_iter()
+            .map(|id| {
+                hoja_de(
+                    &estado,
+                    &PeticionIpv {
+                        sesion: Some(id),
+                        clave: clave.clone(),
+                    },
+                )
+            })
+            .collect::<Result<Vec<_>, _>>()?,
+        None => vec![hoja_de(&estado, &PeticionIpv::del_turno_abierto())?],
+    };
+
+    let carpeta = app
+        .path()
+        .document_dir()
+        .map_err(|error| ErrorDto::from(ErrorAplicacion::Persistencia(error.to_string())))?
+        .join("Kilo12");
+    std::fs::create_dir_all(&carpeta)
+        .map_err(|error| ErrorDto::from(ErrorAplicacion::Persistencia(error.to_string())))?;
+
+    let ruta = sin_pisar(&carpeta, &nombre_del_libro(&hojas));
+    escribir_ipv(&hojas, &ruta)
+        .map_err(ErrorAplicacion::from)
+        .map_err(ErrorDto::from)?;
+
+    Ok(ruta.to_string_lossy().into_owned())
+}
+
+/// Arma la hoja de un turno. Lo comparten la consulta y la exportación para
+/// que lo que se imprime y lo que se exporta no puedan discrepar, ni en las
+/// cifras ni en quién tiene permiso para verlas.
+fn hoja_de(estado: &State<'_, Estado>, peticion: &PeticionIpv) -> Result<Ipv, ErrorDto> {
+    // El mismo adaptador implementa los tres puertos: comparten la base.
+    let caso = ConsultarIpv::nuevo(
+        estado.repositorio_producto(),
+        estado.repositorio_producto(),
+        estado.repositorio_producto(),
+    );
+    caso.ejecutar(peticion).map_err(ErrorDto::from)
+}
+
+/// Nombre del archivo: la fecha del primer turno y, si hay varios, cuántos.
+///
+/// La fecha se toma del sello del turno y no del reloj: el libro se llama
+/// como el día del que habla, no como el día en que se exportó.
+fn nombre_del_libro(hojas: &[Ipv]) -> String {
+    let fecha = hojas
+        .first()
+        .and_then(|hoja| hoja.sesion.as_ref())
+        .and_then(|sesion| sesion.abierta_en.get(..10))
+        .unwrap_or("sin-fecha")
+        .to_owned();
+
+    if hojas.len() > 1 {
+        format!("IPV {fecha} ({} turnos).xlsx", hojas.len())
+    } else {
+        format!("IPV {fecha}.xlsx")
+    }
+}
+
+/// Busca un nombre libre en la carpeta añadiendo un sufijo.
+///
+/// Sobrescribir sin avisar borraría el IPV que alguien exportó hace un rato
+/// y quizá ya anotó a mano. Diez intentos bastan; si están los diez, se
+/// devuelve el último y el error de escritura lo dirá.
+fn sin_pisar(carpeta: &std::path::Path, nombre: &str) -> std::path::PathBuf {
+    let candidato = carpeta.join(nombre);
+    if !candidato.exists() {
+        return candidato;
+    }
+
+    let raiz = nombre.trim_end_matches(".xlsx");
+    (2..=10)
+        .map(|intento| carpeta.join(format!("{raiz} ({intento}).xlsx")))
+        .find(|ruta| !ruta.exists())
+        .unwrap_or_else(|| carpeta.join(format!("{raiz} (10).xlsx")))
 }
 
 /// Borra todos los datos de la aplicación.

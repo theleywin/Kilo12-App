@@ -272,3 +272,87 @@
   font-size: var(--texto-s);
   color: var(--apagado);
 }
+
+/* ============================================= la venta en espera
+   Apartar una venta para atender a otro cliente (RF-VTA-14). Pendiente
+   va junto a Cobrar pero en segundo plano: cobrar sigue siendo lo que se
+   hace casi siempre. */
+
+.fila--titulo {
+  gap: var(--e2);
+  min-width: 0;
+}
+
+.acciones {
+  gap: var(--e2);
+}
+
+.acciones__cobrar {
+  flex: 1;
+}
+
+.apartar {
+  padding-top: var(--e2);
+  border-top: 1px solid var(--linea-suave);
+}
+
+.apartar input.invalida {
+  border-color: var(--rojo);
+}
+
+/* Lo retomado que ya no se vende: se ve, pero no parece cobrable. */
+.fila--marcada td {
+  background: var(--rojo-suave);
+  color: var(--apagado);
+}
+
+.esperas__aviso {
+  margin: var(--e3) var(--e4) 0;
+}
+
+.esperas {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.espera {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--e3);
+  padding: var(--e2) var(--e4);
+  border-bottom: 1px solid var(--linea-suave);
+}
+
+.espera:last-child {
+  border-bottom: 0;
+}
+
+/* La que está ahora en pantalla, con la misma barra que el resaltado de
+   la búsqueda. */
+.espera--cargada {
+  background: var(--acento-suave);
+  box-shadow: inset 3px 0 0 var(--acento);
+}
+
+.espera__datos {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.espera__nota {
+  overflow: hidden;
+  font-weight: var(--peso-medio);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.espera__acciones {
+  flex: none;
+  gap: var(--e2);
+}

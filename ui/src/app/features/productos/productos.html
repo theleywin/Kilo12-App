@@ -111,6 +111,17 @@
             {{ productos().length }} productos
           }
         </span>
+        @if (vacios() > 0) {
+          <button
+            type="button"
+            class="boton boton--discreto"
+            [disabled]="limpiando()"
+            (click)="revisarLimpieza()"
+          >
+            Eliminar etiquetas vacías
+            <span class="apagado nota">{{ vacios() }}</span>
+          </button>
+        }
         <a class="boton boton--secundario" routerLink="/entrada">
           Recibir mercancía <kbd class="tecla">F2</kbd>
         </a>
@@ -190,4 +201,181 @@
       </table>
     </div>
   </div>
+
+  <!-- ===================================== limpiar etiquetas (RF-CAT-13)
+       Dos grupos separados, y no un montón único, porque por debajo son dos
+       operaciones distintas: borrar no se deshace y retirar sí. Un cartel
+       que dijera «se eliminarán 8 productos» estaría mintiendo sobre la
+       mitad de ellos. -->
+  @if (limpieza(); as prevista) {
+    <div class="velo" (click)="cerrarLimpieza()"></div>
+
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="titulo-limpieza">
+      <div class="modal__cabecera">
+        <span class="modal__titulo" id="titulo-limpieza"
+          >Eliminar etiquetas de productos vacíos</span
+        >
+        <button type="button" class="boton boton--discreto" (click)="cerrarLimpieza()">
+          Cerrar
+        </button>
+      </div>
+
+      <div class="modal__cuerpo">
+        @if (!hayQueLimpiar()) {
+          <div class="vacio">
+            <span class="vacio__titulo">No hay nada que limpiar</span>
+            <span class="vacio__texto">
+              Todo lo que está en cero o sigue a la venta por una razón, o ya está retirado.
+            </span>
+          </div>
+        }
+
+        <!-- ------------------------------------------- lo que se borra -->
+        @if (prevista.seBorran.length > 0) {
+          <div class="grupo">
+            <div class="grupo__titulo">
+              <strong>Se borran para siempre</strong>
+              <span class="etiqueta etiqueta--error">{{ prevista.seBorran.length }}</span>
+            </div>
+            <p class="grupo__texto">
+              Nunca se vendieron ni movieron mercancía. No hay historial que conservar, así que
+              desaparecen del todo y <strong>liberan su código</strong>.
+            </p>
+            <ul class="lista-productos">
+              @for (fila of prevista.seBorran; track fila.id) {
+                <li>
+                  <span>{{ fila.nombre }}</span>
+                  <span class="mono apagado">{{ fila.sku }}</span>
+                  @if (fila.retirado) {
+                    <span class="etiqueta">Ya estaba retirado</span>
+                  }
+                </li>
+              }
+            </ul>
+          </div>
+        }
+
+        <!-- ----------------------------------------- lo que se retira -->
+        @if (prevista.seRetiran.length > 0) {
+          <div class="grupo">
+            <div class="grupo__titulo">
+              <strong>Se retiran de la venta</strong>
+              <span class="etiqueta etiqueta--atencion">{{ prevista.seRetiran.length }}</span>
+            </div>
+            <p class="grupo__texto">
+              Estos sí vendieron, así que su historial no se tira: desaparecen de Vender, Vitrina,
+              Almacén y la lista, y sus ventas siguen contando en los informes. Se recuperan
+              volviendo a marcarlos «a la venta» en su ficha.
+            </p>
+            <ul class="lista-productos">
+              @for (fila of prevista.seRetiran; track fila.id) {
+                <li>
+                  <span>{{ fila.nombre }}</span>
+                  <span class="mono apagado">{{ fila.sku }}</span>
+                  <span class="apagado nota">
+                    @if (fila.ventas > 0) {
+                      {{ fila.ventas }} {{ fila.ventas === 1 ? 'venta' : 'ventas' }}
+                    } @else {
+                      {{ fila.movimientos }}
+                      {{ fila.movimientos === 1 ? 'movimiento' : 'movimientos' }}
+                    }
+                  </span>
+                </li>
+              }
+            </ul>
+          </div>
+        }
+
+        <!-- --------------------------------------- lo que no se toca -->
+        @if (prevista.bloqueados.length > 0) {
+          <div class="grupo">
+            <div class="grupo__titulo">
+              <strong>No se tocan</strong>
+              <span class="etiqueta">{{ prevista.bloqueados.length }}</span>
+            </div>
+            <p class="grupo__texto">
+              Están en una venta apartada sin cobrar. Una venta a medias sigue siendo una venta, y
+              el catálogo no le quita las piezas por debajo: cobra o descarta esa espera y vuelve.
+            </p>
+            <ul class="lista-productos">
+              @for (fila of prevista.bloqueados; track fila.id) {
+                <li>
+                  <span>{{ fila.nombre }}</span>
+                  <span class="mono apagado">{{ fila.sku }}</span>
+                  <span class="apagado nota">
+                    en {{ fila.esperas }}
+                    {{ fila.esperas === 1 ? 'venta en espera' : 'ventas en espera' }}
+                  </span>
+                </li>
+              }
+            </ul>
+          </div>
+        }
+
+        <div class="modal__acciones">
+          <button
+            type="button"
+            class="boton boton--discreto"
+            [disabled]="limpiando()"
+            (click)="cerrarLimpieza()"
+          >
+            Cancelar
+          </button>
+          @if (hayQueLimpiar()) {
+            <button
+              type="button"
+              class="boton boton--peligro"
+              [disabled]="limpiando()"
+              (click)="confirmarLimpieza()"
+            >
+              {{ limpiando() ? 'Limpiando…' : 'Sí, limpiar el catálogo' }}
+            </button>
+          }
+        </div>
+      </div>
+    </div>
+  }
+
+  <!-- ------------------------------------------- lo que de verdad pasó
+       Se enseña lo que devolvió la llamada, no lo que decía el cartel: la
+       lista se vuelve a calcular en Rust al confirmar. -->
+  @if (limpiezaHecha(); as hecha) {
+    <div class="velo" (click)="cerrarLimpieza()"></div>
+
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="titulo-limpio">
+      <div class="modal__cabecera">
+        <span class="modal__titulo" id="titulo-limpio">Catálogo limpio</span>
+        <button type="button" class="boton boton--discreto" (click)="cerrarLimpieza()">
+          Cerrar
+        </button>
+      </div>
+
+      <div class="modal__cuerpo">
+        <ul class="lista-productos">
+          <li>
+            <span>Borrados para siempre</span>
+            <strong class="cifra">{{ hecha.seBorran.length }}</strong>
+          </li>
+          <li>
+            <span>Retirados de la venta, con su historial</span>
+            <strong class="cifra">{{ hecha.seRetiran.length }}</strong>
+          </li>
+          @if (hecha.bloqueados.length > 0) {
+            <li>
+              <span class="apagado">Intactos, en una venta sin cobrar</span>
+              <strong class="cifra apagado">{{ hecha.bloqueados.length }}</strong>
+            </li>
+          }
+        </ul>
+
+        <span class="pista">
+          Los retirados salen otra vez marcando «Ver los retirados». Los borrados, no.
+        </span>
+
+        <div class="modal__acciones">
+          <button type="button" class="boton" (click)="cerrarLimpieza()">Entendido</button>
+        </div>
+      </div>
+    </div>
+  }
 </section>

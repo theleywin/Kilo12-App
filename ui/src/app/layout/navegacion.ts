@@ -18,8 +18,14 @@ export interface Seccion {
   readonly titulo: string;
   /** Una frase que explique la pantalla a quien nunca la ha visto. */
   readonly descripcion: string;
-  /** Atajo de teclado que la abre. */
-  readonly tecla: string;
+  /**
+   * Atajo de teclado que la abre.
+   *
+   * Opcional a propósito. Los atajos son para la ruta caliente de la caja:
+   * una sección que se abre dos veces por semana no justifica quitarle la
+   * tecla a otra ni empujar a la Guía a F11.
+   */
+  readonly tecla?: string;
   readonly icono: Icono;
   readonly densidad: Densidad;
   /** Qué va a vivir aquí. Se muestra mientras la pantalla está pendiente. */
@@ -34,7 +40,10 @@ export type Icono =
   | 'productos'
   | 'ventas'
   | 'caja'
+  | 'contar'
   | 'informes'
+  | 'ipv'
+  | 'consumo'
   | 'guia';
 
 export const SECCIONES: readonly Seccion[] = [
@@ -133,10 +142,21 @@ export const SECCIONES: readonly Seccion[] = [
     ],
   },
   {
+    ruta: 'contar',
+    titulo: 'Contar dinero',
+    descripcion: 'La calculadora de billetes, sin tocar la caja.',
+    // Va pegada a Caja porque es su pariente: quien cuenta un fajo suele
+    // venir de arquear o ir hacia ello.
+    tecla: 'F8',
+    icono: 'contar',
+    densidad: 'amplia',
+    incluye: [],
+  },
+  {
     ruta: 'informes',
     titulo: 'Informes',
     descripcion: 'Qué se vende, qué deja ganancia y qué está por agotarse.',
-    tecla: 'F8',
+    tecla: 'F9',
     icono: 'informes',
     densidad: 'amplia',
     incluye: [
@@ -146,6 +166,38 @@ export const SECCIONES: readonly Seccion[] = [
       'Ganancia del período, descontada la comisión',
     ],
   },
+  {
+    ruta: 'ipv',
+    titulo: 'IPV',
+    descripcion:
+      'La hoja del turno abierto en la vitrina: qué había, qué entró, qué salió y qué quedó.',
+    // Sin atajo: se abre al cerrar el turno, una o dos veces al día, y las
+    // teclas calientes son de la ruta del mostrador.
+    icono: 'ipv',
+    densidad: 'amplia',
+    incluye: [
+      'Una fila por mercancía, al precio de venta',
+      'Lo que bajó del almacén cuenta como entrada a la vitrina',
+      'Columnas de entrada, merma, consumo y salida del turno',
+      'Aviso cuando una fila no cuadra con su existencia final',
+      'Imprimir la hoja y exportarla a Excel',
+      'Las hojas de turnos ya cerrados se consultan desde Caja',
+    ],
+  },
+  {
+    ruta: 'consumo',
+    titulo: 'Consumo',
+    descripcion: 'Lo que se llevan los dueños para su casa, y lo que deben por ello.',
+    // Sin atajo: se abre dos veces por semana, no cien al día.
+    icono: 'consumo',
+    densidad: 'amplia',
+    incluye: [
+      'Tres cuentas: Ivett, Claudia e Inés',
+      'Deuda al costo, no al precio de venta',
+      'Liquidar toda la deuda o una parte',
+      'Qué producto se está yendo en consumo',
+    ],
+  },
 ];
 
 /** Sección de uso interno: el catálogo visual de la aplicación. */
@@ -153,7 +205,7 @@ export const GUIA: Seccion = {
   ruta: 'guia',
   titulo: 'Guía de estilo',
   descripcion: 'El lenguaje visual de Kilo12: colores, textos y piezas.',
-  tecla: 'F9',
+  tecla: 'F10',
   icono: 'guia',
   densidad: 'amplia',
   incluye: [],

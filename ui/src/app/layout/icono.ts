@@ -7,8 +7,8 @@ import { Icono as NombreIcono } from './navegacion';
  *
  * No se usa ninguna biblioteca de iconos: la aplicación funciona sin
  * internet y la política de seguridad de Tauri bloquea cualquier descarga
- * externa. Ocho trazos propios pesan menos que una fuente de iconos con
- * mil símbolos que nunca se van a usar.
+ * externa. Un puñado de trazos propios pesa menos que una fuente de iconos
+ * con mil símbolos que nunca se van a usar.
  *
  * Heredan el color del texto (`currentColor`), así que el menú los pinta
  * sin que el icono sepa nada de la paleta.
@@ -60,9 +60,32 @@ import { Icono as NombreIcono } from './navegacion';
           <circle cx="10" cy="10" r="2.1" />
           <path d="M5.4 10h.01M14.6 10h.01" />
         }
+        @case ('contar') {
+          <!-- Un fajo: el billete de atrás asoma por la esquina. Se
+               distingue de «caja» en que ahí el círculo va centrado, como
+               en la gaveta, y aquí va donde va el retrato. -->
+          <path d="M5.6 6V4.4h11.8v8" />
+          <rect x="2.6" y="6" width="11.8" height="9.2" rx="1.2" />
+          <circle cx="8.5" cy="10.6" r="1.9" />
+        }
         @case ('informes') {
           <path d="M3.4 16.6h13.2" />
           <path d="M6.2 16.6V11M10 16.6V5.4M13.8 16.6v-7.8" />
+        }
+        @case ('ipv') {
+          <!-- Una hoja cuadriculada: el IPV es una tabla que se llena y se
+               cuadra contra el estante. Se distingue de «informes», que son
+               barras, y de «ventas», que es un ticket con la cola
+               recortada. -->
+          <rect x="3.2" y="3" width="13.6" height="14" rx="1.3" />
+          <path d="M3.2 7.2h13.6M3.2 11h13.6M3.2 14.6h13.6M11.4 7.2V17" />
+        }
+        @case ('consumo') {
+          <!-- Una bolsa que sale por la puerta de casa: la mercancía se va
+               del local pero no se vendió. -->
+          <path d="M3 17.4V9.2l7-5.6 7 5.6v8.2" />
+          <path d="M8 17.4v-4.6h4v4.6" />
+          <path d="M13.4 8.6h3.2" />
         }
         @case ('guia') {
           <circle cx="7.6" cy="7.6" r="3.6" />

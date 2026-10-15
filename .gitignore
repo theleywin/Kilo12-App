@@ -22,3 +22,6 @@ __pycache__/
 *.out
 *.toc
 *.debug.tex
+
+# Registro de skills para agentes (local)
+.atl/

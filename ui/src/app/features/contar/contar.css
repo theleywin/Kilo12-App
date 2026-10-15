@@ -1,0 +1,20 @@
+/* Contar dinero.
+   ---------------------------------------------------------------------
+   Casi todo el peso visual lo lleva `app-contador-efectivo`, que trae sus
+   propios estilos. Aquí solo va la barra de arriba: elegir la moneda y
+   empezar de cero. */
+
+.barra {
+  display: flex;
+  align-items: center;
+  gap: var(--e3);
+  flex-wrap: wrap;
+  margin-bottom: var(--e4);
+}
+
+/* «Limpiar» se va al extremo opuesto de la moneda: es la única acción
+   destructiva de la pantalla y no conviene tenerla pegada al dedo que
+   acaba de elegir los billetes. */
+.barra .boton {
+  margin-left: auto;
+}

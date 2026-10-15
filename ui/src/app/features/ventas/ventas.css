@@ -1,6 +1,6 @@
 /* Ventas: lo que ya pasó.
    ---------------------------------------------------------------------
-   Arriba, tres cifras del día que se leen sin detenerse. Abajo, la lista
+   Arriba, tres cifras de la sesión de caja que se leen sin detenerse. Abajo, la lista
    a la izquierda y el detalle a la derecha: elegir una venta no cambia de
    pantalla, solo llena el panel de al lado. */
 
@@ -15,7 +15,24 @@
   padding: var(--e4) var(--e5) var(--e5);
 }
 
-/* ============================================== cómo va el día */
+/* ============================================ cómo va la sesión */
+
+/* A qué sesión se refieren las cifras. Va encima de las tarjetas porque
+   sin ella «Cobrado» a primera hora parece dinero de hoy. */
+.sesion {
+  display: flex;
+  align-items: baseline;
+  gap: var(--e3);
+  flex-wrap: wrap;
+}
+
+.sesion .nota {
+  display: inline;
+}
+
+.vacio--sesion {
+  padding: var(--e5);
+}
 
 .dia {
   display: grid;
@@ -105,9 +122,66 @@
   align-items: start;
 }
 
+/* Agrupado por productos no hay detalle que enseñar: la tabla ocupa todo. */
+.columnas--sola {
+  grid-template-columns: 1fr;
+}
+
 .panel--detalle {
   position: sticky;
   top: var(--e4);
+}
+
+/* Con la columna estrecha, el rótulo y las herramientas no se aprietan
+   en una línea: las herramientas bajan debajo del rótulo. */
+.panel--lista > .panel__cabecera {
+  flex-wrap: wrap;
+  row-gap: var(--e2);
+}
+
+/* La casilla de agrupar y Actualizar, juntos a la derecha del rótulo.
+   Si no caben en la línea del rótulo, bajan enteros a la siguiente. */
+.fila--herramientas {
+  gap: var(--e3);
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/* Cabe en la cabecera del panel sin hacerla más alta. */
+.casilla--compacta {
+  font-size: var(--texto-s);
+  white-space: nowrap;
+}
+
+/* ============================================ agrupado por producto
+   Las columnas de cifras se ajustan a su contenido (el truco del 1 %: la
+   tabla ocupa todo el ancho y el espacio libre se lo reparten Producto y
+   Presentación, que son las que tienen texto largo). */
+
+.tabla--agrupada .derecha {
+  width: 1%;
+  white-space: nowrap;
+  padding-left: var(--e5);
+}
+
+/* El enlace a Informes y su advertencia: discretos, al pie. */
+.pie-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--e1);
+  padding: var(--e3) var(--e4);
+  border-top: 1px solid var(--linea);
+}
+
+.enlace-discreto {
+  font-size: var(--texto-s);
+  font-weight: var(--peso-medio);
+  color: var(--acento);
+  text-decoration: none;
+}
+
+.enlace-discreto:hover {
+  text-decoration: underline;
 }
 
 /* Toda la fila es el botón: apuntar a un enlace diminuto dentro de una

@@ -1,8 +1,10 @@
 //! Casos de uso, uno por operación del negocio.
 
+pub(crate) mod agregados;
 pub mod anular_venta;
 pub mod caja;
 pub mod calcular_cobro;
+pub mod cambiar_costo;
 pub mod catalogo_venta;
 pub mod consultar_almacen;
 pub mod consultar_historial_precios;
@@ -10,9 +12,12 @@ pub mod consultar_kardex;
 pub mod consultar_producto;
 pub mod consultar_ventas;
 pub mod consultar_vitrina;
+pub mod consumo;
 pub mod editar_producto;
 pub mod fijar_objetivo_vitrina;
 pub mod informes;
+pub mod ipv;
+pub mod limpiar_catalogo;
 pub mod listar_productos;
 pub mod mantenimiento;
 pub mod previsualizar_venta;
@@ -23,15 +28,20 @@ pub mod simular_movimiento;
 pub mod tasa_cambio;
 pub mod traspasar;
 pub mod vender;
+pub mod venta_en_espera;
+pub mod ventas_por_producto;
 
 pub use anular_venta::{AnularVenta, ComandoAnularVenta};
 pub use caja::{
     AbrirCaja, ArqueoListado, CerrarCaja, CierreCalculado, ComandoAbrirCaja, ComandoCerrarCaja,
     ComandoMoverEfectivo, ConsultarCaja, ContarEfectivo, ConteoCalculado, DesgloseVenta,
     EstadoCaja, HistorialCajas, LineaConteo, MoverEfectivo, MovimientoEfectivoListado,
-    ResumenEconomico, SesionListada,
+    ResumenEconomico, SesionDeReferencia, SesionListada,
 };
 pub use calcular_cobro::{CalcularCobro, CobroCalculado};
+pub use cambiar_costo::{
+    CambiarCosto, CambioDeCostoListado, ComandoCambiarCosto, ConsultarHistorialCostos, Revaluacion,
+};
 pub use catalogo_venta::{CatalogoDeVenta, PresentacionVendible, ProductoVendible};
 pub use consultar_almacen::{ConsultarAlmacen, ResumenAlmacen};
 pub use consultar_historial_precios::{CambioDePrecioListado, ConsultarHistorialPrecios};
@@ -42,6 +52,12 @@ pub use consultar_ventas::{
     VentaDetallada, VentaListada,
 };
 pub use consultar_vitrina::{ConsultarVitrina, LineaVitrina, ResumenVitrina};
+pub use consumo::{
+    AnularConsumo, AnularPagoConsumo, ComandoAnularConsumo, ComandoLiquidar,
+    ComandoRegistrarConsumo, ConsultarConsumo, ConsumoHecho, ConsumoListado, ConsumoPrevisto,
+    CuentaEnDeuda, DetalleCuenta, LineaConsumoListada, LineaConsumoPedida, LineaPrevistaConsumo,
+    LiquidarDeuda, PagoListado, PanelConsumo, ProductoConsumido, RegistrarConsumo,
+};
 pub use editar_producto::{
     AgregarPresentacion, CambiarPrecio, ComandoAgregarPresentacion, ComandoCambiarPrecio,
     ComandoEditarProducto, ComandoPresentacion, DesactivarPresentacion, EditarProducto,
@@ -52,6 +68,8 @@ pub use informes::{
     ComparativaDiaria, ConsultarInforme, Informe, PorcionMetodo, ProductoEnInforme, ProductoParado,
     ProductoPorAgotarse, PuntoDiario, PuntoHorario, ResumenPeriodo,
 };
+pub use ipv::{CifrasIpv, ConsultarIpv, FilaIpv, FormaVendida, Ipv, PeticionIpv};
+pub use limpiar_catalogo::{Destino, LimpiarCatalogo, Limpieza, ProductoVacio, QuitarDelCatalogo};
 pub use listar_productos::{ListarProductos, OrdenCatalogo, ProductoListado};
 pub use mantenimiento::{BorrarTodo, CLAVE_MANTENIMIENTO};
 pub use previsualizar_venta::{LineaPrevista, PrevisualizarVenta, VentaPrevista};
@@ -62,6 +80,11 @@ pub use simular_movimiento::{ComandoSimular, Simulacion, SimularMovimiento};
 pub use tasa_cambio::{ConsultarTasa, FijarTasa};
 pub use traspasar::{ComandoTraspasar, Traspasar};
 pub use vender::{ComandoVender, LineaPedida, PagoPedido, Vender, VentaHecha};
+pub use venta_en_espera::{
+    ComandoDejarEnEspera, DejarVentaEnEspera, EliminarVentaEnEspera, LineaRetomada,
+    ListarVentasEnEspera, ProblemaLinea, RetomarVentaEnEspera, VentaEnEsperaListada, VentaRetomada,
+};
+pub use ventas_por_producto::{ConsultarVentasPorProducto, FilaVendida, VentasPorProducto};
 
 use domain::{Cantidad, Producto};
 

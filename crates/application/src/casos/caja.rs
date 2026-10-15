@@ -9,9 +9,9 @@
 //! buscando un descuadre que no existe.
 
 use domain::{
-    contar_billetes, ArqueoMoneda, Comision, Dinero, ErrorDominio, IdSesion, ModoCierre,
-    MovimientoEfectivo, Porcentaje, ResumenCierre, SesionCaja, TasaCambio, TipoMovimientoEfectivo,
-    TotalesCaja, DENOMINACIONES_CUP,
+    contar_billetes, denominaciones, ArqueoMoneda, Comision, Dinero, ErrorDominio, IdSesion,
+    ModoCierre, Moneda, MovimientoEfectivo, Porcentaje, ResumenCierre, SesionCaja, TasaCambio,
+    TipoMovimientoEfectivo, TotalesCaja,
 };
 
 use crate::casos::vender::CLAVE_TASA;
@@ -127,6 +127,21 @@ pub struct SesionListada {
     pub cerrada_en: Option<String>,
     pub fecha: String,
     pub abierta: bool,
+}
+
+/// La sesión a la que se refieren «las ventas de hoy» (RF-VTA-16).
+///
+/// «Hoy» no es el día del calendario: es el turno de caja. Un turno que
+/// cruza la medianoche sigue siendo el mismo turno, y un día con dos turnos
+/// son dos cuentas distintas. Con la caja abierta es esa; con la caja
+/// cerrada es la última que se cerró, que es la que el dueño quiere repasar.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SesionDeReferencia {
+    pub id: i64,
+    pub abierta: bool,
+    pub abierta_en: String,
+    /// Vacía mientras la sesión siga abierta.
+    pub cerrada_en: Option<String>,
 }
 
 // ========================================================== abrir la caja
@@ -274,7 +289,7 @@ impl<'a, R: RepositorioProducto> MoverEfectivo<'a, R> {
 /// Un renglón del recuento: cuántos billetes de una denominación.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LineaConteo {
-    /// Valor del billete, en pesos enteros.
+    /// Valor del billete, en unidades enteras de su moneda.
     pub denominacion: i64,
     pub cuantos: i64,
     /// Lo que suman esos billetes.
@@ -295,22 +310,26 @@ pub struct ConteoCalculado {
 /// La cajera teclea cuántos billetes tiene de cada valor y el total sale de
 /// aquí. Sumar doce productos en la pantalla sería tentador y también sería
 /// la única cifra del cierre calculada fuera del núcleo.
+///
+/// Cuenta pesos o dólares, según la moneda que se le pida. Son dos fajos
+/// distintos y nunca se suman entre sí: el resultado está expresado en la
+/// moneda que se contó, y quien lo muestre es el que sabe cuál era.
 #[derive(Debug)]
 pub struct ContarEfectivo;
 
 impl ContarEfectivo {
-    /// Denominaciones con que se cuenta, de menor a mayor.
-    pub const fn denominaciones() -> [i64; 12] {
-        DENOMINACIONES_CUP
+    /// Denominaciones con que se cuenta una moneda, de menor a mayor.
+    pub const fn denominaciones(moneda: Moneda) -> &'static [i64] {
+        denominaciones(moneda)
     }
 
     /// Suma un recuento.
     ///
-    /// `cuantos` llega en el mismo orden que [`Self::denominaciones`]. Un
-    /// hueco vacío cuenta como cero: la cajera no tiene por qué escribir
-    /// ceros en los billetes que no tiene.
-    pub fn ejecutar(cuantos: &[i64]) -> Resultado<ConteoCalculado> {
-        let recuento: Vec<(i64, i64)> = DENOMINACIONES_CUP
+    /// `cuantos` llega en el mismo orden que [`Self::denominaciones`] para
+    /// esa misma moneda. Un hueco vacío cuenta como cero: la cajera no tiene
+    /// por qué escribir ceros en los billetes que no tiene.
+    pub fn ejecutar(moneda: Moneda, cuantos: &[i64]) -> Resultado<ConteoCalculado> {
+        let recuento: Vec<(i64, i64)> = denominaciones(moneda)
             .iter()
             .enumerate()
             .map(|(indice, valor)| (*valor, cuantos.get(indice).copied().unwrap_or(0)))
@@ -607,6 +626,38 @@ fn presentar_cierre(
             comision: cierre.comision.importe().formatear(2),
             ganancia_neta: ganancia_neta.formatear(2),
         },
+    })
+}
+
+/// Busca la sesión de referencia: la abierta o, si no hay, la última.
+///
+/// Devuelve `None` si nunca se ha abierto una caja. No es un error: es el
+/// estado de una tienda recién instalada, y la pantalla tiene que poder
+/// dibujarlo.
+///
+/// Como solo puede haber una sesión abierta a la vez, sin ninguna abierta
+/// la más reciente es por fuerza la última que se cerró.
+pub fn sesion_de_referencia<R: RepositorioProducto>(
+    repositorio: &R,
+) -> Resultado<Option<SesionDeReferencia>> {
+    let registrada = match repositorio.sesion_abierta()? {
+        Some(abierta) => Some(abierta),
+        None => repositorio.listar_sesiones(1)?.into_iter().next(),
+    };
+
+    registrada.map(como_referencia).transpose()
+}
+
+/// Reduce una sesión guardada a lo que las pantallas necesitan de ella.
+///
+/// Lo usa tanto la sesión de referencia como quien pide un turno concreto
+/// —el IPV, por ejemplo—, para que las dos vías describan el turno igual.
+pub fn como_referencia(registrada: SesionRegistrada) -> Resultado<SesionDeReferencia> {
+    Ok(SesionDeReferencia {
+        id: identificador(&registrada)?.0,
+        abierta: registrada.sesion.esta_abierta(),
+        abierta_en: registrada.abierta_en,
+        cerrada_en: registrada.cerrada_en,
     })
 }
 

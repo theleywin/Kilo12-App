@@ -7,27 +7,48 @@ import {
   CierreCajaPedido,
   CierreCalculadoDto,
   CobroCalculadoDto,
+  AnulacionConsumoDto,
+  ConsumoHechoDto,
+  ConsumoPrevistoDto,
   ConteoCalculadoDto,
+  CostoListadoDto,
+  DetalleCuentaDto,
   EstadoCajaDto,
   HistorialVentasDto,
   InformeDto,
+  IpvDto,
   ErrorDto,
   FichaProductoDto,
+  LimpiezaDto,
+  LineaConsumoListadaDto,
   MargenDto,
+  Moneda,
   MovimientoDto,
   NuevaEntradaDto,
+  NuevaLiquidacionDto,
   NuevaMermaDto,
+  NuevaVentaDto,
+  NuevaVentaEnEsperaDto,
+  NuevoConsumoDto,
+  NuevoCostoDto,
   NuevoProductoDto,
   LineaVentaDto,
   NuevoTraspasoDto,
   PagoDto,
+  RevaluacionDto,
+  PanelConsumoDto,
+  ProductoConsumidoDto,
   ProductoDto,
+  ProductoVacioDto,
   ProductoVendibleDto,
   SimulacionDto,
   SesionListadaDto,
   VentaDetalladaDto,
+  VentaEnEsperaDto,
   VentaHechaDto,
   VentaPrevistaDto,
+  VentaRetomadaDto,
+  VentasPorProductoDto,
   VitrinaDto,
 } from './api.types';
 
@@ -94,21 +115,60 @@ export class Kilo12Api {
    * Va entera en una sola llamada: si algo falla no se guarda nada, ni
    * media venta ni medio descuento de inventario.
    */
-  vender(venta: {
-    lineas: LineaVentaDto[];
-    pagos: PagoDto[];
-  }): Promise<VentaHechaDto> {
+  vender(venta: NuevaVentaDto): Promise<VentaHechaDto> {
     return invoke<VentaHechaDto>('vender', { venta });
   }
 
+  // ------------------------------------- venta en espera (RF-VTA-14)
+
   /**
-   * El historial de ventas con el corte del día (RF-VTA-16).
+   * Aparta la venta en curso y devuelve su identificador.
    *
-   * Los totales y la ganancia vienen calculados: la ganancia sale del costo
-   * que tenía la mercancía cuando se vendió, no del de hoy.
+   * No hace falta caja abierta ni se toca la vitrina: apartar no mueve
+   * dinero ni mercancía.
+   */
+  dejarVentaEnEspera(espera: NuevaVentaEnEsperaDto): Promise<number> {
+    return invoke<number>('dejar_venta_en_espera', { espera });
+  }
+
+  /** Las ventas en espera, de la más antigua a la más reciente. */
+  listarVentasEnEspera(): Promise<VentaEnEsperaDto[]> {
+    return invoke<VentaEnEsperaDto[]>('listar_ventas_en_espera');
+  }
+
+  /**
+   * Recupera una venta en espera, calculada con el precio de hoy.
+   *
+   * No la borra: se borra al cobrarla (con `esperaId` en `vender`) o al
+   * eliminarla. Los renglones que ya no se pueden vender llegan marcados.
+   */
+  retomarVentaEnEspera(id: number): Promise<VentaRetomadaDto> {
+    return invoke<VentaRetomadaDto>('retomar_venta_en_espera', { id });
+  }
+
+  /** Descarta una venta en espera sin cobrarla. */
+  eliminarVentaEnEspera(id: number): Promise<void> {
+    return invoke<void>('eliminar_venta_en_espera', { id });
+  }
+
+  /**
+   * El historial de ventas con el corte de la sesión de caja (RF-VTA-16).
+   *
+   * Las tarjetas (`hoy`) cuentan la sesión abierta o, si no hay, la última
+   * cerrada; `sesion` dice cuál. Los totales y la ganancia vienen
+   * calculados: la ganancia sale del costo que tenía la mercancía cuando se
+   * vendió, no del de hoy.
    */
   consultarVentas(limite?: number): Promise<HistorialVentasDto> {
     return invoke<HistorialVentasDto>('consultar_ventas', { limite });
+  }
+
+  /**
+   * Lo vendido en la sesión de referencia: una fila por producto y
+   * presentación, de la que más vendió a la que menos.
+   */
+  consultarVentasPorProducto(): Promise<VentasPorProductoDto> {
+    return invoke<VentasPorProductoDto>('consultar_ventas_por_producto');
   }
 
   /** Una venta concreta, con sus líneas y sus formas de pago. */
@@ -180,6 +240,28 @@ export class Kilo12Api {
   }
 
   /**
+   * El IPV de un turno (RF-IPV-01, RF-IPV-13, RF-IPV-14).
+   *
+   * Sin `sesion` se arma el del **turno abierto**, y si no hay ninguno la
+   * hoja llega vacía. Cualquier otro turno exige la clave del sistema, y
+   * quien la comprueba es Rust: una puerta que solo viva aquí se salta
+   * abriendo las herramientas de desarrollo.
+   */
+  consultarIpv(sesion?: number, clave?: string): Promise<IpvDto> {
+    return invoke<IpvDto>('consultar_ipv', { sesion, clave });
+  }
+
+  /**
+   * Escribe el IPV en un `.xlsx` y devuelve dónde quedó (RF-IPV-12).
+   *
+   * Una hoja por turno. El archivo va a la carpeta de documentos del
+   * usuario, y la ruta se devuelve para poder decírsela.
+   */
+  exportarIpv(sesiones?: readonly number[], clave?: string): Promise<string> {
+    return invoke<string>('exportar_ipv', { sesiones, clave });
+  }
+
+  /**
    * Borra todos los datos de la aplicación. **No tiene vuelta atrás.**
    *
    * La clave la comprueba Rust, no esta pantalla: validar solo aquí sería
@@ -189,20 +271,27 @@ export class Kilo12Api {
     return invoke<void>('borrar_todos_los_datos', { clave });
   }
 
-  /** Denominaciones con que se cuenta la caja, de menor a mayor. */
-  denominacionesEfectivo(): Promise<number[]> {
-    return invoke<number[]>('denominaciones_efectivo');
+  /**
+   * Denominaciones con que se cuenta una moneda, de menor a mayor.
+   *
+   * Las dos listas no miden lo mismo —doce billetes de peso frente a siete
+   * de dólar—, así que la pantalla las pide y no las da por sabidas.
+   */
+  denominacionesEfectivo(moneda: Moneda): Promise<number[]> {
+    return invoke<number[]>('denominaciones_efectivo', { moneda });
   }
 
   /**
    * Suma un recuento de billetes.
    *
-   * `cuantos` va en el mismo orden que `denominacionesEfectivo`. La suma la
-   * hace Rust: es la cifra contra la que se arquea la caja y no se calcula
-   * en la pantalla, como ninguna otra cifra de dinero.
+   * `cuantos` va en el mismo orden que `denominacionesEfectivo` para esa
+   * misma moneda. La suma la hace Rust: es la cifra contra la que se arquea
+   * la caja y no se calcula en la pantalla, como ninguna otra cifra de
+   * dinero. El total viene en la moneda que se contó; aquí no se convierte
+   * nada ni se suman pesos con dólares.
    */
-  contarEfectivo(cuantos: number[]): Promise<ConteoCalculadoDto> {
-    return invoke<ConteoCalculadoDto>('contar_efectivo', { cuantos });
+  contarEfectivo(moneda: Moneda, cuantos: number[]): Promise<ConteoCalculadoDto> {
+    return invoke<ConteoCalculadoDto>('contar_efectivo', { moneda, cuantos });
   }
 
   /** Porcentaje de comisión del operador, si está configurado. */
@@ -254,11 +343,7 @@ export class Kilo12Api {
   }
 
   /** Cambia el precio de una presentación y lo anota en el historial. */
-  cambiarPrecio(cambio: {
-    producto: number;
-    presentacion: number;
-    precio: string;
-  }): Promise<void> {
+  cambiarPrecio(cambio: { producto: number; presentacion: number; precio: string }): Promise<void> {
     return invoke<void>('cambiar_precio', { cambio });
   }
 
@@ -275,6 +360,147 @@ export class Kilo12Api {
   /** Devuelve cómo ha ido cambiando el precio de un producto. */
   consultarHistorialPrecios(producto: number): Promise<CambioPrecioDto[]> {
     return invoke<CambioPrecioDto[]>('consultar_historial_precios', { producto });
+  }
+
+  // ------------------------------------------- el costo (revaluación)
+
+  /**
+   * Enseña cómo quedaría una revaluación **sin guardar nada**.
+   *
+   * Alimenta el cartel de confirmación, y no pide clave a propósito: las
+   * cifras que están en juego hay que verlas antes de teclearla. Las
+   * calcula Rust, como todas: aquí no se multiplica dinero.
+   */
+  previsualizarCosto(producto: number, costo: string): Promise<RevaluacionDto> {
+    return invoke<RevaluacionDto>('previsualizar_costo', { producto, costo });
+  }
+
+  /**
+   * Fija a mano el costo de un producto. **Revalora el inventario.**
+   *
+   * El costo no se almacena: se deriva del valor entre la existencia
+   * (RF-COS-02). Cambiarlo mueve el valor del inventario, que es la cifra
+   * que de verdad existe, y por eso pide la clave de mantenimiento. La
+   * comprueba Rust, no esta pantalla: validar solo aquí sería un cerrojo
+   * que se abre con las herramientas de desarrollo.
+   */
+  cambiarCosto(cambio: NuevoCostoDto): Promise<RevaluacionDto> {
+    return invoke<RevaluacionDto>('cambiar_costo', { cambio });
+  }
+
+  /** Devuelve las revaluaciones de costo de un producto. */
+  consultarHistorialCostos(producto: number): Promise<CostoListadoDto[]> {
+    return invoke<CostoListadoDto[]>('consultar_historial_costos', { producto });
+  }
+
+  // ----------------------------------------- el consumo (RF-CON)
+
+  /**
+   * Dice qué costaría el consumo que se está armando, sin registrarlo.
+   *
+   * El costo es promedio ponderado: la pantalla no puede sumarlo, lo
+   * pregunta. Y de paso se entera de si falta existencia antes de que
+   * alguien pulse confirmar.
+   */
+  previsualizarConsumo(consumo: NuevoConsumoDto): Promise<ConsumoPrevistoDto> {
+    return invoke<ConsumoPrevistoDto>('previsualizar_consumo', { consumo });
+  }
+
+  /** Registra lo que los dueños se llevaron (RF-CON-01). */
+  registrarConsumo(consumo: NuevoConsumoDto): Promise<ConsumoHechoDto> {
+    return invoke<ConsumoHechoDto>('registrar_consumo', { consumo });
+  }
+
+  /**
+   * Paga toda o parte de la deuda y devuelve el saldo que queda.
+   *
+   * **No toca la caja** (RF-CON-11): liquidar no es un ingreso, el negocio
+   * recupera un costo que ya había gastado.
+   */
+  liquidarDeuda(liquidacion: NuevaLiquidacionDto): Promise<string> {
+    return invoke<string>('liquidar_deuda', { liquidacion });
+  }
+
+  /** Deshace un consumo: devuelve la mercancía y baja la deuda. */
+  anularConsumo(anulacion: AnulacionConsumoDto): Promise<void> {
+    return invoke<void>('anular_consumo', { anulacion });
+  }
+
+  /** Deshace una liquidación: **sube** la deuda otra vez. */
+  anularPagoConsumo(anulacion: AnulacionConsumoDto): Promise<void> {
+    return invoke<void>('anular_pago_consumo', { anulacion });
+  }
+
+  /** La deuda del local y el saldo de cada cuenta. */
+  consultarPanelConsumo(): Promise<PanelConsumoDto> {
+    return invoke<PanelConsumoDto>('consultar_panel_consumo');
+  }
+
+  /** Los consumos y las liquidaciones de una cuenta. */
+  consultarCuentaConsumo(cuenta: number): Promise<DetalleCuentaDto> {
+    return invoke<DetalleCuentaDto>('consultar_cuenta_consumo', { cuenta });
+  }
+
+  /** Los renglones de un consumo concreto. */
+  consultarRenglonesConsumo(consumo: number): Promise<LineaConsumoListadaDto[]> {
+    return invoke<LineaConsumoListadaDto[]>('consultar_renglones_consumo', { consumo });
+  }
+
+  /**
+   * Lo consumido por producto, de lo que más costó a lo que menos.
+   *
+   * Llega ya ordenado de Rust: ordenar aquí obligaría a comparar las
+   * cadenas formateadas, donde «9.00» va por encima de «10.00».
+   */
+  consultarConsumoPorProducto(
+    cuenta?: number,
+    desde?: string,
+    hasta?: string,
+  ): Promise<ProductoConsumidoDto[]> {
+    return invoke<ProductoConsumidoDto[]>('consultar_consumo_por_producto', {
+      cuenta,
+      desde,
+      hasta,
+    });
+  }
+
+  // ------------------------------- quitar del catálogo (RF-CAT-06/07/13)
+
+  /**
+   * Dice qué pasaría al quitar este producto, sin tocar nada.
+   *
+   * Hay que preguntarlo antes de abrir el cartel: lo que viene puede ser un
+   * borrado definitivo o un retiro reversible, y la pregunta no es la misma.
+   */
+  previsualizarQuitarProducto(producto: number): Promise<ProductoVacioDto> {
+    return invoke<ProductoVacioDto>('previsualizar_quitar_producto', { producto });
+  }
+
+  /**
+   * Quita un producto del catálogo y devuelve lo que hizo.
+   *
+   * Solo si está en cero. Si nunca se movió lo borra; si vendió lo retira de
+   * la venta conservando su historial (RF-CAT-06, RF-CAT-07). Quién va a cada
+   * lado lo decide Rust al confirmar, no esta pantalla.
+   */
+  quitarProducto(producto: number): Promise<ProductoVacioDto> {
+    return invoke<ProductoVacioDto>('quitar_producto', { producto });
+  }
+
+  /** Reúne los productos sin mercancía, repartidos por destino. */
+  previsualizarLimpieza(): Promise<LimpiezaDto> {
+    return invoke<LimpiezaDto>('previsualizar_limpieza');
+  }
+
+  /**
+   * Limpia de una vez las etiquetas de productos vacíos (RF-CAT-13).
+   *
+   * No se le mandan identificadores a propósito: la lista se recalcula en
+   * Rust al confirmar, así que lo que entre tanto dejó de estar vacío no se
+   * toca aunque saliera en el cartel.
+   */
+  limpiarCatalogo(): Promise<LimpiezaDto> {
+    return invoke<LimpiezaDto>('limpiar_catalogo');
   }
 
   /**
@@ -361,12 +587,7 @@ export class Kilo12Api {
  * siempre tenga un código y un mensaje que mostrar.
  */
 export function comoError(valor: unknown): ErrorDto {
-  if (
-    typeof valor === 'object' &&
-    valor !== null &&
-    'codigo' in valor &&
-    'mensaje' in valor
-  ) {
+  if (typeof valor === 'object' && valor !== null && 'codigo' in valor && 'mensaje' in valor) {
     return valor as ErrorDto;
   }
 

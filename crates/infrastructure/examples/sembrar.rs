@@ -156,7 +156,14 @@ fn cobrar_una(
         entregado: "100000.00".to_owned(),
     }];
 
-    let hecha = match Vender::nuevo(repositorio).ejecutar(ComandoVender { lineas, pagos }) {
+    // Sin venta en espera: el sembrador cobra directo.
+    let comando = ComandoVender {
+        lineas,
+        pagos,
+        espera_id: None,
+    };
+
+    let hecha = match Vender::nuevo(repositorio).ejecutar(comando) {
         Ok(hecha) => hecha,
         // Sin existencia suficiente: se salta esta y sigue. Es esperable
         // cuando un producto se vacía antes de terminar el periodo.

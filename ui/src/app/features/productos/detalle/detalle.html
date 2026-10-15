@@ -13,7 +13,7 @@
 
   @if (ficha(); as producto) {
     <header class="cabecera-pagina">
-      <a class="volver" routerLink="/productos">← Todos los productos</a>
+      <a class="volver" routerLink="/productos">Todos los productos</a>
       <div class="fila fila--titulo">
         <h1>{{ producto.nombre }}</h1>
         <span class="etiqueta etiqueta--acento">{{ producto.sku }}</span>
@@ -69,6 +69,155 @@
           <span class="pista pista--fuerte">
             Retirado de la venta. No aparecerá al vender, pero su historial se conserva entero.
           </span>
+        }
+      </div>
+
+      <!-- ------------------------------------------------- el costo
+           El costo no es un campo: se deriva del valor del inventario
+           entre la existencia (RF-COS-02). Cambiarlo mueve el valor del
+           negocio, así que vive aparte de los datos editables y detrás de
+           una confirmación con clave. -->
+      <div class="panel__cabecera panel__cabecera--interna">
+        <span class="panel__titulo">Costo</span>
+        @if (!cambiandoCosto()) {
+          <button
+            type="button"
+            class="boton boton--discreto"
+            [disabled]="producto.costo === '—'"
+            (click)="abrirCambioDeCosto()"
+          >
+            Cambiar costo
+          </button>
+        }
+      </div>
+
+      <div class="panel__cuerpo">
+        <p class="apagado">
+          Cuesta
+          <strong class="cifra">{{ producto.costo }}</strong>
+          por {{ producto.unidadBase }}, a costo promedio ponderado sobre las
+          <strong class="cifra">{{ producto.existenciaTotal }}</strong>
+          {{ producto.unidadBase }} que tienes.
+        </p>
+
+        @if (producto.costo === '—') {
+          <span class="pista">
+            Sin existencia no hay costo: sale de repartir el valor invertido entre la mercancía que
+            queda. Da entrada en Entrada <kbd class="tecla">F2</kbd> y el costo aparecerá solo.
+          </span>
+        }
+
+        <!-- ------------------------------------- el cartel de cambio -->
+        @if (cambiandoCosto()) {
+          <div class="cartel" role="group" aria-label="Cambiar el costo del producto">
+            <div class="cartel__titulo">
+              <strong>¿Seguro que quieres cambiar el costo?</strong>
+            </div>
+
+            <p class="cartel__texto">
+              El costo no se guarda como un dato: sale de dividir el valor del inventario entre la
+              existencia. Cambiarlo <strong>mueve el valor de tu inventario</strong>, sin que nadie
+              haya comprado ni vendido nada. Las ventas ya cobradas no se tocan: cada una se quedó
+              con el costo que tenía ese día.
+            </p>
+
+            <div class="cartel__campos">
+              <div class="campo">
+                <label for="costo-nuevo">
+                  Costo nuevo <span class="opcional">por {{ producto.unidadBase }}</span>
+                </label>
+                <input
+                  id="costo-nuevo"
+                  class="control--cifra"
+                  inputmode="decimal"
+                  autocomplete="off"
+                  [value]="costoNuevo()"
+                  (input)="alEscribirCosto($any($event.target).value)"
+                  (keydown.escape)="cerrarCambioDeCosto()"
+                />
+              </div>
+
+              <div class="campo">
+                <label for="clave-costo">
+                  Clave <span class="opcional">la misma que borra los datos</span>
+                </label>
+                <input
+                  id="clave-costo"
+                  type="password"
+                  autocomplete="off"
+                  placeholder="••••••"
+                  [value]="clave()"
+                  (input)="clave.set($any($event.target).value)"
+                  (keydown.enter)="confirmarCambioDeCosto()"
+                  (keydown.escape)="cerrarCambioDeCosto()"
+                />
+              </div>
+            </div>
+
+            <!-- Las cifras las calcula Rust mientras se escribe: aquí no
+                 se multiplica el costo por la existencia. -->
+            @if (revaluacion(); as prevista) {
+              <table class="tabla tabla--cartel">
+                <tbody>
+                  <tr>
+                    <th>Costo por {{ prevista.unidadBase }}</th>
+                    <td class="derecha cifra apagado">{{ prevista.costoAnterior }}</td>
+                    <td class="centro apagado">→</td>
+                    <td class="derecha cifra">{{ prevista.costoNuevo }}</td>
+                  </tr>
+                  <tr>
+                    <th>
+                      Valor del inventario
+                      <span class="apagado nota">
+                        {{ prevista.existencia }} {{ prevista.unidadBase }}
+                      </span>
+                    </th>
+                    <td class="derecha cifra apagado">{{ prevista.valorAnterior }}</td>
+                    <td class="centro apagado">→</td>
+                    <td class="derecha cifra">
+                      <strong>{{ prevista.valorNuevo }}</strong>
+                    </td>
+                  </tr>
+                  <tr>
+                    <th>Diferencia</th>
+                    <td colspan="3" class="derecha">
+                      <strong
+                        class="cifra"
+                        [class.cifra--negativa]="!prevista.sube"
+                        [class.cifra--positiva]="prevista.sube"
+                      >
+                        {{ prevista.sube ? '+' : '' }}{{ prevista.diferencia }}
+                      </strong>
+                      <span class="apagado nota">
+                        {{
+                          prevista.sube ? 'de valor que nadie compró' : 'de valor que desaparece'
+                        }}
+                      </span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            }
+
+            <div class="cartel__acciones">
+              <button
+                type="button"
+                class="boton boton--discreto"
+                [disabled]="ocupado()"
+                (click)="cerrarCambioDeCosto()"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                class="boton boton--peligro"
+                [disabled]="!puedeCambiarCosto"
+                (click)="confirmarCambioDeCosto()"
+              >
+                {{ ocupado() ? 'Cambiando…' : 'Sí, cambiar el costo' }}
+              </button>
+            </div>
+          </div>
         }
       </div>
 
@@ -316,6 +465,177 @@
           </table>
         </div>
       }
+
+      <!-- --------------------------------- historial de costos
+           Aparte del de precios porque son dos cosas distintas: el precio
+           es lo que cobras y el costo es lo que vale tu inventario. -->
+      <div class="panel__cabecera panel__cabecera--interna">
+        <span class="panel__titulo">Historial de costos</span>
+        <button type="button" class="boton boton--discreto" (click)="alternarHistorialCostos()">
+          {{ mostrarHistorialCostos() ? 'Ocultar' : 'Ver' }}
+        </button>
+      </div>
+
+      @if (mostrarHistorialCostos()) {
+        <div class="tabla-envoltorio">
+          <table class="tabla">
+            <thead>
+              <tr>
+                <th>Cuándo</th>
+                <th class="derecha">Costo antes</th>
+                <th class="derecha">Costo después</th>
+                <th class="derecha">Existencia</th>
+                <th class="derecha">Valor antes</th>
+                <th class="derecha">Valor después</th>
+                <th class="derecha">Diferencia</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (cambio of historialCostos(); track cambio.id) {
+                <tr>
+                  <td class="mono">{{ cambio.cambiadoEn }}</td>
+                  <td class="derecha cifra apagado">{{ cambio.anterior }}</td>
+                  <td class="derecha cifra">{{ cambio.nuevo }}</td>
+                  <td class="derecha cifra apagado">{{ cambio.existencia }}</td>
+                  <td class="derecha cifra apagado">{{ cambio.valorAnterior }}</td>
+                  <td class="derecha cifra">{{ cambio.valorNuevo }}</td>
+                  <td class="derecha cifra" [class.cifra--negativa]="!cambio.subio">
+                    {{ cambio.subio ? '+' : '' }}{{ cambio.diferencia }}
+                  </td>
+                </tr>
+              } @empty {
+                <tr>
+                  <td colspan="7">
+                    <div class="vacio">
+                      <span class="vacio__titulo">Nunca se cambió el costo a mano</span>
+                      <span class="vacio__texto">
+                        El costo se mueve solo cuando entra mercancía con un costo distinto, y eso
+                        va en el kárdex. Aquí solo aparecen las veces que se fijó a mano.
+                      </span>
+                    </div>
+                  </td>
+                </tr>
+              }
+            </tbody>
+          </table>
+        </div>
+      }
+
+      <!-- --------------------------- quitar del catálogo (RF-CAT-06/07)
+           Al final de la ficha y no arriba: es lo último que se hace con un
+           producto, y nada de lo que hay encima debería compartir sitio con
+           el único botón del que no se vuelve. -->
+      <div class="panel__cabecera panel__cabecera--interna">
+        <span class="panel__titulo">Quitar del catálogo</span>
+        @if (!quitada()) {
+          <button
+            type="button"
+            class="boton boton--discreto"
+            [disabled]="ocupado() || !producto.agotado"
+            (click)="abrirQuitar()"
+          >
+            Quitar este producto
+          </button>
+        }
+      </div>
+
+      <div class="panel__cuerpo">
+        @if (!producto.agotado) {
+          <p class="apagado">
+            Todavía tienes
+            <strong class="cifra">{{ producto.existenciaTotal }}</strong>
+            {{ producto.unidadBase }}. Un producto sale del catálogo cuando su existencia es cero:
+            véndelo o dale de baja por merma desde Almacén <kbd class="tecla">F3</kbd>.
+          </p>
+        } @else if (!quitada()) {
+          <p class="apagado">
+            Está en cero. Si nunca llegó a venderse, se borra del todo y libera su código; si vendió
+            alguna vez, se retira de la venta y conserva su historial entero.
+          </p>
+        }
+
+        <!-- ------------------------------------ el cartel de quitar -->
+        @if (quitada(); as prevista) {
+          <div class="cartel" role="group" aria-label="Quitar el producto del catálogo">
+            @switch (prevista.destino) {
+              @case (destinos.BORRAR) {
+                <div class="cartel__titulo">
+                  <strong>¿Borrar «{{ prevista.nombre }}» para siempre?</strong>
+                </div>
+                <p class="cartel__texto">
+                  Este producto <strong>nunca se vendió ni movió mercancía</strong>, así que no hay
+                  historial que conservar: desaparece del todo, con sus presentaciones y sus
+                  precios, y su código <span class="mono">{{ prevista.sku }}</span> queda libre para
+                  volver a usarse. <strong>No se puede deshacer.</strong>
+                </p>
+              }
+              @case (destinos.RETIRAR) {
+                <div class="cartel__titulo">
+                  <strong>¿Retirar «{{ prevista.nombre }}» de la venta?</strong>
+                </div>
+                <p class="cartel__texto">
+                  Este producto no se puede borrar, y es a propósito: tiene
+                  @if (prevista.ventas > 0) {
+                    <strong>{{ prevista.ventas }}</strong>
+                    {{ prevista.ventas === 1 ? 'venta' : 'ventas' }} y
+                  }
+                  <strong>{{ prevista.movimientos }}</strong>
+                  {{ prevista.movimientos === 1 ? 'asiento' : 'asientos' }} en su kárdex. Borrarlo
+                  dejaría esas ventas apuntando a la nada. Lo que se hace es
+                  <strong>retirarlo</strong>: deja de aparecer al vender, en Vitrina, en Almacén y
+                  en la lista, y todo su historial sigue intacto. Se recupera marcándolo «a la
+                  venta» otra vez.
+                </p>
+              }
+              @case (destinos.BLOQUEADO) {
+                <div class="cartel__titulo">
+                  <strong>«{{ prevista.nombre }}» está en una venta sin cobrar</strong>
+                </div>
+                <p class="cartel__texto">
+                  Aparece en
+                  <strong>{{ prevista.esperas }}</strong>
+                  {{ prevista.esperas === 1 ? 'venta en espera' : 'ventas en espera' }}. Una venta a
+                  medias sigue siendo una venta, y el catálogo no le quita las piezas por debajo.
+                  Cóbrala o descártala en Vender <kbd class="tecla">F1</kbd> y vuelve.
+                </p>
+              }
+            }
+
+            <div class="cartel__acciones">
+              <button
+                type="button"
+                class="boton boton--discreto"
+                [disabled]="ocupado()"
+                (click)="cerrarQuitar()"
+              >
+                {{ prevista.destino === destinos.BLOQUEADO ? 'Entendido' : 'Cancelar' }}
+              </button>
+              @if (prevista.destino !== destinos.BLOQUEADO) {
+                <button
+                  type="button"
+                  class="boton boton--peligro"
+                  [disabled]="ocupado()"
+                  (click)="confirmarQuitar()"
+                >
+                  @if (ocupado()) {
+                    Quitando…
+                  } @else if (prevista.destino === destinos.BORRAR) {
+                    Sí, borrarlo
+                  } @else {
+                    Sí, retirarlo
+                  }
+                </button>
+              }
+            </div>
+          </div>
+        }
+      </div>
+    </div>
+  } @else if (seBorro()) {
+    <div class="vacio">
+      <span class="vacio__titulo">Producto borrado</span>
+      <span class="vacio__texto"> No quedó nada de él y su código volvió a estar libre. </span>
+      <a class="boton" routerLink="/productos">Volver al catálogo</a>
     </div>
   } @else if (!cargando()) {
     <div class="vacio">

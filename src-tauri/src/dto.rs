@@ -12,19 +12,28 @@
 use application::casos::{
     ArqueoListado, CierreCalculado, ComandoAbrirCaja, ComandoAnularVenta, ComandoCerrarCaja,
     ComandoMoverEfectivo, ConteoCalculado, DesgloseVenta, EstadoCaja, Informe, ProductoEnInforme,
-    SesionListada,
+    SesionDeReferencia, SesionListada,
 };
 use application::casos::{
-    CambioDePrecioListado, ComandoAgregarPresentacion, ComandoCambiarPrecio, ComandoEditarProducto,
-    ComandoFijarObjetivo, ComandoPresentacion, ComandoRegistrarEntrada, ComandoRegistrarMerma,
-    ComandoRegistrarProducto, ComandoSimular, ComandoTraspasar, FichaProducto, LineaKardex,
-    LineaVitrina, PresentacionDetallada, ProductoListado, ResumenAlmacen, ResumenVitrina,
-    Simulacion,
+    CambioDeCostoListado, CambioDePrecioListado, ComandoAgregarPresentacion, ComandoCambiarCosto,
+    ComandoCambiarPrecio, ComandoEditarProducto, ComandoFijarObjetivo, ComandoPresentacion,
+    ComandoRegistrarEntrada, ComandoRegistrarMerma, ComandoRegistrarProducto, ComandoSimular,
+    ComandoTraspasar, FichaProducto, Limpieza, LineaKardex, LineaVitrina, PresentacionDetallada,
+    ProductoListado, ProductoVacio, ResumenAlmacen, ResumenVitrina, Revaluacion, Simulacion,
 };
 use application::casos::{
     CobroCalculado, ComandoVender, HistorialVentas, LineaPedida, LineaVendida, PagoHecho,
     PagoPedido, ProductoVendible, VentaDetallada, VentaHecha, VentaListada, VentaPrevista,
 };
+use application::casos::{
+    ComandoAnularConsumo, ComandoLiquidar, ComandoRegistrarConsumo, ConsumoHecho, ConsumoListado,
+    ConsumoPrevisto, CuentaEnDeuda, DetalleCuenta, LineaConsumoListada, LineaConsumoPedida,
+    LineaPrevistaConsumo, PagoListado, PanelConsumo, ProductoConsumido,
+};
+use application::casos::{
+    ComandoDejarEnEspera, LineaRetomada, VentaEnEsperaListada, VentaRetomada,
+};
+use application::casos::{FilaIpv, FilaVendida, FormaVendida, Ipv, VentasPorProducto};
 use application::{ErrorAplicacion, Margen};
 use serde::{Deserialize, Serialize};
 
@@ -440,6 +449,9 @@ pub struct FichaProductoDto {
     pub stock_minimo: String,
     pub objetivo_vitrina: String,
     pub existencia_total: String,
+    /// No queda nada. Viaja como bandera porque `existencia_total` llega con
+    /// los decimales de su unidad: a granel el cero es «0.000».
+    pub agotado: bool,
     pub presentaciones: Vec<PresentacionDto>,
 }
 
@@ -457,6 +469,7 @@ impl From<FichaProducto> for FichaProductoDto {
             stock_minimo: ficha.stock_minimo,
             objetivo_vitrina: ficha.objetivo_vitrina,
             existencia_total: ficha.existencia_total,
+            agotado: ficha.agotado,
             presentaciones: ficha
                 .presentaciones
                 .into_iter()
@@ -544,6 +557,518 @@ impl From<ReferenciaPresentacionDto> for ComandoPresentacion {
         Self {
             producto: dto.producto,
             presentacion: dto.presentacion,
+        }
+    }
+}
+
+/// Un costo nuevo para un producto, con la clave que lo autoriza.
+///
+/// Se llama `Nuevo…` como el resto de las **entradas** (`NuevaEntradaDto`,
+/// `NuevaMermaDto`) y no `CambioCostoDto`, para que no pase lo que ya pasó
+/// con el precio: en Rust `CambioPrecioDto` es la entrada del comando y en
+/// la interfaz hay una interfaz del mismo nombre que es la salida del
+/// historial. Dos cosas distintas con el mismo nombre y nada que lo detecte.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NuevoCostoDto {
+    pub producto: i64,
+    /// Costo nuevo por unidad base.
+    pub costo: String,
+    /// Clave de mantenimiento. La comprueba Rust, no la pantalla.
+    pub clave: String,
+}
+
+impl From<NuevoCostoDto> for ComandoCambiarCosto {
+    fn from(dto: NuevoCostoDto) -> Self {
+        Self {
+            producto: dto.producto,
+            costo: dto.costo,
+            clave: dto.clave,
+        }
+    }
+}
+
+/// Lo que una revaluación haría, o lo que acaba de hacer.
+///
+/// Lleva las dos puntas del costo **y las del valor del inventario**: la
+/// cifra que el cartel tiene que enseñar no es el costo nuevo, que ya lo
+/// escribió el usuario, sino cuánto se mueve el valor del negocio.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RevaluacionDto {
+    pub producto: i64,
+    pub nombre: String,
+    pub unidad_base: String,
+    pub existencia: String,
+    pub costo_anterior: String,
+    pub costo_nuevo: String,
+    pub valor_anterior: String,
+    pub valor_nuevo: String,
+    pub diferencia: String,
+    pub sube: bool,
+}
+
+impl From<Revaluacion> for RevaluacionDto {
+    fn from(revaluacion: Revaluacion) -> Self {
+        Self {
+            producto: revaluacion.producto,
+            nombre: revaluacion.nombre,
+            unidad_base: revaluacion.unidad_base,
+            existencia: revaluacion.existencia,
+            costo_anterior: revaluacion.costo_anterior,
+            costo_nuevo: revaluacion.costo_nuevo,
+            valor_anterior: revaluacion.valor_anterior,
+            valor_nuevo: revaluacion.valor_nuevo,
+            diferencia: revaluacion.diferencia,
+            sube: revaluacion.sube,
+        }
+    }
+}
+
+/// Una revaluación ya ocurrida.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CostoListadoDto {
+    pub id: i64,
+    pub anterior: String,
+    pub nuevo: String,
+    pub existencia: String,
+    pub valor_anterior: String,
+    pub valor_nuevo: String,
+    pub diferencia: String,
+    pub subio: bool,
+    pub cambiado_en: String,
+}
+
+impl From<CambioDeCostoListado> for CostoListadoDto {
+    fn from(cambio: CambioDeCostoListado) -> Self {
+        Self {
+            id: cambio.id,
+            anterior: cambio.anterior,
+            nuevo: cambio.nuevo,
+            existencia: cambio.existencia,
+            valor_anterior: cambio.valor_anterior,
+            valor_nuevo: cambio.valor_nuevo,
+            diferencia: cambio.diferencia,
+            subio: cambio.subio,
+            cambiado_en: cambio.cambiado_en,
+        }
+    }
+}
+
+/// Un producto sin mercancía, con lo que se haría con él (RF-CAT-13).
+///
+/// `destino` viaja como código y no como texto para la pantalla: `BORRAR`,
+/// `RETIRAR` o `BLOQUEADO`. La frase que lee el usuario la escribe la
+/// interfaz, igual que con los códigos de error (DT-7).
+///
+/// Las cifras del rastro van incluidas porque son la explicación: «se retira
+/// porque tiene 142 ventas» se puede discutir, y «se retira» a secas solo se
+/// puede obedecer.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProductoVacioDto {
+    pub id: i64,
+    pub sku: String,
+    pub nombre: String,
+    /// `BORRAR`, `RETIRAR` o `BLOQUEADO`.
+    pub destino: String,
+    pub ventas: i64,
+    pub movimientos: i64,
+    pub esperas: i64,
+    /// Ya estaba retirado de la venta.
+    pub retirado: bool,
+}
+
+impl From<ProductoVacio> for ProductoVacioDto {
+    fn from(vacio: ProductoVacio) -> Self {
+        Self {
+            id: vacio.id,
+            sku: vacio.sku,
+            nombre: vacio.nombre,
+            destino: vacio.destino.como_texto().to_owned(),
+            ventas: vacio.ventas,
+            movimientos: vacio.movimientos,
+            esperas: vacio.esperas,
+            retirado: vacio.retirado,
+        }
+    }
+}
+
+/// Lo que una limpieza del catálogo haría, o lo que acaba de hacer.
+///
+/// Los tres grupos viajan separados a propósito: el cartel de confirmación
+/// tiene que enseñar qué se va para siempre, qué solo se esconde y qué no se
+/// toca. Un único montón obligaría a la pantalla a clasificarlo otra vez.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LimpiezaDto {
+    pub se_borran: Vec<ProductoVacioDto>,
+    pub se_retiran: Vec<ProductoVacioDto>,
+    pub bloqueados: Vec<ProductoVacioDto>,
+}
+
+impl From<Limpieza> for LimpiezaDto {
+    fn from(limpieza: Limpieza) -> Self {
+        Self {
+            se_borran: limpieza.se_borran.into_iter().map(Into::into).collect(),
+            se_retiran: limpieza.se_retiran.into_iter().map(Into::into).collect(),
+            bloqueados: limpieza.bloqueados.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+// ============================================ el consumo (RF-CON)
+
+/// Un renglón de lo que los dueños se llevan.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LineaConsumoDto {
+    pub producto: i64,
+    pub presentacion: i64,
+    /// Cuántas presentaciones, no unidades base.
+    pub cantidad: String,
+    /// `BODEGA` o `VITRINA`. Va por renglón: se puede coger el aceite de
+    /// la vitrina y el arroz de la bodega en el mismo acto.
+    pub origen: String,
+}
+
+impl From<LineaConsumoDto> for LineaConsumoPedida {
+    fn from(dto: LineaConsumoDto) -> Self {
+        Self {
+            producto: dto.producto,
+            presentacion: dto.presentacion,
+            cantidad: dto.cantidad,
+            origen: dto.origen,
+        }
+    }
+}
+
+/// Lo que llega de la pantalla al registrar un consumo (RF-CON-01).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NuevoConsumoDto {
+    pub cuenta: i64,
+    /// Quién se lo llevó. Puede no ser la dueña de la cuenta.
+    pub tomado_por: String,
+    pub lineas: Vec<LineaConsumoDto>,
+}
+
+impl From<NuevoConsumoDto> for ComandoRegistrarConsumo {
+    fn from(dto: NuevoConsumoDto) -> Self {
+        Self {
+            cuenta: dto.cuenta,
+            tomado_por: dto.tomado_por,
+            lineas: dto.lineas.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+/// Lo que llega al liquidar una deuda (RF-CON-10).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NuevaLiquidacionDto {
+    pub cuenta: i64,
+    pub importe: String,
+    #[serde(default)]
+    pub nota: Option<String>,
+}
+
+impl From<NuevaLiquidacionDto> for ComandoLiquidar {
+    fn from(dto: NuevaLiquidacionDto) -> Self {
+        Self {
+            cuenta: dto.cuenta,
+            importe: dto.importe,
+            nota: dto.nota,
+        }
+    }
+}
+
+/// Lo que llega al anular un consumo o una liquidación.
+///
+/// Sirve para las dos porque las dos piden lo mismo: qué se anula y por
+/// qué. Lo que distingue una de otra es el comando que la recibe.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AnulacionConsumoDto {
+    pub id: i64,
+    pub motivo: String,
+}
+
+impl From<AnulacionConsumoDto> for ComandoAnularConsumo {
+    fn from(dto: AnulacionConsumoDto) -> Self {
+        Self {
+            id: dto.id,
+            motivo: dto.motivo,
+        }
+    }
+}
+
+/// Lo que un consumo acaba de generar.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConsumoHechoDto {
+    pub id: i64,
+    pub cuenta: String,
+    pub tomado_por: String,
+    pub total: String,
+    /// Saldo de la cuenta después de cargarlo.
+    pub saldo: String,
+    pub cuantas_lineas: usize,
+}
+
+impl From<ConsumoHecho> for ConsumoHechoDto {
+    fn from(hecho: ConsumoHecho) -> Self {
+        Self {
+            id: hecho.id,
+            cuenta: hecho.cuenta,
+            tomado_por: hecho.tomado_por,
+            total: hecho.total,
+            saldo: hecho.saldo,
+            cuantas_lineas: hecho.cuantas_lineas,
+        }
+    }
+}
+
+/// Una cuenta con su saldo.
+///
+/// El saldo viaja **sin signo** y con la bandera `a_favor` al lado. Es la
+/// tercera de las cuatro capas que podrían recortar un negativo
+/// (RF-CON-14), y no lo hace: el signo no se pierde, cambia de sitio. Un
+/// «-500.00» en pantalla se lee como un error de cálculo; «500.00 a favor»
+/// se lee como lo que es.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CuentaEnDeudaDto {
+    pub id: i64,
+    pub nombre: String,
+    pub activa: bool,
+    pub consumido: String,
+    pub pagado: String,
+    pub saldo: String,
+    pub a_favor: bool,
+    /// Parte de la deuda del local que carga esta cuenta, sin el símbolo.
+    pub porcion: String,
+    /// La misma parte de 0 a 1000. La pantalla divide entre diez para
+    /// dibujar: es geometría, no dinero.
+    pub peso: i64,
+}
+
+impl From<CuentaEnDeuda> for CuentaEnDeudaDto {
+    fn from(cuenta: CuentaEnDeuda) -> Self {
+        Self {
+            id: cuenta.id,
+            nombre: cuenta.nombre,
+            activa: cuenta.activa,
+            consumido: cuenta.consumido,
+            pagado: cuenta.pagado,
+            saldo: cuenta.saldo,
+            a_favor: cuenta.a_favor,
+            porcion: cuenta.porcion,
+            peso: cuenta.peso,
+        }
+    }
+}
+
+/// El primer nivel del desglose: el total del local y sus cuentas.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PanelConsumoDto {
+    pub total: String,
+    pub a_favor: bool,
+    pub cuentas: Vec<CuentaEnDeudaDto>,
+}
+
+impl From<PanelConsumo> for PanelConsumoDto {
+    fn from(panel: PanelConsumo) -> Self {
+        Self {
+            total: panel.total,
+            a_favor: panel.a_favor,
+            cuentas: panel.cuentas.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+/// Un consumo tal como se lista.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConsumoListadoDto {
+    pub id: i64,
+    pub tomado_por: String,
+    pub total: String,
+    pub ocurrido_en: String,
+    pub anulado: bool,
+    pub motivo_anulacion: Option<String>,
+}
+
+impl From<ConsumoListado> for ConsumoListadoDto {
+    fn from(listado: ConsumoListado) -> Self {
+        Self {
+            id: listado.id,
+            tomado_por: listado.tomado_por,
+            total: listado.total,
+            ocurrido_en: listado.ocurrido_en,
+            anulado: listado.anulado,
+            motivo_anulacion: listado.motivo_anulacion,
+        }
+    }
+}
+
+/// Una liquidación tal como se lista.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PagoConsumoListadoDto {
+    pub id: i64,
+    pub importe: String,
+    pub nota: Option<String>,
+    pub ocurrido_en: String,
+    pub anulado: bool,
+    pub motivo_anulacion: Option<String>,
+}
+
+impl From<PagoListado> for PagoConsumoListadoDto {
+    fn from(listado: PagoListado) -> Self {
+        Self {
+            id: listado.id,
+            importe: listado.importe,
+            nota: listado.nota,
+            ocurrido_en: listado.ocurrido_en,
+            anulado: listado.anulado,
+            motivo_anulacion: listado.motivo_anulacion,
+        }
+    }
+}
+
+/// El segundo nivel: una cuenta con lo que se llevó y lo que pagó.
+///
+/// Las dos listas van separadas y no fundidas en una línea de tiempo: con
+/// saldo corriente un pago no se ata a consumos concretos (RF-CON-10), así
+/// que mezclarlos sugeriría una correspondencia que no existe.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DetalleCuentaDto {
+    pub cuenta: CuentaEnDeudaDto,
+    pub consumos: Vec<ConsumoListadoDto>,
+    pub pagos: Vec<PagoConsumoListadoDto>,
+}
+
+impl From<DetalleCuenta> for DetalleCuentaDto {
+    fn from(detalle: DetalleCuenta) -> Self {
+        Self {
+            cuenta: detalle.cuenta.into(),
+            consumos: detalle.consumos.into_iter().map(Into::into).collect(),
+            pagos: detalle.pagos.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+/// Un renglón tal como quedaría, con su importe ya calculado.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LineaPrevistaConsumoDto {
+    pub producto: i64,
+    pub nombre_producto: String,
+    pub nombre_presentacion: String,
+    pub origen: String,
+    pub cantidad: String,
+    pub costo_unitario: String,
+    pub importe: String,
+}
+
+impl From<LineaPrevistaConsumo> for LineaPrevistaConsumoDto {
+    fn from(linea: LineaPrevistaConsumo) -> Self {
+        Self {
+            producto: linea.producto,
+            nombre_producto: linea.nombre_producto,
+            nombre_presentacion: linea.nombre_presentacion,
+            origen: linea.origen,
+            cantidad: linea.cantidad,
+            costo_unitario: linea.costo_unitario,
+            importe: linea.importe,
+        }
+    }
+}
+
+/// Lo que un consumo generaría, sin registrar nada.
+///
+/// Alimenta el carrito: el costo es promedio ponderado y nadie lo lleva en
+/// la cabeza, así que «¿cuánto cuesta llevarme esto?» hay que preguntarlo.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConsumoPrevistoDto {
+    pub cuenta: String,
+    pub tomado_por: String,
+    pub total: String,
+    pub saldo_resultante: String,
+    pub a_favor: bool,
+    pub lineas: Vec<LineaPrevistaConsumoDto>,
+}
+
+impl From<ConsumoPrevisto> for ConsumoPrevistoDto {
+    fn from(prevista: ConsumoPrevisto) -> Self {
+        Self {
+            cuenta: prevista.cuenta,
+            tomado_por: prevista.tomado_por,
+            total: prevista.total,
+            saldo_resultante: prevista.saldo_resultante,
+            a_favor: prevista.a_favor,
+            lineas: prevista.lineas.into_iter().map(Into::into).collect(),
+        }
+    }
+}
+
+/// Un renglón de un consumo: el nivel más fino del desglose.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LineaConsumoListadaDto {
+    pub producto: i64,
+    pub nombre_producto: String,
+    pub nombre_presentacion: String,
+    pub origen: String,
+    pub cantidad: String,
+    pub costo_unitario: String,
+    /// Lo que ese renglón sumó a la deuda.
+    pub importe: String,
+}
+
+impl From<LineaConsumoListada> for LineaConsumoListadaDto {
+    fn from(linea: LineaConsumoListada) -> Self {
+        Self {
+            producto: linea.producto,
+            nombre_producto: linea.nombre_producto,
+            nombre_presentacion: linea.nombre_presentacion,
+            origen: linea.origen,
+            cantidad: linea.cantidad,
+            costo_unitario: linea.costo_unitario,
+            importe: linea.importe,
+        }
+    }
+}
+
+/// Lo consumido de un producto: el eje que dice qué se está yendo.
+///
+/// No lleva el campo con que se ordena. Ya llega ordenado de Rust, y
+/// mandar la clave de orden invitaría a reordenar en la pantalla
+/// comparando cadenas formateadas, donde «9.00» va por encima de «10.00».
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProductoConsumidoDto {
+    pub producto: i64,
+    pub nombre: String,
+    pub cantidad: String,
+    pub costo: String,
+    /// Largo de su barra, de 0 a 1000. La pantalla divide entre diez.
+    pub peso: i64,
+}
+
+impl From<ProductoConsumido> for ProductoConsumidoDto {
+    fn from(fila: ProductoConsumido) -> Self {
+        Self {
+            producto: fila.producto,
+            nombre: fila.nombre,
+            cantidad: fila.cantidad,
+            costo: fila.costo,
+            peso: fila.peso,
         }
     }
 }
@@ -646,20 +1171,16 @@ pub struct PagoDto {
 pub struct NuevaVentaDto {
     pub lineas: Vec<LineaVentaDto>,
     pub pagos: Vec<PagoDto>,
+    /// La venta en espera de la que sale este cobro, si sale de una
+    /// (RF-VTA-14). Se borra en la misma operación que registra la venta.
+    #[serde(default)]
+    pub espera_id: Option<i64>,
 }
 
 impl From<NuevaVentaDto> for ComandoVender {
     fn from(dto: NuevaVentaDto) -> Self {
         Self {
-            lineas: dto
-                .lineas
-                .into_iter()
-                .map(|l| LineaPedida {
-                    producto: l.producto,
-                    presentacion: l.presentacion,
-                    cantidad: l.cantidad,
-                })
-                .collect(),
+            lineas: lineas_pedidas(dto.lineas),
             pagos: dto
                 .pagos
                 .into_iter()
@@ -668,6 +1189,143 @@ impl From<NuevaVentaDto> for ComandoVender {
                     entregado: p.entregado,
                 })
                 .collect(),
+            espera_id: dto.espera_id,
+        }
+    }
+}
+
+fn lineas_pedidas(lineas: Vec<LineaVentaDto>) -> Vec<LineaPedida> {
+    lineas
+        .into_iter()
+        .map(|l| LineaPedida {
+            producto: l.producto,
+            presentacion: l.presentacion,
+            cantidad: l.cantidad,
+        })
+        .collect()
+}
+
+// ------------------------------------------------ venta en espera (RF-VTA-14)
+
+/// La venta en curso que se aparta al pulsar «Pendiente».
+///
+/// Solo viaja la intención —producto, presentación y cantidad—: ni precio
+/// ni pagos. Al retomarla se calcula con el precio de ese momento.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NuevaVentaEnEsperaDto {
+    /// Texto libre para reconocerla en la lista. Opcional.
+    #[serde(default)]
+    pub nota: Option<String>,
+    pub lineas: Vec<LineaVentaDto>,
+}
+
+impl From<NuevaVentaEnEsperaDto> for ComandoDejarEnEspera {
+    fn from(dto: NuevaVentaEnEsperaDto) -> Self {
+        Self {
+            nota: dto.nota,
+            lineas: lineas_pedidas(dto.lineas),
+        }
+    }
+}
+
+/// Una venta en espera en la lista.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VentaEnEsperaDto {
+    pub id: i64,
+    pub nota: Option<String>,
+    /// `YYYY-MM-DD HH:MM:SS`, hora local. La antigüedad se calcula con esto.
+    pub creada_en: String,
+    pub cuantas_lineas: i64,
+}
+
+impl From<VentaEnEsperaListada> for VentaEnEsperaDto {
+    fn from(listada: VentaEnEsperaListada) -> Self {
+        Self {
+            id: listada.id,
+            nota: listada.nota,
+            creada_en: listada.creada_en,
+            cuantas_lineas: listada.cuantas_lineas,
+        }
+    }
+}
+
+/// Por qué un renglón retomado no se puede cobrar tal cual.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProblemaLineaDto {
+    /// `PRODUCTO_NO_ENCONTRADO`, `PRODUCTO_INACTIVO`,
+    /// `PRESENTACION_NO_ENCONTRADA`, `PRESENTACION_INACTIVA`,
+    /// `CANTIDAD_INVALIDA` o `SIN_EXISTENCIA`.
+    pub codigo: String,
+    pub mensaje: String,
+}
+
+/// Un renglón de la venta retomada, al precio de hoy.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LineaRetomadaDto {
+    pub producto: i64,
+    pub presentacion: i64,
+    /// Vacío si el producto ya no existe.
+    pub nombre_producto: String,
+    /// Vacío si la presentación ya no existe.
+    pub nombre_presentacion: String,
+    pub cantidad: String,
+    /// Solo en los renglones que se pueden calcular.
+    pub precio: Option<String>,
+    pub importe: Option<String>,
+    pub unidades_base: Option<String>,
+    pub problema: Option<ProblemaLineaDto>,
+}
+
+impl From<LineaRetomada> for LineaRetomadaDto {
+    fn from(linea: LineaRetomada) -> Self {
+        Self {
+            producto: linea.producto,
+            presentacion: linea.presentacion,
+            nombre_producto: linea.nombre_producto,
+            nombre_presentacion: linea.nombre_presentacion,
+            cantidad: linea.cantidad,
+            precio: linea.precio,
+            importe: linea.importe,
+            unidades_base: linea.unidades_base,
+            problema: linea.problema.map(|problema| ProblemaLineaDto {
+                codigo: problema.codigo().to_owned(),
+                mensaje: problema.to_string(),
+            }),
+        }
+    }
+}
+
+/// Una venta en espera lista para volver a la pantalla.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VentaRetomadaDto {
+    pub id: i64,
+    pub nota: Option<String>,
+    pub creada_en: String,
+    pub lineas: Vec<LineaRetomadaDto>,
+    /// Suma de los renglones que se pueden calcular.
+    pub total: String,
+    /// Algún renglón hay que corregirlo antes de cobrar.
+    pub hay_problemas: bool,
+}
+
+impl From<VentaRetomada> for VentaRetomadaDto {
+    fn from(retomada: VentaRetomada) -> Self {
+        Self {
+            id: retomada.id,
+            nota: retomada.nota,
+            creada_en: retomada.creada_en,
+            lineas: retomada
+                .lineas
+                .into_iter()
+                .map(LineaRetomadaDto::from)
+                .collect(),
+            total: retomada.total,
+            hay_problemas: retomada.hay_problemas,
         }
     }
 }
@@ -762,15 +1420,41 @@ impl From<CobroCalculado> for CobroCalculadoDto {
     }
 }
 
-/// El historial de ventas con el corte del día.
+/// El historial de ventas con el corte de la sesión de caja.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HistorialVentasDto {
+    /// Lo vendido en la sesión de referencia, no en el día del calendario.
     pub hoy: ResumenDelDiaDto,
+    /// A qué sesión se refiere `hoy`. `null` si nunca se abrió una caja.
+    pub sesion: Option<SesionDeReferenciaDto>,
     pub ventas: Vec<VentaListadaDto>,
 }
 
-/// Lo vendido hoy.
+/// La sesión a la que se refieren «las ventas de hoy»: la abierta o, si no
+/// hay, la última cerrada.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SesionDeReferenciaDto {
+    pub id: i64,
+    pub abierta: bool,
+    pub abierta_en: String,
+    /// `null` mientras siga abierta.
+    pub cerrada_en: Option<String>,
+}
+
+impl From<SesionDeReferencia> for SesionDeReferenciaDto {
+    fn from(sesion: SesionDeReferencia) -> Self {
+        Self {
+            id: sesion.id,
+            abierta: sesion.abierta,
+            abierta_en: sesion.abierta_en,
+            cerrada_en: sesion.cerrada_en,
+        }
+    }
+}
+
+/// Lo vendido en la sesión de referencia.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResumenDelDiaDto {
@@ -801,11 +1485,152 @@ impl From<HistorialVentas> for HistorialVentasDto {
                 total: historial.hoy.total,
                 ganancia: historial.hoy.ganancia,
             },
+            sesion: historial.sesion.map(SesionDeReferenciaDto::from),
             ventas: historial
                 .ventas
                 .into_iter()
                 .map(VentaListadaDto::from)
                 .collect(),
+        }
+    }
+}
+
+// ============================================================= el IPV
+
+/// La hoja del IPV de un turno (RF-IPV-01).
+///
+/// Las cifras viajan ya formateadas, como en todas las demás vistas: la
+/// pantalla no hace aritmética de dinero (DT-7). Las versiones sin formatear
+/// que lleva el núcleo se quedan en Rust, que es quien escribe el `.xlsx`.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IpvDto {
+    /// `null` si nunca se abrió una caja.
+    pub sesion: Option<SesionDeReferenciaDto>,
+    pub filas: Vec<FilaIpvDto>,
+    pub importe_total: String,
+    pub vendido_real: String,
+    pub diferencia: String,
+    pub cuadra: bool,
+}
+
+/// Una mercancía de la hoja.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FilaIpvDto {
+    pub producto: i64,
+    pub mercancia: String,
+    pub inicial: String,
+    pub entrada: String,
+    pub merma: String,
+    pub consumo: String,
+    pub salida: String,
+    pub precio: String,
+    pub importe: String,
+    pub cierre: String,
+    /// `false` si la fila no se explica por sus propias columnas.
+    pub cuadra: bool,
+    /// Vacío cuando el producto se vendió de una sola forma.
+    pub formas: Vec<FormaVendidaDto>,
+}
+
+/// Una presentación concreta en la que se vendió el producto.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FormaVendidaDto {
+    pub presentacion: i64,
+    pub nombre: String,
+    pub salida: String,
+    pub precio: String,
+    pub importe: String,
+}
+
+impl From<Ipv> for IpvDto {
+    fn from(hoja: Ipv) -> Self {
+        Self {
+            sesion: hoja.sesion.map(SesionDeReferenciaDto::from),
+            filas: hoja.filas.into_iter().map(FilaIpvDto::from).collect(),
+            importe_total: hoja.importe_total,
+            vendido_real: hoja.vendido_real,
+            diferencia: hoja.diferencia,
+            cuadra: hoja.cuadra,
+        }
+    }
+}
+
+impl From<FilaIpv> for FilaIpvDto {
+    fn from(fila: FilaIpv) -> Self {
+        Self {
+            producto: fila.producto,
+            mercancia: fila.mercancia,
+            inicial: fila.inicial,
+            entrada: fila.entrada,
+            merma: fila.merma,
+            consumo: fila.consumo,
+            salida: fila.salida,
+            precio: fila.precio,
+            importe: fila.importe,
+            cierre: fila.cierre,
+            cuadra: fila.cuadra,
+            formas: fila.formas.into_iter().map(FormaVendidaDto::from).collect(),
+        }
+    }
+}
+
+impl From<FormaVendida> for FormaVendidaDto {
+    fn from(forma: FormaVendida) -> Self {
+        Self {
+            presentacion: forma.presentacion,
+            nombre: forma.nombre,
+            salida: forma.salida,
+            precio: forma.precio,
+            importe: forma.importe,
+        }
+    }
+}
+
+/// Lo vendido en la sesión, una fila por producto y presentación.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VentasPorProductoDto {
+    /// `null` si nunca se abrió una caja.
+    pub sesion: Option<SesionDeReferenciaDto>,
+    pub filas: Vec<FilaVendidaDto>,
+}
+
+/// Una presentación de un producto vendida en la sesión.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FilaVendidaDto {
+    pub producto: i64,
+    pub nombre_producto: String,
+    pub presentacion: i64,
+    pub nombre_presentacion: String,
+    /// La salida, en presentaciones: cajas, si es la caja.
+    pub cantidad: String,
+    pub total: String,
+    pub ganancia: String,
+}
+
+impl From<VentasPorProducto> for VentasPorProductoDto {
+    fn from(vista: VentasPorProducto) -> Self {
+        Self {
+            sesion: vista.sesion.map(SesionDeReferenciaDto::from),
+            filas: vista.filas.into_iter().map(FilaVendidaDto::from).collect(),
+        }
+    }
+}
+
+impl From<FilaVendida> for FilaVendidaDto {
+    fn from(fila: FilaVendida) -> Self {
+        Self {
+            producto: fila.producto,
+            nombre_producto: fila.nombre_producto,
+            presentacion: fila.presentacion,
+            nombre_presentacion: fila.nombre_presentacion,
+            cantidad: fila.cantidad,
+            total: fila.total,
+            ganancia: fila.ganancia,
         }
     }
 }
@@ -1531,5 +2356,489 @@ impl From<Informe> for InformeDto {
                 })
                 .collect(),
         }
+    }
+}
+
+/// Pruebas del contrato con la interfaz (§6 del diseño técnico): lo que
+/// aquí se fija es el JSON que `kilo12-api.ts` espera recibir y mandar.
+#[cfg(test)]
+mod pruebas {
+    use application::casos::ProblemaLinea;
+    use serde_json::json;
+
+    use super::*;
+
+    fn venta(json: serde_json::Value) -> ComandoVender {
+        serde_json::from_value::<NuevaVentaDto>(json)
+            .expect("la interfaz manda un JSON válido")
+            .into()
+    }
+
+    #[test]
+    fn un_cobro_directo_no_trae_espera() {
+        let comando = venta(json!({
+            "lineas": [{ "producto": 1, "presentacion": 10, "cantidad": "2" }],
+            "pagos": [{ "metodo": "EFECTIVO_CUP", "entregado": "200.00" }],
+        }));
+
+        assert_eq!(comando.espera_id, None);
+        assert_eq!(comando.lineas[0].cantidad, "2");
+        assert_eq!(comando.pagos[0].entregado, "200.00");
+    }
+
+    #[test]
+    fn el_cobro_de_una_espera_trae_su_id() {
+        let comando = venta(json!({
+            "lineas": [{ "producto": 1, "presentacion": 10, "cantidad": "2" }],
+            "pagos": [{ "metodo": "EFECTIVO_CUP", "entregado": "200.00" }],
+            "esperaId": 7,
+        }));
+
+        assert_eq!(comando.espera_id, Some(7));
+    }
+
+    #[test]
+    fn apartar_admite_la_nota_en_blanco_o_ausente() {
+        let sin_nota: ComandoDejarEnEspera = serde_json::from_value::<NuevaVentaEnEsperaDto>(
+            json!({ "lineas": [{ "producto": 1, "presentacion": 10, "cantidad": "1" }] }),
+        )
+        .expect("sin nota")
+        .into();
+        assert_eq!(sin_nota.nota, None);
+        assert_eq!(sin_nota.lineas.len(), 1);
+
+        let con_nota: ComandoDejarEnEspera =
+            serde_json::from_value::<NuevaVentaEnEsperaDto>(json!({
+                "nota": "mesa 3",
+                "lineas": [],
+            }))
+            .expect("con nota")
+            .into();
+        assert_eq!(con_nota.nota.as_deref(), Some("mesa 3"));
+    }
+
+    #[test]
+    fn la_lista_de_esperas_viaja_en_camel_case() {
+        let dto = VentaEnEsperaDto::from(VentaEnEsperaListada {
+            id: 3,
+            nota: None,
+            creada_en: "2026-09-27 10:15:00".to_owned(),
+            cuantas_lineas: 2,
+        });
+
+        assert_eq!(
+            serde_json::to_value(dto).expect("serializar"),
+            json!({
+                "id": 3,
+                "nota": null,
+                "creadaEn": "2026-09-27 10:15:00",
+                "cuantasLineas": 2,
+            })
+        );
+    }
+
+    #[test]
+    fn la_venta_retomada_lleva_el_problema_con_codigo_y_mensaje() {
+        let dto = VentaRetomadaDto::from(VentaRetomada {
+            id: 7,
+            nota: Some("mesa 3".to_owned()),
+            creada_en: "2026-09-27 10:15:00".to_owned(),
+            lineas: vec![
+                LineaRetomada {
+                    producto: 1,
+                    presentacion: 10,
+                    nombre_producto: "Refresco 500 ml".to_owned(),
+                    nombre_presentacion: "Unidad".to_owned(),
+                    cantidad: "2".to_owned(),
+                    precio: Some("80.00".to_owned()),
+                    importe: Some("160.00".to_owned()),
+                    unidades_base: Some("2".to_owned()),
+                    problema: None,
+                },
+                LineaRetomada {
+                    producto: 3,
+                    presentacion: 30,
+                    nombre_producto: "Galletas".to_owned(),
+                    nombre_presentacion: "Paquete".to_owned(),
+                    cantidad: "1".to_owned(),
+                    precio: None,
+                    importe: None,
+                    unidades_base: None,
+                    problema: Some(ProblemaLinea::ProductoInactivo),
+                },
+            ],
+            total: "160.00".to_owned(),
+            hay_problemas: true,
+        });
+
+        assert_eq!(
+            serde_json::to_value(dto).expect("serializar"),
+            json!({
+                "id": 7,
+                "nota": "mesa 3",
+                "creadaEn": "2026-09-27 10:15:00",
+                "lineas": [
+                    {
+                        "producto": 1,
+                        "presentacion": 10,
+                        "nombreProducto": "Refresco 500 ml",
+                        "nombrePresentacion": "Unidad",
+                        "cantidad": "2",
+                        "precio": "80.00",
+                        "importe": "160.00",
+                        "unidadesBase": "2",
+                        "problema": null,
+                    },
+                    {
+                        "producto": 3,
+                        "presentacion": 30,
+                        "nombreProducto": "Galletas",
+                        "nombrePresentacion": "Paquete",
+                        "cantidad": "1",
+                        "precio": null,
+                        "importe": null,
+                        "unidadesBase": null,
+                        "problema": {
+                            "codigo": "PRODUCTO_INACTIVO",
+                            "mensaje": "Este producto se desactivó: ya no se vende",
+                        },
+                    },
+                ],
+                "total": "160.00",
+                "hayProblemas": true,
+            })
+        );
+    }
+
+    fn sesion_cerrada() -> SesionDeReferencia {
+        SesionDeReferencia {
+            id: 4,
+            abierta: false,
+            abierta_en: "2026-09-27 08:00:00".to_owned(),
+            cerrada_en: Some("2026-09-27 20:30:00".to_owned()),
+        }
+    }
+
+    #[test]
+    fn el_historial_lleva_la_sesion_de_las_tarjetas() {
+        let dto = HistorialVentasDto::from(HistorialVentas {
+            hoy: application::casos::ResumenDelDia {
+                cuantas: 2,
+                total: "240.00".to_owned(),
+                ganancia: "114.99".to_owned(),
+            },
+            sesion: Some(sesion_cerrada()),
+            ventas: Vec::new(),
+        });
+
+        assert_eq!(
+            serde_json::to_value(dto).expect("serializar"),
+            json!({
+                "hoy": { "cuantas": 2, "total": "240.00", "ganancia": "114.99" },
+                "sesion": {
+                    "id": 4,
+                    "abierta": false,
+                    "abiertaEn": "2026-09-27 08:00:00",
+                    "cerradaEn": "2026-09-27 20:30:00",
+                },
+                "ventas": [],
+            })
+        );
+    }
+
+    #[test]
+    fn sin_ninguna_caja_la_sesion_viaja_como_null() {
+        let dto = VentasPorProductoDto::from(VentasPorProducto {
+            sesion: None,
+            filas: Vec::new(),
+        });
+
+        assert_eq!(
+            serde_json::to_value(dto).expect("serializar"),
+            json!({ "sesion": null, "filas": [] })
+        );
+    }
+
+    #[test]
+    fn el_ipv_viaja_en_camel_case_con_sus_subfilas() {
+        let dto = IpvDto::from(Ipv {
+            sesion: Some(SesionDeReferencia {
+                id: 12,
+                abierta: false,
+                abierta_en: "2026-10-13 08:00:00".to_owned(),
+                cerrada_en: Some("2026-10-13 20:00:00".to_owned()),
+            }),
+            filas: vec![FilaIpv {
+                producto: 1,
+                mercancia: "Salchicha".to_owned(),
+                inicial: "20".to_owned(),
+                entrada: "0".to_owned(),
+                merma: "0".to_owned(),
+                consumo: "0".to_owned(),
+                salida: "8".to_owned(),
+                precio: "58.33".to_owned(),
+                importe: "466.64".to_owned(),
+                cierre: "12".to_owned(),
+                cuadra: true,
+                formas: vec![FormaVendida {
+                    presentacion: 11,
+                    nombre: "Paquete".to_owned(),
+                    salida: "1".to_owned(),
+                    precio: "266.64".to_owned(),
+                    importe: "266.64".to_owned(),
+                    salida_cruda: "1".parse().expect("cantidad"),
+                    precio_crudo: "266.64".parse().expect("importe"),
+                    importe_crudo: "266.64".parse().expect("importe"),
+                }],
+                cifras: application::casos::CifrasIpv {
+                    decimales: 0,
+                    inicial: "20".parse().expect("cantidad"),
+                    entrada: "0".parse().expect("cantidad"),
+                    merma: "0".parse().expect("cantidad"),
+                    consumo: "0".parse().expect("cantidad"),
+                    salida: "8".parse().expect("cantidad"),
+                    precio: "58.33".parse().expect("importe"),
+                    importe: "466.64".parse().expect("importe"),
+                    cierre: "12".parse().expect("cantidad"),
+                },
+            }],
+            importe_total: "466.64".to_owned(),
+            vendido_real: "466.64".to_owned(),
+            diferencia: "0.00".to_owned(),
+            cuadra: true,
+            importe_total_crudo: "466.64".parse().expect("importe"),
+            vendido_real_crudo: "466.64".parse().expect("importe"),
+            diferencia_cruda: "0.00".parse().expect("importe"),
+        });
+
+        // Las cifras sin formatear NO cruzan: son para el `.xlsx`, y
+        // mandarlas invitaría a que la pantalla hiciera cuentas con ellas.
+        assert_eq!(
+            serde_json::to_value(dto).expect("serializar"),
+            json!({
+                "sesion": {
+                    "id": 12,
+                    "abierta": false,
+                    "abiertaEn": "2026-10-13 08:00:00",
+                    "cerradaEn": "2026-10-13 20:00:00",
+                },
+                "filas": [{
+                    "producto": 1,
+                    "mercancia": "Salchicha",
+                    "inicial": "20",
+                    "entrada": "0",
+                    "merma": "0",
+                    "consumo": "0",
+                    "salida": "8",
+                    "precio": "58.33",
+                    "importe": "466.64",
+                    "cierre": "12",
+                    "cuadra": true,
+                    "formas": [{
+                        "presentacion": 11,
+                        "nombre": "Paquete",
+                        "salida": "1",
+                        "precio": "266.64",
+                        "importe": "266.64",
+                    }],
+                }],
+                "importeTotal": "466.64",
+                "vendidoReal": "466.64",
+                "diferencia": "0.00",
+                "cuadra": true,
+            })
+        );
+    }
+
+    #[test]
+    fn las_ventas_por_producto_viajan_en_camel_case() {
+        let dto = VentasPorProductoDto::from(VentasPorProducto {
+            sesion: Some(SesionDeReferencia {
+                id: 7,
+                abierta: true,
+                abierta_en: "2026-09-28 08:00:00".to_owned(),
+                cerrada_en: None,
+            }),
+            filas: vec![FilaVendida {
+                producto: 1,
+                nombre_producto: "Refresco".to_owned(),
+                presentacion: 11,
+                nombre_presentacion: "Six-pack".to_owned(),
+                cantidad: "3".to_owned(),
+                total: "1260.00".to_owned(),
+                ganancia: "540.00".to_owned(),
+            }],
+        });
+
+        assert_eq!(
+            serde_json::to_value(dto).expect("serializar"),
+            json!({
+                "sesion": {
+                    "id": 7,
+                    "abierta": true,
+                    "abiertaEn": "2026-09-28 08:00:00",
+                    "cerradaEn": null,
+                },
+                "filas": [{
+                    "producto": 1,
+                    "nombreProducto": "Refresco",
+                    "presentacion": 11,
+                    "nombrePresentacion": "Six-pack",
+                    "cantidad": "3",
+                    "total": "1260.00",
+                    "ganancia": "540.00",
+                }],
+            })
+        );
+    }
+
+    #[test]
+    fn el_error_de_producto_inactivo_llega_tipado() {
+        let dto = ErrorDto::from(domain::ErrorDominio::ProductoInactivo);
+
+        assert_eq!(
+            serde_json::to_value(dto).expect("serializar"),
+            json!({
+                "codigo": "PRODUCTO_INACTIVO",
+                "mensaje": "Este producto se desactivó: ya no se vende",
+                "delUsuario": true,
+            })
+        );
+    }
+
+    // ------------------------------------------- el consumo (RF-CON)
+
+    #[test]
+    fn un_consumo_llega_con_su_cuenta_y_quien_lo_tomo() {
+        let comando: ComandoRegistrarConsumo = serde_json::from_value::<NuevoConsumoDto>(json!({
+            "cuenta": 1,
+            "tomadoPor": "Yaneisy",
+            "lineas": [
+                { "producto": 1, "presentacion": 10, "cantidad": "2", "origen": "VITRINA" },
+                { "producto": 2, "presentacion": 21, "cantidad": "1", "origen": "BODEGA" },
+            ],
+        }))
+        .expect("la interfaz manda un JSON válido")
+        .into();
+
+        assert_eq!(comando.cuenta, 1);
+        assert_eq!(comando.tomado_por, "Yaneisy");
+        // El origen va por renglón: dos estantes en el mismo acto.
+        assert_eq!(comando.lineas[0].origen, "VITRINA");
+        assert_eq!(comando.lineas[1].origen, "BODEGA");
+        assert_eq!(comando.lineas[1].cantidad, "1");
+    }
+
+    #[test]
+    fn liquidar_admite_la_nota_en_blanco_o_ausente() {
+        let sin_nota: ComandoLiquidar = serde_json::from_value::<NuevaLiquidacionDto>(
+            json!({ "cuenta": 1, "importe": "200.00" }),
+        )
+        .expect("sin nota es válido")
+        .into();
+
+        assert_eq!(sin_nota.nota, None);
+        assert_eq!(sin_nota.importe, "200.00");
+    }
+
+    /// La tercera de las cuatro capas que podrían recortar un saldo
+    /// negativo (RF-CON-14). No lo hace: el signo no se pierde, viaja
+    /// aparte en `aFavor`.
+    #[test]
+    fn el_saldo_a_favor_cruza_la_frontera_sin_recortarse() {
+        let dto = PanelConsumoDto::from(PanelConsumo {
+            total: "80.00".to_owned(),
+            a_favor: true,
+            cuentas: vec![CuentaEnDeuda {
+                id: 1,
+                nombre: "Ivett".to_owned(),
+                activa: true,
+                consumido: "120.00".to_owned(),
+                pagado: "200.00".to_owned(),
+                saldo: "80.00".to_owned(),
+                a_favor: true,
+                porcion: "0.0".to_owned(),
+                peso: 0,
+            }],
+        });
+
+        assert_eq!(
+            serde_json::to_value(dto).expect("serializar"),
+            json!({
+                "total": "80.00",
+                "aFavor": true,
+                "cuentas": [{
+                    "id": 1,
+                    "nombre": "Ivett",
+                    "activa": true,
+                    "consumido": "120.00",
+                    "pagado": "200.00",
+                    "saldo": "80.00",
+                    "aFavor": true,
+                    "porcion": "0.0",
+                    "peso": 0,
+                }],
+            })
+        );
+    }
+
+    #[test]
+    fn el_eje_por_producto_no_manda_su_clave_de_orden() {
+        // Llega ya ordenado de Rust. Mandar la clave invitaría a reordenar
+        // en la pantalla comparando cadenas, donde «9.00» va por encima de
+        // «10.00».
+        let dto = ProductoConsumidoDto::from(ProductoConsumido {
+            producto: 1,
+            nombre: "Arroz blanco".to_owned(),
+            cantidad: "5.000 lb".to_owned(),
+            costo: "600.00".to_owned(),
+            peso: 1000,
+            orden: 600_000_000,
+        });
+
+        assert_eq!(
+            serde_json::to_value(dto).expect("serializar"),
+            json!({
+                "producto": 1,
+                "nombre": "Arroz blanco",
+                "cantidad": "5.000 lb",
+                "costo": "600.00",
+                "peso": 1000,
+            })
+        );
+    }
+
+    #[test]
+    fn un_consumo_anulado_llega_marcado_con_su_motivo() {
+        let dto = DetalleCuentaDto::from(DetalleCuenta {
+            cuenta: CuentaEnDeuda {
+                id: 1,
+                nombre: "Ivett".to_owned(),
+                activa: true,
+                consumido: "0.00".to_owned(),
+                pagado: "0.00".to_owned(),
+                saldo: "0.00".to_owned(),
+                a_favor: false,
+                porcion: "0.0".to_owned(),
+                peso: 0,
+            },
+            consumos: vec![ConsumoListado {
+                id: 7,
+                tomado_por: "Yaneisy".to_owned(),
+                total: "240.00".to_owned(),
+                ocurrido_en: "2026-10-14 12:00:00".to_owned(),
+                anulado: true,
+                motivo_anulacion: Some("Era de Claudia".to_owned()),
+            }],
+            pagos: vec![],
+        });
+
+        let json = serde_json::to_value(dto).expect("serializar");
+        assert_eq!(json["consumos"][0]["anulado"], json!(true));
+        assert_eq!(
+            json["consumos"][0]["motivoAnulacion"],
+            json!("Era de Claudia")
+        );
+        assert_eq!(json["consumos"][0]["tomadoPor"], json!("Yaneisy"));
     }
 }

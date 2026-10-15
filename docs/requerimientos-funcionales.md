@@ -1,10 +1,14 @@
 # Kilo12 — Requerimientos Funcionales
 
-**Versión:** 1.4
-**Fecha:** 2026-09-22
+**Versión:** 1.8
+**Fecha:** 2026-10-14
 **Estado:** Alcance funcional cerrado. Todas las decisiones de modelo de datos están resueltas.
 
-**Cambios en 1.4:** se incorpora la **libra** como unidad base y se sustituye la moneda única por tres métodos de pago —efectivo en pesos, transferencia y efectivo en dólares—, con tasa de cambio, arqueo por moneda y dos modos de cierre. Nuevo módulo §6.11 — Divisa y tasa de cambio.
+**Cambios en 1.8:** se documentan dos cosas que el sistema ya hacía y ningún requerimiento recogía: la **clave del sistema** (RF-SEG-04) y el **vaciado de la aplicación** que protege (RF-DAT-10). Nuevo módulo **§6.15 — Informe de productos vendidos (RF-IPV)**, la hoja que el local ya llevaba a mano en Excel. Es el informe de la **vitrina** por turno de caja, al precio de venta, imprimible y exportable a `.xlsx`. Su pantalla enseña el turno abierto y solo ese; las hojas de turnos cerrados se consultan desde Caja y con la clave del sistema (RF-IPV-13, RF-IPV-14). Los módulos §6.15 y §6.16 pasan a §6.16 y §6.17.
+**Cambios en 1.7:** nuevo módulo **§6.10 — Consumo de los dueños (RF-CON)**, con veinte requerimientos, y nueva decisión cerrada D-7. El consumo de los dueños deja de ser un motivo de merma: **se edita RF-MER-01 para quitar «consumo propio» de su lista tipificada**, porque tratarlo como pérdida falseaba el arqueo del turno. Los módulos §6.10 a §6.15 pasan a §6.11 a §6.16, y se actualizan las referencias que los apuntaban. Nuevo riesgo asumido RI-4.
+**Cambios en 1.6:** se especifica **quitar un producto del catálogo** (RF-CAT-13), que hasta ahora solo existía como la prohibición de RF-CAT-07. No es una operación sino dos, elegidas según el historial del producto: se borra lo que nunca se movió y se desactiva lo que vendió. Se añade la limpieza de todos los productos sin existencia a la vez, con confirmación que separa los dos grupos, y la protección de los que figuran en una venta en espera (RF-CAT-14).
+**Cambios en 1.5:** las cifras de la pantalla Ventas se refieren a la **sesión de caja de referencia** (la abierta o, si no hay ninguna, la última cerrada) y no al día del calendario (RF-VTA-20). El desglose por presentación (RF-EST-03b) se ofrece en Ventas para esa sesión, con una fila por presentación y sin subtotal por producto.
+**Cambios en 1.4:** se incorpora la **libra** como unidad base y se sustituye la moneda única por tres métodos de pago —efectivo en pesos, transferencia y efectivo en dólares—, con tasa de cambio, arqueo por moneda y dos modos de cierre. Nuevo módulo §6.12 — Divisa y tasa de cambio.
 **Cambios en 1.3:** se declaran las plataformas objetivo, que hasta ahora no estaban especificadas: Windows como principal y macOS como secundaria (RNF-8 a RNF-10).
 **Cambios en 1.2:** la comisión del operador de caja se calcula sobre la **venta total** de la sesión, no sobre la ganancia, y se **descuenta de la ganancia bruta** del local. Se incorpora el concepto de ganancia neta de comisión.
 **Cambios en 1.1:** se agrega el módulo de Comisión del operador de caja. Se cierra D-6 (base de cálculo y congelamiento del porcentaje).
@@ -147,11 +151,16 @@ Todo lo demás es secundario. Si un requerimiento no sirve a una de esas cinco p
 | RF-CAT-10 | El sistema debe permitir asociar una imagen local al producto para facilitar su identificación visual. | C |
 | RF-CAT-11 | El sistema debe permitir importar y exportar el catálogo en formato CSV. | S |
 | RF-CAT-12 | El sistema debe permitir registrar un código de barras por **presentación** como dato, aun cuando no exista lector conectado, dado que el paquete y la unidad suelta tienen códigos distintos. | C |
+| RF-CAT-13 | El sistema debe permitir **quitar del catálogo un producto sin existencia**, y debe hacerlo de una de dos formas según su historial: borrarlo definitivamente si nunca registró ventas ni movimientos, o desactivarlo si los registró (RF-CAT-06, RF-CAT-07). El sistema debe ofrecer además una limpieza de todos los productos sin existencia a la vez, con una confirmación previa que enumere, **separados**, los que se borran y los que se desactivan. | M |
+| RF-CAT-14 | El sistema debe impedir quitar del catálogo un producto que figure en una venta en espera (RF-VTA-14), tanto individualmente como en la limpieza completa, e informar del motivo. | M |
 
 **Criterios de aceptación destacados**
 
 - RF-CAT-03: al registrar movimiento de un producto a granel, el sistema acepta `1.250` kg; al hacerlo de un producto por unidad, rechaza `1.5` y exige un entero.
 - RF-CAT-09: buscar `"azucar"` encuentra `"Azúcar morena"`.
+- RF-CAT-13: un producto dado de alta que nunca se vendió y está en cero se borra, y su SKU vuelve a estar disponible. Un producto que se vendió hasta agotarse no se borra: se desactiva, y sus ventas siguen apareciendo en los informes.
+- RF-CAT-13: un producto con existencia mayor que cero no se puede quitar del catálogo por ninguna de las dos vías.
+- RF-CAT-14: un producto en cero que figura en una venta en espera aparece en la confirmación como no tocable, con el número de esperas que lo llevan, y la limpieza no lo modifica.
 
 ---
 
@@ -312,19 +321,22 @@ La venta del 20/03 debe registrar un costo de lo vendido de $625.00 y una gananc
 | RF-VTA-11 | Al confirmar la venta, el sistema debe descontar de la **vitrina** el equivalente en unidad base (`cantidad × factor`) y generar los movimientos de tipo `VENTA`. | M |
 | RF-VTA-12 | Si la vitrina no tiene existencia suficiente en unidad base, el sistema debe advertirlo y ofrecer al usuario traspasar desde bodega en el mismo flujo, sin abandonar la venta. | S |
 | RF-VTA-13 | El sistema debe registrar en cada línea de venta el **costo unitario base vigente al momento de la venta**, junto con el factor y el precio de la presentación utilizada, para que el cálculo histórico de ganancia sea inmune a cambios posteriores de costo, de precio o de presentaciones. | M |
-| RF-VTA-14 | El sistema debe permitir dejar una venta **en espera** y retomarla después, para atender a otro cliente sin perder el trabajo. | C |
+| RF-VTA-14 | El sistema debe permitir dejar una venta **en espera** y retomarla después, para atender a otro cliente sin perder el trabajo. Se pueden tener varias a la vez, cada una con una **nota opcional** (hasta 120 caracteres) para reconocerla. Apartar no exige caja abierta, no reserva existencia ni admite anticipo, y guarda solo producto, presentación y cantidad: al retomar y al cobrar se aplica el **precio de hoy**. Las ventas en espera no caducan; la lista muestra la antigüedad de cada una. | C |
 | RF-VTA-15 | El sistema debe permitir **anular** una venta ya confirmada únicamente si pertenece a la sesión de caja vigente, devolviendo la mercancía a vitrina mediante movimientos de reversa y registrando el motivo. Las ventas de sesiones ya cerradas no son anulables bajo ninguna circunstancia. | M |
 | RF-VTA-16 | El sistema debe permitir registrar una **devolución parcial o total** de una venta de cualquier fecha, con retorno de la mercancía a vitrina o su registro como merma si el producto no es revendible. La devolución no modifica la venta original ni la sesión de caja en que ocurrió: se registra como operación propia, afectando la sesión de caja vigente. | S |
 | RF-VTA-16b | El sistema debe indicar explícitamente al usuario, al intentar anular una venta de una sesión cerrada, que la operación disponible es la devolución, y ofrecer continuar por esa vía. | S |
 | RF-VTA-17 | El sistema debe asignar a cada venta un folio consecutivo único e irrepetible. | M |
 | RF-VTA-18 | El sistema debe permitir consultar y buscar ventas anteriores por folio, fecha o producto vendido. | S |
 | RF-VTA-19 | El sistema debe permitir mostrar en pantalla un resumen imprimible/exportable de la venta (comprobante interno, sin valor fiscal). | C |
+| RF-VTA-20 | La pantalla de ventas debe mostrar el número de ventas, el total cobrado y la ganancia de la **sesión de caja de referencia**: la sesión abierta o, si no hay ninguna, la última cerrada. No se usa el día del calendario. Las ventas anuladas no cuentan, y las cifras deben salir del mismo cálculo con el que se arquea la caja, para que las dos pantallas no discrepen. Junto a las cifras se indica a qué sesión se refieren («Sesión abierta desde 08:00», «Sesión cerrada · 27/09 08:00–20:30»); si nunca se abrió una caja, se indica en lugar de enseñar ceros. | M |
 
 **Criterios de aceptación destacados**
 
 - RF-VTA-02: el flujo completo de una venta simple (buscar, agregar, cobrar, confirmar) debe poder ejecutarse sin tocar el ratón.
 - RF-VTA-13: si hoy vendo un producto con costo 10 y mañana el costo sube a 14, el informe de ganancia de la venta de hoy sigue calculándose con 10.
 - RF-VTA-15: una venta de ayer, con la caja de ayer ya cerrada, no ofrece la acción de anular. El arqueo de una sesión cerrada es inmutable.
+- RF-VTA-20: con la caja abierta desde las 22:00 de ayer, a las 07:00 de hoy las tarjetas incluyen las ventas de anoche y la etiqueta dice «Sesión abierta desde ayer 22:00». Con la caja cerrada, muestran la última sesión y lo dicen. «Cobrado en la sesión» coincide con lo cobrado que arquea la caja para esa misma sesión.
+- RF-VTA-14: en la pantalla Vender, junto a «Cobrar», el botón «Pendiente» aparta la venta en curso y deja la pantalla libre; el panel «En espera (N)» ofrece «Retomar» y «Eliminar» (con confirmación) para cada una. Con otra venta en pantalla, «Retomar» se **bloquea** y pide cobrarla o dejarla en espera primero. Si al retomar algún renglón ya no se puede vender (producto o presentación desactivados o eliminados, cantidad inválida, sin existencia en vitrina), la venta se carga igual, el renglón aparece marcado con su aviso y no se puede cobrar hasta quitarlo o corregirlo. Cobrar una venta retomada la saca de la lista **en la misma transacción** que registra la venta: una espera no se puede cobrar dos veces.
 
 ---
 
@@ -345,14 +357,52 @@ La venta del 20/03 debe registrar un costo de lo vendido de $625.00 y una gananc
 
 | ID | Requerimiento | Prio. |
 |---|---|---|
-| RF-MER-01 | El sistema debe permitir registrar una merma indicando producto, cantidad, ubicación y motivo tipificado: deteriorado, dañado, robo, consumo propio, otro. El registro es reactivo: al no controlarse caducidad (R-7), el sistema no anticipa vencimientos. | M |
+| RF-MER-01 | El sistema debe permitir registrar una merma indicando producto, cantidad, ubicación y motivo tipificado: deteriorado, dañado, robo, otro. **El consumo de los dueños no es una merma** y tiene su propio módulo (§6.10): la mercancía no se perdió, genera una deuda al costo. El registro es reactivo: al no controlarse caducidad (R-7), el sistema no anticipa vencimientos. | M |
 | RF-MER-02 | El sistema debe registrar toda merma valorizada al costo unitario vigente (RF-COS-06), para cuantificar la pérdida en dinero. | M |
 | RF-MER-03 | El sistema debe ofrecer un informe de mermas por periodo, agrupable por producto, categoría y motivo. | S |
 | RF-MER-04 | El sistema debe permitir registrar ajustes de inventario por diferencias de conteo, diferenciándolos de las mermas. | S |
 
 ---
 
-### 6.10 Módulo: Caja (RF-CAJ)
+### 6.10 Módulo: Consumo de los dueños (RF-CON)
+
+Los dueños del local se llevan mercancía para su casa. No es una venta —no entra dinero— ni una merma —no se perdió nada—: el valor sale del inventario y se convierte en una **deuda al costo** contra la cuenta que lo cargó. El negocio no es más pobre; tiene otra cosa.
+
+Este módulo nace de RF-MER-01, que hasta la versión 1.6 tipificaba «consumo propio» como un motivo de merma. Tratarlo así falseaba el arqueo: el cierre de caja contaba como pérdida mercancía que en realidad está apuntada como deuda por cobrar.
+
+| ID | Requerimiento | Prio. |
+|---|---|---|
+| RF-CON-01 | El sistema debe permitir registrar un consumo indicando la **cuenta** a la que se carga, la **persona que se lo llevó** —que puede no ser la dueña de la cuenta— y uno o más renglones de producto, presentación, cantidad y ubicación de origen. | M |
+| RF-CON-02 | El sistema debe valorar cada renglón al **costo unitario vigente en el momento del consumo** y congelarlo en el registro, de modo que la deuda no cambie si el costo del producto cambia después (ver RF-COS-06, RF-VTA-13). | M |
+| RF-CON-03 | El consumo debe descontar la existencia de la ubicación indicada y dejar su asiento en el kárdex, con un asiento por cada combinación de producto y ubicación (RF-INV-03). El asiento debe indicar la cuenta y la persona. | M |
+| RF-CON-04 | El sistema debe mantener las cuentas de consumo como un catálogo administrable, sembrado con Ivett, Claudia e Inés. Una cuenta con historial no se borra: se desactiva. No se debe poder cargar un consumo a una cuenta desactivada. | M |
+| RF-CON-05 | El sistema debe admitir que dos renglones del mismo consumo salgan de ubicaciones distintas. | S |
+| RF-CON-06 | El sistema debe rechazar un consumo que deje la existencia de cualquier ubicación en negativo (RF-INV-06). | M |
+| RF-CON-07 | El sistema debe permitir consumir un producto **retirado de la venta** que conserve existencia: retirarlo del mostrador no impide su uso doméstico. Esto difiere de la venta, que lo rechaza (RF-CAT-06). | S |
+| RF-CON-08 | El consumo **no debe computar como merma** en el cierre de caja ni como venta en ninguna cifra del turno. | M |
+| RF-CON-09 | El consumo **no debe computar como movimiento** para el informe de productos parados (RF-EST-05): un producto que solo se consume efectivamente no se vende, y aparecer ahí informa de que entra al local solo para gastarse. | S |
+| RF-CON-10 | El sistema debe permitir liquidar la deuda de una cuenta pagando una cantidad, total o parcial. La liquidación se aplica al **saldo de la cuenta** y no se imputa a consumos concretos. | M |
+| RF-CON-11 | La liquidación **no debe tocar la sesión de caja ni el arqueo**: liquidar no es un ingreso, porque el negocio ya gastó ese dinero al comprar la mercancía y el pago recupera un costo. Si el dinero entra físicamente a la gaveta, se anota a mano como entrada de efectivo (RF-CAJ-03). | M |
+| RF-CON-12 | El sistema debe presentar la deuda en cinco niveles: total de todas las cuentas; saldo por cuenta; consumos de una cuenta con su fecha y quién se lo llevó; renglones de un consumo; y lo consumido **acumulado por producto**, en total y por cuenta. | M |
+| RF-CON-13 | El eje por producto debe poder mirarse sobre todo el historial o acotado a un periodo, y debe ordenarse por el costo consumido, de mayor a menor. | S |
+| RF-CON-14 | El saldo de una cuenta puede ser **negativo**, lo que significa que tiene dinero a favor. El sistema debe mostrarlo como tal y no recortarlo a cero en ninguna capa. Un consumo posterior lo absorbe. | M |
+| RF-CON-15 | El saldo debe calcularse como la suma de los consumos no anulados menos la suma de las liquidaciones no anuladas, sin recalcular costos. | M |
+| RF-CON-16 | El sistema debe permitir anular un consumo mal registrado indicando el motivo. La anulación devuelve la mercancía **a la ubicación de la que salió** y **al costo con que salió**, deja su asiento de reversa, y baja la deuda. El registro se conserva marcado como anulado. No tiene ventana de tiempo, a diferencia de la anulación de ventas (D-5), porque no mueve dinero. | M |
+| RF-CON-17 | El sistema debe permitir anular una liquidación mal registrada indicando el motivo. La anulación **sube** la deuda otra vez y el registro se conserva marcado. | M |
+| RF-CON-18 | El sistema debe impedir anular dos veces el mismo consumo o la misma liquidación. | M |
+| RF-CON-19 | El sistema no debe permitir **perdonar deuda**: el saldo solo baja pagando o anulando un consumo. Anular una liquidación no es una vía indirecta para ello, porque exige que la liquidación haya existido. | M |
+| RF-CON-20 | Un producto con consumos registrados no debe poder borrarse del catálogo, solo retirarse (RF-CAT-07): su consumo dejó asientos en el kárdex. | M |
+
+**Criterios de aceptación destacados**
+
+- RF-CON-02: Ivett se lleva 2 lb de arroz cuando el costo es `120.00`; la deuda queda en `240.00`. Entra después arroz más caro y el costo promedio sube: la deuda sigue diciendo `240.00`.
+- RF-CON-11: con la caja abierta y fondo inicial de `500.00`, registrar un consumo y liquidarlo deja el efectivo esperado en `500.00` y la merma del turno en `0.00`.
+- RF-CON-14: consumir `490.02`, liquidar `490.02`, anular el consumo y anular la liquidación deja el saldo en `0.00` exacto. Tras anular solo el consumo, el saldo es `490.02` **a favor**.
+- RF-CON-16: un consumo que salió de la bodega vuelve a la bodega, no a la vitrina.
+
+---
+
+### 6.11 Módulo: Caja (RF-CAJ)
 
 | ID | Requerimiento | Prio. |
 |---|---|---|
@@ -367,11 +417,11 @@ La venta del 20/03 debe registrar un costo de lo vendido de $625.00 y una gananc
 | RF-CAJ-07 | El sistema debe conservar el historial de sesiones de caja cerradas, consultable por fecha, con su detalle de ventas y diferencias. | S |
 | RF-CAJ-08 | El sistema debe tratar toda sesión de caja cerrada como **inmutable**: ninguna operación posterior puede modificar sus ventas, sus totales, su arqueo ni su comisión liquidada. Las correcciones posteriores se registran como operaciones nuevas en la sesión vigente (ver RF-VTA-16). | M |
 | RF-CAJ-09 | El sistema debe permitir registrar, al abrir la sesión, el nombre del **operador de caja** que la atenderá, seleccionándolo de una lista administrable o escribiéndolo. | S |
-| RF-CAJ-10 | El cierre de caja debe presentar, además del arqueo de efectivo, el resumen económico de la sesión: venta total, costo de lo vendido, mermas, ganancia bruta, comisión del operador y ganancia neta de comisión (ver §6.12). | M |
+| RF-CAJ-10 | El cierre de caja debe presentar, además del arqueo de efectivo, el resumen económico de la sesión: venta total, costo de lo vendido, mermas, ganancia bruta, comisión del operador y ganancia neta de comisión (ver §6.13). | M |
 
 ---
 
-### 6.11 Módulo: Divisa y tasa de cambio (RF-DIV)
+### 6.12 Módulo: Divisa y tasa de cambio (RF-DIV)
 
 El negocio cobra en pesos, en transferencia y en dólares, pero lleva sus cuentas en una sola moneda (R-4). Este módulo es el puente.
 
@@ -387,7 +437,7 @@ El negocio cobra en pesos, en transferencia y en dólares, pero lleva sus cuenta
 
 ---
 
-### 6.12 Módulo: Comisión del operador de caja (RF-CMS)
+### 6.13 Módulo: Comisión del operador de caja (RF-CMS)
 
 El propietario retribuye a quien atiende la caja con un **porcentaje de la venta del día**. El porcentaje lo fija el propietario y puede cambiarlo cuando quiera. Esa comisión se descuenta de la ganancia del local.
 
@@ -433,14 +483,14 @@ Conviene tener presente el efecto de la regla: al no depender del margen, la com
 
 ---
 
-### 6.13 Módulo: Estadísticas e informes (RF-EST)
+### 6.14 Módulo: Estadísticas e informes (RF-EST)
 
 | ID | Requerimiento | Prio. |
 |---|---|---|
 | RF-EST-01 | El sistema debe ofrecer un panel de inicio con los indicadores del día: número de ventas, total vendido, ganancia bruta estimada, comisión devengada y ticket promedio. | M |
 | RF-EST-02 | El sistema debe permitir consultar ventas, ganancia bruta, comisión, ganancia neta de comisión y número de operaciones por periodo (día, semana, mes, rango personalizado). | M |
 | RF-EST-03 | El sistema debe ofrecer un informe de **productos más vendidos** por cantidad y por importe, para un periodo dado. Las cantidades deben consolidarse en unidad base para que las ventas sueltas y en paquete sean comparables entre sí. | M |
-| RF-EST-03b | El sistema debe permitir desglosar las ventas de un producto **por presentación**, mostrando cuánto se vendió en cada una y qué ganancia aportó, para evaluar la conveniencia de cada formato. | S |
+| RF-EST-03b | El sistema debe permitir desglosar las ventas de un producto **por presentación**, mostrando cuánto se vendió en cada una y qué ganancia aportó, para evaluar la conveniencia de cada formato. En la pantalla de ventas, la casilla «Agrupar por productos» (desmarcada por omisión, que es la lista venta por venta) ofrece este desglose para la sesión de caja de referencia (RF-VTA-20): una fila por cada presentación vendida (producto, presentación, salida, total y ganancia), sin subtotal por producto: cada presentación cuenta como un producto distinto. La salida se expresa en presentaciones (cajas, si es la caja). Se agrupa por la presentación y no por su nombre, se muestran con su nombre congelado los productos ya eliminados del catálogo, se excluyen las anuladas y se ordenan todas las filas por total, de mayor a menor, sin agruparlas por producto. Para otros periodos se remite a Informes, indicando que allí «Hoy» es el día del calendario. | S |
 | RF-EST-04 | El sistema debe ofrecer un informe de **productos más rentables**, ordenados por ganancia bruta aportada en el periodo. | S |
 | RF-EST-05 | El sistema debe ofrecer un informe de **productos sin movimiento** (sin ventas) en un periodo configurable, señalando el capital inmovilizado en ellos. | S |
 | RF-EST-06 | El sistema debe ofrecer un informe de **productos por agotarse**, comparando la existencia actual contra el stock mínimo y contra el ritmo de venta reciente. | M |
@@ -453,9 +503,47 @@ Conviene tener presente el efecto de la regla: al no depender del margen, la com
 | RF-EST-12 | El sistema debe permitir exportar cualquier informe a CSV. | S |
 | RF-EST-13 | Todos los informes deben distinguir con claridad los tres niveles, sin confundirlos: **venta** (dinero que entró), **ganancia bruta** (venta − costo de lo vendido) y **ganancia neta de comisión** (ganancia bruta − comisión del operador). | M |
 
+**Criterios de aceptación destacados**
+
+- RF-EST-03b: si en la sesión se vendieron 3 refrescos sueltos y 2 six-packs, la vista muestra dos filas independientes, «Refresco · Unidad» con salida 3 y «Refresco · Six-pack» con salida 2, cada una con su total y su ganancia calculados por el núcleo. No hay fila de subtotal ni columna «Veces vendido», y las filas se ordenan por su propio total aunque eso intercale presentaciones de productos distintos.
+
 ---
 
-### 6.14 Módulo: Datos, respaldo y configuración (RF-DAT)
+### 6.15 Módulo: Informe de productos vendidos (RF-IPV)
+
+El local ya llevaba esta hoja a mano en un Excel, una pestaña por día, y la cuadraba con la mercancía delante. Este módulo la produce sola.
+
+Dos cosas la definen y conviene no perderlas de vista. La primera: **es la hoja de la vitrina**, no del negocio entero. Se recorre estante en mano, así que la existencia que enseña tiene que ser la del mostrador; si sumara lo guardado en el almacén, la columna CANT. FINAL dejaría de poder comprobarse contra lo que se ve, que es su única utilidad. La segunda se deriva de la primera: **ENTRADA aquí significa «lo que entró a la vitrina»**, que casi siempre es un traspaso bajado del almacén (RF-INV-04) y no una compra al proveedor (RF-COM-01). Son dos vocabularios distintos para el mismo hecho, y el informe usa el del local.
+
+El Excel que sirvió de modelo trae dos columnas, `Costo` y `CASA gastos`, que el local no usa. No se incluyen.
+
+| ID | Requerimiento | Prio. |
+|---|---|---|
+| RF-IPV-01 | El sistema debe producir, para un turno de caja, una tabla con una fila por mercancía y las columnas: mercancía, cantidad inicial, entrada, merma, consumo, salida, precio, importe y cantidad final. Todas las cantidades se refieren a la **vitrina** y se expresan en unidad base. | M |
+| RF-IPV-02 | La **cantidad inicial** y la **cantidad final** deben leerse de la existencia que cada asiento del kárdex dejó anotada (RF-INV-05), no reconstruirse sumando el historial. La inicial es la del último asiento anterior a abrir el turno; la final, la del último asiento del turno. | M |
+| RF-IPV-03 | La columna **entrada** debe sumar lo que entró a la vitrina —traspasos bajados del almacén y compras colocadas directamente en el mostrador— y restar lo que se devolvió al almacén. Puede quedar en contra y eso no es un error. | M |
+| RF-IPV-04 | Las columnas **merma**, **consumo** y **salida** deben contar solo los asientos que tocaron la vitrina. La salida debe restar las devoluciones, y el consumo sus anulaciones; las dos pueden quedar en contra si lo que se anula es de un turno anterior. | M |
+| RF-IPV-05 | Lo que solo ocurre en el almacén —una compra que se guarda sin colocar, una merma de lo guardado, un consumo sacado de allí— **no debe aparecer en ninguna columna**. | M |
+| RF-IPV-06 | El informe debe comprobar en cada fila la identidad `final = inicial + entrada − merma − consumo − salida` y **señalar** las que no la cumplen, en lugar de ajustar ninguna cifra. Un ajuste de conteo (RF-MER-04), que no tiene columna propia, debe impedir que la fila cuadre. | M |
+| RF-IPV-07 | El **importe** de cada fila es lo vendido de esa mercancía en el turno al precio de venta, con los precios congelados en la venta (RF-VTA-13). El **precio** es derivado: el importe entre las unidades base que salieron, es decir el precio medio al que salió la mercancía. Si no se vendió nada, se muestra el precio de catálogo de la presentación predeterminada. | M |
+| RF-IPV-08 | Cuando una mercancía se haya vendido en **más de una presentación**, el informe debe desglosarla en subfilas, una por presentación, con lo que salió de ella contado en esa presentación, su precio y su importe. Las columnas de existencia de la subfila van vacías: la vitrina guarda unidades base, no formatos. | S |
+| RF-IPV-09 | El informe debe mostrar el **importe total** de la hoja, el **total vendido real** que la caja registró en el turno (RF-CAJ-05) y la **diferencia** entre ambos. En la hoja de papel esa última casilla se anotaba a mano; aquí se calcula. Una diferencia no nula se explica por descuentos o por ventas anuladas. | S |
+| RF-IPV-10 | Deben aparecer todas las mercancías activas del catálogo, incluidas las que no se movieron, y además las retiradas de la venta (RF-CAT-07) que conserven existencia en vitrina o se hayan movido en el turno. Las retiradas y vacías se omiten. | S |
+| RF-IPV-11 | Las filas deben ordenarse **alfabéticamente** por nombre de mercancía, no por importe: la hoja se recorre con el estante delante. | S |
+| RF-IPV-12 | El sistema debe permitir **imprimir** el informe y **exportarlo a `.xlsx`**, con una hoja por turno. En el archivo exportado las cifras deben ir como números y no como texto, para que las columnas se puedan sumar. | M |
+| RF-IPV-13 | La pantalla del IPV debe mostrar la hoja del **turno abierto** y solo esa. Si no hay ninguno abierto, no hay hoja que ver: el IPV se llena mientras el turno está vivo y se cuadra al cerrarlo, y la hoja del turno anterior ya es historia. Esta pantalla no ofrece selector de turnos. | M |
+| RF-IPV-14 | La hoja de un turno ya cerrado debe consultarse desde el historial de **Caja**: se abre el turno, se pide ver su IPV y se exige la **clave del sistema** (RF-SEG-04). Cualquier turno que no sea el abierto exige esa clave, también para exportarlo, y la comprobación debe hacerse en el núcleo y no en la interfaz. El informe de un turno cerrado es historia y no debe cambiar al consultarlo más tarde. | M |
+
+**Criterios de aceptación destacados**
+
+- RF-IPV-03: si en el turno se bajan 12 unidades del almacén al mostrador y se suben 4 de vuelta, la columna entrada dice 8. Si solo se suben 4, dice −4.
+- RF-IPV-05: una compra de 100 unidades que se guarda en el almacén deja la fila entera en cero y la fila cuadra, porque la vitrina en efecto no se movió.
+- RF-IPV-07: 2 unidades sueltas a 100 y 1 paquete de 6 a 266,64 dan salida 8, importe 466,64 y precio 58,33. Ninguna de las dos presentaciones se vendió a ese precio: es el precio medio al que salió la mercancía.
+- RF-IPV-14: pedir un turno que **no existe** debe rechazarse por falta de clave, no por no existir. Si se comprobara al revés, probar números y mirar cómo cambia el error diría cuántos turnos hay.
+
+---
+
+### 6.16 Módulo: Datos, respaldo y configuración (RF-DAT)
 
 | ID | Requerimiento | Prio. |
 |---|---|---|
@@ -468,18 +556,20 @@ Conviene tener presente el efecto de la regla: al no depender del margen, la com
 | RF-DAT-07 | El sistema debe validar la integridad del archivo de respaldo antes de restaurarlo, rechazando archivos corruptos o de versión incompatible. | S |
 | RF-DAT-08 | El sistema debe migrar automáticamente el esquema de datos al actualizar a una versión nueva de la aplicación, sin pérdida de información. | M |
 | RF-DAT-09 | El sistema debe permitir exportar el histórico completo de ventas y movimientos a CSV como respaldo legible independiente de la aplicación. | C |
+| RF-DAT-10 | El sistema debe permitir **vaciar la aplicación** —catálogo, existencias, kárdex, ventas, cajas y ajustes— dejándola como recién instalada, protegido por la clave del sistema (RF-SEG-04). Existe para el momento de terminar de probar y empezar a operar de verdad. No tiene vuelta atrás. | S |
 
 **Justificación:** operar offline significa que no hay red de seguridad. RF-DAT-02 a RF-DAT-05 no son comodidades: son lo único que separa al negocio de perder su historia completa cuando falle el disco duro.
 
 ---
 
-### 6.15 Módulo: Acceso (RF-SEG)
+### 6.17 Módulo: Acceso (RF-SEG)
 
 | ID | Requerimiento | Prio. |
 |---|---|---|
 | RF-SEG-01 | El sistema debe permitir proteger la apertura de la aplicación con un PIN o contraseña local, configurable y desactivable. | S |
 | RF-SEG-02 | El sistema no debe transmitir ningún dato fuera del equipo bajo ninguna circunstancia. | M |
 | RF-SEG-03 | El sistema debe registrar una bitácora local de operaciones sensibles: anulaciones, ajustes, cambios de precio y restauraciones de respaldo. | C |
+| RF-SEG-04 | El sistema debe tener una **clave del sistema** única, que protege las operaciones que no son del día a día: vaciar la aplicación (RF-DAT-10) y consultar el IPV de un turno ya cerrado (RF-IPV-14). No es un mecanismo de seguridad y no pretende serlo —está escrita en el código y el archivo de la base de datos está al alcance de cualquiera—: evita el accidente y el husmeo casual. Debe comprobarse **en el núcleo y no en la interfaz**, porque los comandos quedan expuestos a la pantalla y una puerta que solo viva en JavaScript se salta abriendo las herramientas de desarrollo. | M |
 
 ---
 
@@ -513,7 +603,8 @@ No son el foco de este documento, pero condicionan decisiones funcionales y se l
 | **D-3** | Cantidad de ubicaciones de exhibición | **Una única vitrina** | 2026-09-22 | El sistema reconoce dos ubicaciones fijas: bodega y vitrina. No se modela "ubicación" como entidad configurable. Formalizado en R-10. Ver riesgo RI-1. |
 | **D-4** | Presentaciones de un mismo producto | **Sí: presentaciones con precio propio sobre una unidad base única** | 2026-09-22 | El negocio vende el mismo producto suelto y en paquete a precios no proporcionales (unidad $80, six-pack $300). Se modela una unidad base por producto —donde viven existencia y costo— y N presentaciones con factor de conversión y precio independiente. Se descarta crear productos separados por formato, porque genera existencias contradictorias y exige conversiones manuales que nadie registra. Formalizado en R-9 y §6.2. |
 | **D-5** | Política de anulación de ventas | **Solo dentro de la sesión de caja vigente** | 2026-09-22 | Una sesión de caja cerrada ya fue arqueada contra efectivo físico; permitir su modificación posterior invalidaría ese arqueo y todo informe histórico derivado. Las correcciones sobre ventas de sesiones cerradas se canalizan por devolución, que afecta la sesión vigente. Formalizado en RF-VTA-15, RF-VTA-16, RF-VTA-16b y RF-CAJ-08. |
-| **D-6** | Base de cálculo de la comisión del operador y vigencia del porcentaje | **Porcentaje sobre la venta total de la sesión, congelado al cerrar; se descuenta de la ganancia bruta** | 2026-09-22 | Decisión del propietario. Calcular sobre la venta hace que el importe sea verificable por el propio operador con solo el total vendido del día, sin necesidad de conocer los costos de compra —información que RI-3 recomienda no exponer—. El porcentaje aplicado se graba en el cierre y no se recalcula: lo ya liquidado es un hecho auditable, igual que el costo congelado en la línea de venta. La comisión se resta de la ganancia bruta para obtener la ganancia neta de comisión, pero no toca el arqueo; su pago, si sale de la caja, es una salida de efectivo ordinaria. Formalizado en §6.12. |
+| **D-6** | Base de cálculo de la comisión del operador y vigencia del porcentaje | **Porcentaje sobre la venta total de la sesión, congelado al cerrar; se descuenta de la ganancia bruta** | 2026-09-22 | Decisión del propietario. Calcular sobre la venta hace que el importe sea verificable por el propio operador con solo el total vendido del día, sin necesidad de conocer los costos de compra —información que RI-3 recomienda no exponer—. El porcentaje aplicado se graba en el cierre y no se recalcula: lo ya liquidado es un hecho auditable, igual que el costo congelado en la línea de venta. La comisión se resta de la ganancia bruta para obtener la ganancia neta de comisión, pero no toca el arqueo; su pago, si sale de la caja, es una salida de efectivo ordinaria. Formalizado en §6.13. |
+| **D-7** | Tratamiento del consumo de los dueños | **Deuda al costo contra una cuenta administrable, fuera de la caja y fuera de la merma** | 2026-10-13 | Decisión del propietario, tomada sobre cuatro puntos. (1) La deuda se acumula al **costo** y congelado en el renglón: cargarlo al precio de venta haría que el local se cobrase a sí mismo un margen que nunca existió, y leer el costo de hoy movería una deuda ya acordada. (2) **No es una merma**, y esto no es semántica: el cierre de caja suma la merma del turno filtrando el tipo de movimiento, así que tratarlo como merma contaría como pérdida mercancía que está apuntada como deuda por cobrar. Se añade un tipo de movimiento propio. (3) **Liquidar no toca el arqueo**, porque no es un ingreso: el negocio ya gastó ese dinero al comprar la mercancía y el pago recupera un costo. Meterlo en las cifras del turno inflaría ingresos inexistentes; si el efectivo entra a la gaveta se anota a mano (RF-CAJ-03). (4) **Se puede anular un consumo y se puede anular una liquidación, pero no perdonar deuda.** Sin lo segundo, la única salida a una liquidación mal teclada sería registrar un consumo que nunca ocurrió, o sea meter una mentira en los datos para tapar un error de dedo. Las dos anulaciones mueven el saldo en direcciones opuestas y ninguna lo recorta en cero. Formalizado en §6.10. |
 
 ### 8.2 Decisiones abiertas
 
@@ -525,6 +616,7 @@ No quedan decisiones abiertas de modelo de datos. Las pendientes corresponden a 
 |---|---|---|---|
 | **RI-1** | Si en el futuro el mercadito requiere más de una ubicación de exhibición, agregarla implica migrar datos y revisar todo movimiento de inventario. | D-3 | Modelar la ubicación como un valor enumerado aislado tras una frontera de dominio, de modo que ampliarlo no obligue a reescribir las reglas de negocio. Costo de previsión: bajo. |
 | **RI-2** | Un factor de conversión mal capturado (ej. 60 en lugar de 6) corrompe silenciosamente la existencia y el costo promedio. | D-4 | RF-PRS-14 valida el factor; RF-PRS-12 advierte anomalías de precio equivalente, que es el síntoma visible de un factor errado. |
+| **RI-4** | Un consumo cargado a la cuenta equivocada solo se corrige anulándolo y volviéndolo a registrar, lo que mueve la existencia dos veces en el kárdex y altera el costo promedio con el reingreso. | D-7 | RF-CON-16 exige que la reversa devuelva la mercancía al costo congelado del renglón, de modo que el valor del inventario queda donde estaba. El doble asiento es deliberado: el kárdex no se edita (RF-INV-03). |
 | **RI-3** | Al no haber roles, una empleada que atienda la caja ve los costos de compra, los márgenes y las estadísticas completas del negocio. | R-3 y D-6 | Proteger la aplicación con PIN (RF-SEG-01) y que el propietario abra la sesión. Si el propietario necesita ocultarle esa información de forma efectiva, hay que reabrir la decisión de roles y permisos, que hoy está fuera del alcance. |
 
 ---
@@ -534,7 +626,7 @@ No quedan decisiones abiertas de modelo de datos. Las pendientes corresponden a 
 | Objetivo del negocio (§1) | Requerimientos que lo sostienen |
 |---|---|
 | Qué tengo y dónde está | RF-PRS-01/05/06, RF-INV-01/02/09, RF-VIT-01/04/06 |
-| Cuánto cuesta y cuánto gano | RF-COS-01 a RF-COS-14, RF-COM-04, RF-PRS-11, RF-PRE-01/02, RF-VTA-13, RF-CMS-07, RF-EST-04/13 |
-| Qué se vende y qué está parado | RF-EST-03/03b/05/06/07 |
-| Cuánto entró y si cuadra la caja | RF-CAJ-01 a RF-CAJ-10, RF-DIV-01 a RF-DIV-07, RF-VTA-09/10/10b/15/16, RF-EST-01/11b |
+| Cuánto cuesta y cuánto gano | RF-COS-01 a RF-COS-14, RF-COM-04, RF-PRS-11, RF-PRE-01/02, RF-VTA-13, RF-CMS-07, RF-EST-04/13, RF-CON-02/12 |
+| Qué se vende y qué está parado | RF-EST-03/03b/05/06/07, RF-CON-09/12/13 |
+| Cuánto entró y si cuadra la caja | RF-CAJ-01 a RF-CAJ-10, RF-DIV-01 a RF-DIV-07, RF-VTA-09/10/10b/15/16/20, RF-EST-01/11b |
 | Cuánto le corresponde a quien atendió | RF-CMS-01 a RF-CMS-14, RF-CAJ-09/10 |

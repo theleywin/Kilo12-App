@@ -22,6 +22,12 @@ pub enum ErrorInfra {
     /// error de dominio para que la pantalla reciba su código de siempre y
     /// no un «error de persistencia» que no dice nada.
     Dominio(ErrorDominio),
+    /// Falla al escribir un `.xlsx`.
+    ///
+    /// La carpeta no existe, el archivo está abierto en Excel, el disco está
+    /// lleno. Nada que el negocio pueda arreglar, pero sí algo que la
+    /// pantalla tiene que poder decir con palabras.
+    Exportacion(rust_xlsxwriter::XlsxError),
 }
 
 pub type ResultadoInfra<T> = core::result::Result<T, ErrorInfra>;
@@ -34,6 +40,7 @@ impl core::fmt::Display for ErrorInfra {
                 write!(f, "dato ilegible en la base de datos: {detalle}")
             }
             Self::Dominio(error) => write!(f, "{error}"),
+            Self::Exportacion(error) => write!(f, "no se pudo escribir el Excel: {error}"),
         }
     }
 }
@@ -43,6 +50,12 @@ impl core::error::Error for ErrorInfra {}
 impl From<rusqlite::Error> for ErrorInfra {
     fn from(error: rusqlite::Error) -> Self {
         Self::Sqlite(error)
+    }
+}
+
+impl From<rust_xlsxwriter::XlsxError> for ErrorInfra {
+    fn from(error: rust_xlsxwriter::XlsxError) -> Self {
+        Self::Exportacion(error)
     }
 }
 

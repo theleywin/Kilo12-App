@@ -26,9 +26,17 @@ export class Armazon {
   protected readonly guia = GUIA;
   protected readonly densidad = signal<Densidad>('amplia');
 
-  /** Atajo → ruta, construido una sola vez desde la tabla de secciones. */
+  /**
+   * Atajo → ruta, construido una sola vez desde la tabla de secciones.
+   *
+   * Las secciones sin tecla se quedan fuera: si entraran, una pulsación
+   * cualquiera podría encontrar la entrada `undefined` y navegar a donde
+   * nadie pidió.
+   */
   private readonly atajos = new Map(
-    [...SECCIONES, GUIA].map((seccion) => [seccion.tecla, seccion.ruta]),
+    [...SECCIONES, GUIA]
+      .filter((seccion) => !!seccion.tecla)
+      .map((seccion) => [seccion.tecla as string, seccion.ruta]),
   );
 
   constructor() {

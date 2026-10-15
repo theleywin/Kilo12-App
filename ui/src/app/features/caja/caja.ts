@@ -1,4 +1,5 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { Router } from '@angular/router';
 
 import {
   CierreCalculadoDto,
@@ -8,6 +9,8 @@ import {
   SesionListadaDto,
 } from '../../core/api.types';
 import { comoError, Kilo12Api } from '../../core/kilo12-api';
+import { Clave } from '../../shared/clave/clave';
+import { ContadorEfectivo } from '../../shared/contador-efectivo/contador-efectivo';
 
 /** Número decimal con hasta seis decimales. */
 const DECIMAL = /^\d+(\.\d{1,6})?$/;
@@ -33,11 +36,13 @@ const PORCENTAJE = /^\d{1,3}(\.\d{1,2})?$/;
 @Component({
   selector: 'app-caja',
   changeDetection: ChangeDetectionStrategy.OnPush,
+  imports: [Clave, ContadorEfectivo],
   templateUrl: './caja.html',
   styleUrl: './caja.css',
 })
 export class Caja {
   private readonly api = inject(Kilo12Api);
+  private readonly router = inject(Router);
 
   protected readonly caja = signal<EstadoCajaDto | null>(null);
   protected readonly historial = signal<readonly SesionListadaDto[]>([]);
@@ -86,21 +91,18 @@ export class Caja {
 
   /** El recuento está abierto. */
   protected readonly contando = signal(false);
-  /** Denominaciones, tal como las da el núcleo. */
-  protected readonly denominaciones = signal<readonly number[]>([]);
-  /** Cuántos billetes de cada valor, en el orden de las denominaciones. */
-  protected readonly billetes = signal<readonly string[]>([]);
-  /** El recuento sumado por Rust. */
+  /**
+   * Lo último que sumó la calculadora.
+   *
+   * Contar los billetes lo hace `app-contador-efectivo`; aquí solo se
+   * guarda su resultado, que es lo que se lleva a la casilla del cierre.
+   */
   protected readonly conteo = signal<ConteoCalculadoDto | null>(null);
 
-  /**
-   * Número de la última consulta pedida.
-   *
-   * Las respuestas pueden llegar desordenadas si se teclea rápido, y una
-   * vieja pisando a una nueva dejaría en pantalla un total que no
-   * corresponde a lo escrito. Solo se acepta la última.
-   */
-  private peticion = 0;
+  /** El cartel de la clave para abrir el IPV de un turno pasado. */
+  protected readonly pidiendoIpv = signal(false);
+  protected readonly comprobandoClave = signal(false);
+  protected readonly errorClave = signal<string | null>(null);
 
   /** Sesión del historial que se está mirando. */
   protected readonly detalle = signal<CierreCalculadoDto | null>(null);
@@ -127,13 +129,6 @@ export class Caja {
       this.caja.set(await this.api.consultarCaja());
       this.historial.set(await this.api.listarCajas());
       this.comision.set(await this.api.consultarComision());
-
-      if (!this.denominaciones().length) {
-        const valores = await this.api.denominacionesEfectivo();
-        this.denominaciones.set(valores);
-        this.billetes.set(valores.map(() => ''));
-      }
-
       this.error.set(null);
     } catch (fallo) {
       this.error.set(comoError(fallo));
@@ -262,39 +257,12 @@ export class Caja {
   // ---------------------------------------- contar los billetes
 
   protected abrirConteo(): void {
-    this.billetes.set(this.denominaciones().map(() => ''));
     this.conteo.set(null);
     this.contando.set(true);
-    void this.recalcularConteo();
   }
 
   protected cerrarConteo(): void {
     this.contando.set(false);
-  }
-
-  protected alContarBilletes(indice: number, valor: string): void {
-    // Solo dígitos: no existe medio billete ni un número negativo de ellos.
-    const limpio = valor.replace(/\D/g, '');
-    this.billetes.set(this.billetes().map((actual, i) => (i === indice ? limpio : actual)));
-    void this.recalcularConteo();
-  }
-
-  /** Le pide al núcleo la suma de lo que hay escrito. */
-  private async recalcularConteo(): Promise<void> {
-    const mio = ++this.peticion;
-    const cuantos = this.billetes().map((texto) => Number.parseInt(texto, 10) || 0);
-
-    try {
-      const conteo = await this.api.contarEfectivo(cuantos);
-      // Llegó tarde: ya hay una consulta más nueva en camino.
-      if (mio !== this.peticion) {
-        return;
-      }
-      this.conteo.set(conteo);
-      this.error.set(null);
-    } catch (fallo) {
-      this.error.set(comoError(fallo));
-    }
   }
 
   /** Lleva el total contado a la casilla del cierre y cierra el modal. */
@@ -364,6 +332,55 @@ export class Caja {
 
   protected cerrarDetalle(): void {
     this.detalle.set(null);
+  }
+
+  // --------------------------------------------------- el IPV del turno
+
+  /**
+   * Pide la clave para ver el IPV de un turno que ya cerró.
+   *
+   * La hoja del turno en curso se mira sin permiso en su propia pantalla;
+   * la de un turno pasado es historia y se abre a conciencia (RF-IPV-14).
+   */
+  protected pedirClaveParaIpv(): void {
+    this.errorClave.set(null);
+    this.pidiendoIpv.set(true);
+  }
+
+  /**
+   * Comprueba la clave y, si sirve, lleva a la hoja de ese turno.
+   *
+   * Se comprueba **consultando**, no comparando aquí: la clave la valida
+   * Rust y esta pantalla solo mira si la respuesta fue una negativa. Si
+   * todo va bien, la clave viaja en el estado de navegación —no en la
+   * dirección— para que no quede escrita en el historial del navegador.
+   */
+  protected async abrirIpv(clave: string): Promise<void> {
+    const sesion = this.detalle()?.sesion;
+    if (sesion === undefined) {
+      return;
+    }
+
+    this.comprobandoClave.set(true);
+    try {
+      await this.api.consultarIpv(sesion, clave);
+      this.pidiendoIpv.set(false);
+      await this.router.navigate(['/ipv', sesion], { state: { clave } });
+    } catch (fallo) {
+      const error = comoError(fallo);
+      if (error.codigo === 'CLAVE_INCORRECTA') {
+        this.errorClave.set(error.mensaje);
+      } else {
+        this.pidiendoIpv.set(false);
+        this.error.set(error);
+      }
+    } finally {
+      this.comprobandoClave.set(false);
+    }
+  }
+
+  protected cancelarIpv(): void {
+    this.pidiendoIpv.set(false);
   }
 
   /** Una diferencia que empieza por «-» es un faltante. */

@@ -137,7 +137,16 @@
     <!-- ------------------------------------------ lo que lleva ya -->
     <div class="panel panel--lista">
       <div class="panel__cabecera">
-        <span class="panel__titulo">La venta</span>
+        <div class="fila fila--titulo">
+          <span class="panel__titulo">La venta</span>
+          <!-- Se nota que esta venta ya estaba apartada: al cobrarla, la
+               espera sale de la lista en la misma operación. -->
+          @if (cargada(); as espera) {
+            <span class="etiqueta etiqueta--acento">
+              Retomada: {{ espera.nota ?? 'sin nota' }}
+            </span>
+          }
+        </div>
         @if (lineas().length) {
           <button type="button" class="boton boton--discreto" (click)="cancelarVenta()">
             Cancelar todo
@@ -158,18 +167,26 @@
             </tr>
           </thead>
           <tbody>
-            @for (linea of prevista()?.lineas ?? []; track $index) {
-              <tr [class.fila--faltante]="linea.sinExistencia">
+            <!-- Se recorren los renglones de la venta, no la vista previa:
+                 los retomados que ya no se venden no pasan por el núcleo,
+                 pero tienen que verse para poder quitarlos. -->
+            @for (linea of filas(); track $index) {
+              <tr
+                [class.fila--faltante]="linea.sinExistencia"
+                [class.fila--marcada]="linea.problema"
+              >
                 <td>
                   {{ linea.nombreProducto }}
-                  @if (linea.sinExistencia) {
+                  @if (linea.problema; as problema) {
+                    <span class="etiqueta etiqueta--error">{{ problema }}</span>
+                  } @else if (linea.sinExistencia) {
                     <span class="etiqueta etiqueta--error">No alcanza en vitrina</span>
                   }
                 </td>
                 <td class="apagado">{{ linea.nombrePresentacion }}</td>
                 <td class="derecha cifra">{{ linea.cantidad }}</td>
-                <td class="derecha cifra apagado">{{ linea.precio }}</td>
-                <td class="derecha cifra">{{ linea.importe }}</td>
+                <td class="derecha cifra apagado">{{ linea.precio ?? '—' }}</td>
+                <td class="derecha cifra">{{ linea.importe ?? '—' }}</td>
                 <td class="derecha">
                   <button type="button" class="boton boton--discreto" (click)="quitar($index)">
                     Quitar
@@ -200,6 +217,80 @@
         </table>
       </div>
     </div>
+
+    <!-- ----------------------------------------- las que esperan
+         Solo aparece cuando hay alguna: una lista vacía en la pantalla más
+         usada es ruido. -->
+    @if (esperas().length) {
+      <div class="panel panel--esperas">
+        <div class="panel__cabecera">
+          <span class="panel__titulo">En espera ({{ esperas().length }})</span>
+        </div>
+
+        @if (avisoEspera(); as aviso) {
+          <div class="aviso aviso--atencion esperas__aviso" role="alert">
+            <strong>{{ aviso }}</strong>
+          </div>
+        }
+
+        <ul class="esperas">
+          @for (espera of esperas(); track espera.id) {
+            <li class="espera" [class.espera--cargada]="cargada()?.id === espera.id">
+              <div class="espera__datos">
+                @if (espera.nota; as nota) {
+                  <span class="espera__nota">{{ nota }}</span>
+                } @else {
+                  <span class="espera__nota apagado">(sin nota)</span>
+                }
+                <span class="apagado nota">
+                  {{ antiguedadDe(espera) }} · {{ espera.cuantasLineas }}
+                  {{ espera.cuantasLineas === 1 ? 'línea' : 'líneas' }}
+                  @if (cargada()?.id === espera.id) {
+                    · en pantalla
+                  }
+                </span>
+              </div>
+
+              @if (porEliminar() === espera.id) {
+                <div class="fila espera__acciones">
+                  <span class="nota">¿Eliminarla sin cobrar?</span>
+                  <button
+                    type="button"
+                    class="boton boton--peligro"
+                    [disabled]="ocupadoEspera()"
+                    (click)="eliminar(espera.id)"
+                  >
+                    Eliminar
+                  </button>
+                  <button type="button" class="boton boton--discreto" (click)="cancelarEliminar()">
+                    Cancelar
+                  </button>
+                </div>
+              } @else {
+                <div class="fila espera__acciones">
+                  <button
+                    type="button"
+                    class="boton boton--secundario"
+                    [disabled]="ocupadoEspera()"
+                    (click)="retomar(espera)"
+                  >
+                    Retomar
+                  </button>
+                  <button
+                    type="button"
+                    class="boton boton--discreto"
+                    [disabled]="ocupadoEspera()"
+                    (click)="pedirEliminar(espera.id)"
+                  >
+                    Eliminar
+                  </button>
+                </div>
+              }
+            </li>
+          }
+        </ul>
+      </div>
+    }
   </div>
 
   <!-- =================================================== derecha -->
@@ -213,6 +304,21 @@
         </span>
       }
     </div>
+
+    <!-- Lo retomado que ya no se vende bloquea el cobro: se dice aquí,
+         junto al botón que se ha quedado apagado. -->
+    @if (marcadas()) {
+      <div class="aviso aviso--error" role="alert">
+        <span>
+          @if (marcadas() === 1) {
+            Una línea de la venta retomada ya no se puede vender. Quítala para poder cobrar.
+          } @else {
+            {{ marcadas() }} líneas de la venta retomada ya no se pueden vender. Quítalas para
+            poder cobrar.
+          }
+        </span>
+      </div>
+    }
 
     @if (prevista()?.hayFaltantes) {
       <div class="aviso aviso--error">
@@ -340,14 +446,64 @@
           </div>
         }
 
-        <button
-          type="button"
-          class="boton boton--destacado boton--grande boton--ancho"
-          [disabled]="!puedeCobrar || cobrando()"
-          (click)="cobrar()"
-        >
-          {{ cobrando() ? 'Cobrando…' : 'Cobrar' }}
-        </button>
+        <!-- Apartar la venta: la casilla de la nota sustituye a los botones
+             mientras está abierta, como la de la tasa. -->
+        @if (apartando()) {
+          <div class="campo apartar">
+            <label for="nota-espera">
+              Para reconocerla <span class="opcional">(opcional)</span>
+            </label>
+            <input
+              id="nota-espera"
+              autocomplete="off"
+              placeholder="Juan, la señora del pan…"
+              [class.invalida]="!notaValida()"
+              [value]="nota()"
+              (input)="nota.set($any($event.target).value)"
+              (keydown.enter)="dejarEnEspera()"
+              (keydown.escape)="cancelarEspera()"
+            />
+            <span class="pista" [class.error]="!notaValida()">
+              {{ largoNota() }}/{{ largoMaximoNota }}
+              @if (!notaValida()) {
+                · demasiado larga
+              }
+            </span>
+            <div class="fila">
+              <button
+                type="button"
+                class="boton"
+                [disabled]="!notaValida() || ocupadoEspera()"
+                (click)="dejarEnEspera()"
+              >
+                {{ ocupadoEspera() ? 'Apartando…' : 'Dejar en espera' }}
+              </button>
+              <button type="button" class="boton boton--discreto" (click)="cancelarEspera()">
+                Cancelar
+              </button>
+            </div>
+            <span class="pista">No hace falta la caja abierta. No se aparta mercancía.</span>
+          </div>
+        } @else {
+          <div class="fila acciones">
+            <button
+              type="button"
+              class="boton boton--secundario boton--grande"
+              [disabled]="!lineas().length || cobrando()"
+              (click)="empezarEspera()"
+            >
+              Pendiente
+            </button>
+            <button
+              type="button"
+              class="boton boton--destacado boton--grande acciones__cobrar"
+              [disabled]="!puedeCobrar || cobrando()"
+              (click)="cobrar()"
+            >
+              {{ cobrando() ? 'Cobrando…' : 'Cobrar' }}
+            </button>
+          </div>
+        }
 
         <span class="pista">
           El vuelto se calcula y se entrega siempre en pesos, aunque el cliente pague en dólares.

@@ -1,0 +1,201 @@
+<section class="ipv imprimible">
+  @if (error(); as fallo) {
+    <div
+      class="aviso sin-imprimir"
+      [class.aviso--error]="!fallo.delUsuario"
+      [class.aviso--atencion]="fallo.delUsuario"
+      role="alert"
+    >
+      <strong>{{ fallo.mensaje }}</strong>
+      <span class="codigo">{{ fallo.codigo }}</span>
+    </div>
+  }
+
+  <!-- ===================================================== acciones -->
+  <div class="barra sin-imprimir">
+    @if (esDelPasado()) {
+      <!-- Se está mirando historia: conviene que se note y que haya salida. -->
+      <button type="button" class="volver" (click)="verElDeAhora()">Ver el turno de ahora</button>
+      <span class="etiqueta etiqueta--atencion">Turno cerrado</span>
+    }
+
+    <span class="barra__hueco"></span>
+
+    <button type="button" class="boton boton--discreto" [disabled]="cargando()" (click)="cargar()">
+      {{ cargando() ? 'Cargando…' : 'Actualizar' }}
+    </button>
+    <button
+      type="button"
+      class="boton boton--secundario"
+      [disabled]="!hoja()?.sesion"
+      (click)="imprimir()"
+    >
+      Imprimir
+    </button>
+    <button
+      type="button"
+      class="boton boton--destacado"
+      [disabled]="!hoja()?.sesion || exportando()"
+      (click)="exportar()"
+    >
+      {{ exportando() ? 'Escribiendo…' : 'Exportar a Excel' }}
+    </button>
+  </div>
+
+  @if (exportado(); as ruta) {
+    <div class="aviso sin-imprimir" role="status">
+      <strong>Excel guardado</strong>
+      <span class="mono ruta">{{ ruta }}</span>
+    </div>
+  }
+
+  @if (hoja(); as datos) {
+    @if (!datos.sesion) {
+      <div class="panel vacio">
+        @if (esDelPasado()) {
+          <span class="vacio__titulo">Ese turno no existe</span>
+          <span class="vacio__texto">
+            Puede que se haya borrado. Vuelve a Caja y elige otro del historial.
+          </span>
+        } @else {
+          <span class="vacio__titulo">No hay ningún turno abierto</span>
+          <span class="vacio__texto">
+            El IPV es la hoja del turno en curso: se llena mientras se vende y se cuadra al cerrar.
+            Abre la caja para empezar una, o busca en Caja el turno cuya hoja quieras ver.
+          </span>
+        }
+      </div>
+    } @else {
+      <!-- Encabezado de la hoja. En pantalla acompaña; en papel es lo que
+           identifica el folio, así que se imprime siempre. -->
+      <header class="hoja__cabecera">
+        <h2 class="hoja__titulo">IPV · turno {{ datos.sesion.id }}</h2>
+        <span class="apagado">{{ etiqueta() }}</span>
+      </header>
+
+      @if (descuadradas() > 0) {
+        <div class="aviso aviso--atencion" role="alert">
+          <strong>
+            {{ descuadradas() === 1 ? 'Una fila no cuadra' : descuadradas() + ' filas no cuadran' }}
+          </strong>
+          <span>
+            Su existencia final no se explica por las columnas del turno. Van marcadas en rojo.
+          </span>
+        </div>
+      }
+
+      <div class="panel panel--hoja">
+        <div class="tabla-envoltorio">
+          <table class="tabla tabla--ipv">
+            <!-- Estático: qué turno es lo dice el encabezado de arriba, y
+                 meter la interpolación aquí solo conseguía que el formateador
+                 partiera el texto en tres líneas. -->
+            <caption class="oculto">
+              Lo que entró y salió de cada mercancía en el turno
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">Mercancía</th>
+                <th scope="col" class="derecha">Cant. inicial</th>
+                <th scope="col" class="derecha">Entrada</th>
+                <th scope="col" class="derecha">Merma</th>
+                <th scope="col" class="derecha">Consumo</th>
+                <th scope="col" class="derecha">Salida</th>
+                <th scope="col" class="derecha">Precio</th>
+                <th scope="col" class="derecha">Importe</th>
+                <th scope="col" class="derecha">Cant. final</th>
+              </tr>
+            </thead>
+            <tbody>
+              @for (fila of datos.filas; track fila.producto) {
+                <tr class="fila-impresa" [class.fila--descuadrada]="!fila.cuadra">
+                  <th scope="row" class="mercancia">{{ fila.mercancia }}</th>
+                  <td class="cifra derecha">{{ fila.inicial }}</td>
+                  <td class="cifra derecha">{{ fila.entrada }}</td>
+                  <td class="cifra derecha">{{ fila.merma }}</td>
+                  <td class="cifra derecha">{{ fila.consumo }}</td>
+                  <td class="cifra derecha">{{ fila.salida }}</td>
+                  <td class="cifra derecha">{{ fila.precio }}</td>
+                  <td class="cifra derecha">{{ fila.importe }}</td>
+                  <td
+                    class="cifra derecha"
+                    [class.cifra--negativa]="!fila.cuadra"
+                    [attr.title]="fila.cuadra ? null : 'Esta cifra no se explica por las columnas'"
+                  >
+                    {{ fila.cierre }}
+                  </td>
+                </tr>
+
+                <!-- Las subfilas solo llegan cuando el producto se vendió de
+                     más de una forma. Las columnas de existencia van vacías:
+                     la vitrina no guarda paquetes y sueltos por separado, así
+                     que un cero diría que se agotó. -->
+                @for (forma of fila.formas; track forma.presentacion) {
+                  <tr class="fila--forma fila-impresa">
+                    <td class="forma">· {{ forma.nombre }}</td>
+                    <td colspan="4"></td>
+                    <td class="cifra derecha">{{ forma.salida }}</td>
+                    <td class="cifra derecha">{{ forma.precio }}</td>
+                    <td class="cifra derecha">{{ forma.importe }}</td>
+                    <td></td>
+                  </tr>
+                }
+              } @empty {
+                <tr>
+                  <td colspan="9" class="centro apagado">No hay nada en el catálogo todavía.</td>
+                </tr>
+              }
+            </tbody>
+
+            <!-- El pie va en `tfoot` y no como tres filas más: así el
+                 navegador lo mantiene al final aunque la tabla se parta en
+                 varias hojas. -->
+            <tfoot>
+              <tr class="fila-impresa">
+                <th scope="row" colspan="7">Importe total</th>
+                <td class="cifra derecha">{{ datos.importeTotal }}</td>
+                <td></td>
+              </tr>
+              <tr class="fila-impresa">
+                <th scope="row" colspan="7">Total vendido real</th>
+                <td class="cifra derecha">{{ datos.vendidoReal }}</td>
+                <td></td>
+              </tr>
+              <tr class="fila-impresa" [class.fila--descuadrada]="!datos.cuadra">
+                <th scope="row" colspan="7">Diferencia</th>
+                <td
+                  class="cifra derecha"
+                  [class.cifra--negativa]="diferenciaEnContra()"
+                  [class.cifra--positiva]="datos.cuadra"
+                >
+                  {{ datos.diferencia }}
+                </td>
+                <td></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+
+      <p class="apagado nota pie">
+        Las cifras son de la vitrina. <strong>Entrada</strong> es lo que entró al mostrador: lo que
+        se bajó del almacén y lo que se compró y se puso directamente ahí. Lo que se guardó sin
+        colocar no sale en esta hoja. El <strong>importe total</strong> es lo que suman las filas al
+        precio de venta; el <strong>total vendido real</strong>, lo que la caja registró en el
+        turno. Si no coinciden, la diferencia está en los descuentos o en una venta anulada.
+      </p>
+    }
+  }
+
+  @if (pidiendoClave()) {
+    <app-clave
+      titulo="Ver el IPV de un turno cerrado"
+      explicacion="La hoja de un turno que ya pasó se consulta con la clave del sistema."
+      accion="Ver la hoja"
+      [ocupado]="cargando()"
+      [error]="errorClave()"
+      (confirmado)="confirmarClave($event)"
+      (cerrado)="cancelarClave()"
+    />
+  }
+</section>
